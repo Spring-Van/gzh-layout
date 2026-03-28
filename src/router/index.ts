@@ -4,32 +4,23 @@ import type { AppView } from '../types';
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    redirect: '/project',
+    name: 'Home',
+    component: () => import('../pages/HomeView.vue'),
   },
   {
-    path: '/project',
-    name: 'Project',
-    component: () => import('../pages/ProjectPage.vue'),
+    path: '/setup',
+    name: 'Setup',
+    component: () => import('../pages/SetupView.vue'),
   },
   {
-    path: '/project/workspace',
-    name: 'ProjectWorkspace',
-    component: () => import('../pages/ProjectWorkspace.vue'),
+    path: '/typeset',
+    name: 'Typeset',
+    component: () => import('../pages/TypesetView.vue'),
   },
   {
-    path: '/templates',
-    name: 'Templates',
-    component: () => import('../pages/TemplatesPage.vue'),
-  },
-  {
-    path: '/history',
-    name: 'History',
-    component: () => import('../pages/HistoryPage.vue'),
-  },
-  {
-    path: '/settings',
-    name: 'Settings',
-    component: () => import('../pages/SettingsPage.vue'),
+    path: '/sync',
+    name: 'Sync',
+    component: () => import('../pages/SyncView.vue'),
   },
 ];
 
