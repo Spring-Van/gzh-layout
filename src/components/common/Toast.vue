@@ -86,8 +86,8 @@ defineExpose({
 });
 </script>
 
-<style scoped>
-@keyframes slide-in {
+<style>
+@keyframes toast-animation {
   from {
     transform: translateX(100%);
     opacity: 0;
@@ -99,6 +99,6 @@ defineExpose({
 }
 
 .animate-slide-in {
-  animation: slide-in 0.3s ease-out forwards;
+  animation: toast-animation 0.3s ease-out forwards !important;
 }
 </style>

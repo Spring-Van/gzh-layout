@@ -4,7 +4,9 @@
       "Bash(pnpm add:*)",
       "Bash(npx tailwindcss:*)",
       "Bash(pnpm remove:*)",
-      "Bash(pnpm dev:*)"
+      "Bash(pnpm dev:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(npm install:*)"
     ]
   }
 }

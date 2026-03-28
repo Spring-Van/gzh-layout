@@ -111,6 +111,19 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
+  function createGroups(images: ImageFile[], splitCount: number) {
+    if (currentProject.value) {
+      const groups: Array<{ id: string; images: ImageFile[] }> = [];
+      for (let i = 0; i < images.length; i += splitCount) {
+        groups.push({
+          id: `group-${Date.now()}-${i}`,
+          images: images.slice(i, i + splitCount),
+        });
+      }
+      currentProject.value.groups = groups;
+    }
+  }
+
   function loadProjectList() {
     // TODO: 从本地存储加载项目列表
     projectList.value = [];
@@ -167,6 +180,7 @@ export const useProjectStore = defineStore('project', () => {
     setCoverImage,
     toggleImageEnabled,
     reorderImages,
+    createGroups,
     loadProjectList,
     saveProject,
     createProject,

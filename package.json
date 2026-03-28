@@ -9,15 +9,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@element-plus/icons-vue": "^2.3.2",
     "@vueuse/core": "^14.2.1",
-    "element-plus": "^2.13.6",
     "lucide-vue-next": "^1.0.0",
     "pinia": "^3.0.4",
     "vue": "^3.4.21",
     "vue-router": "4"
   },
   "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/sharp": "^0.32.0",
     "@vitejs/plugin-vue": "^5.0.4",
     "autoprefixer": "^10.4.27",
     "electron": "^30.0.1",

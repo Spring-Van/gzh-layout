@@ -1,5 +1,5 @@
 import type { InjectionKey } from 'vue';
-import { inject, provide, ref } from 'vue';
+import { inject, provide, ref, computed } from 'vue';
 import type { ToastType } from '../components/common/Toast.vue';
 
 interface ToastInstance {
@@ -7,18 +7,36 @@ interface ToastInstance {
   removeToast: (id: number) => void;
 }
 
-const toastKey: InjectionKey<ToastInstance> = Symbol('toast');
+const toastKey: InjectionKey<{ instance: ToastInstance | null }> = Symbol('toast');
 
-export function useToastProvider(instance: ToastInstance) {
-  provide(toastKey, instance);
+export function useToastProvider() {
+  const instance = ref<ToastInstance | null>(null);
+
+  provide(toastKey, { instance });
+
+  return (val: ToastInstance) => {
+    instance.value = val;
+  };
 }
 
 export function useToast() {
-  const toast = inject(toastKey);
+  const toastCtx = inject(toastKey);
 
-  if (!toast) {
+  if (!toastCtx) {
     throw new Error('useToast must be used within a ToastProvider');
   }
+
+  const getInstance = () => {
+    if (!toastCtx.instance) {
+      console.warn('Toast instance not initialized yet');
+      // 返回空方法避免报错
+      return {
+        addToast: () => 0,
+        removeToast: () => {}
+      };
+    }
+    return toastCtx.instance;
+  };
 
   return {
     /**
@@ -28,7 +46,7 @@ export function useToast() {
      * @param duration 显示时长，默认3000ms
      */
     toast: (message: string, type: ToastType = 'info', duration: number = 3000) => {
-      return toast.addToast(message, type, duration);
+      return getInstance().addToast(message, type, duration);
     },
 
     /**
@@ -37,7 +55,7 @@ export function useToast() {
      * @param duration 显示时长
      */
     success: (message: string, duration?: number) => {
-      return toast.addToast(message, 'success', duration);
+      return getInstance().addToast(message, 'success', duration);
     },
 
     /**
@@ -46,7 +64,7 @@ export function useToast() {
      * @param duration 显示时长
      */
     error: (message: string, duration?: number) => {
-      return toast.addToast(message, 'error', duration);
+      return getInstance().addToast(message, 'error', duration);
     },
 
     /**
@@ -55,7 +73,7 @@ export function useToast() {
      * @param duration 显示时长
      */
     warning: (message: string, duration?: number) => {
-      return toast.addToast(message, 'warning', duration);
+      return getInstance().addToast(message, 'warning', duration);
     },
 
     /**
@@ -64,7 +82,7 @@ export function useToast() {
      * @param duration 显示时长
      */
     info: (message: string, duration?: number) => {
-      return toast.addToast(message, 'info', duration);
+      return getInstance().addToast(message, 'info', duration);
     },
 
     /**
@@ -72,7 +90,7 @@ export function useToast() {
      * @param id 提示id
      */
     remove: (id: number) => {
-      toast.removeToast(id);
+      getInstance().removeToast(id);
     }
   };
 }

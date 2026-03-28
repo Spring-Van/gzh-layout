@@ -17,6 +17,11 @@ electron.contextBridge.exposeInMainWorld("ipcRenderer", {
     const [channel, ...omit] = args;
     return electron.ipcRenderer.invoke(channel, ...omit);
   }
-  // You can expose other APTs you need here.
-  // ...
+});
+electron.contextBridge.exposeInMainWorld("electronAPI", {
+  selectFolder: () => electron.ipcRenderer.invoke("file:selectFolder"),
+  scanFolder: (folderPath) => electron.ipcRenderer.invoke("image:scanFolder", folderPath),
+  backupFolder: (sourcePath) => electron.ipcRenderer.invoke("file:backupFolder", sourcePath),
+  calculateMD5: (filePath) => electron.ipcRenderer.invoke("file:calculateMD5", filePath),
+  splitIntoFolders: (sourcePath, images, splitCount, folderTime) => electron.ipcRenderer.invoke("file:splitIntoFolders", sourcePath, images, splitCount, folderTime)
 });

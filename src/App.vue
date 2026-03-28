@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watchEffect } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppHeader from './components/layout/AppHeader.vue';
 import ModalTemplate from './components/layout/ModalTemplate.vue';
@@ -8,13 +8,14 @@ import Toast from './components/common/Toast.vue';
 import { useToastProvider } from './hooks/useToast';
 
 const toastRef = ref<InstanceType<typeof Toast> | null>(null);
+const setToastInstance = useToastProvider();
 
 // 提供Toast实例给所有子组件
-watchEffect(() => {
+onMounted(() => {
   if (toastRef.value) {
-    useToastProvider({
-      addToast: toastRef.value.addToast,
-      removeToast: toastRef.value.removeToast
+    setToastInstance({
+      addToast: (...args) => toastRef.value!.addToast(...args),
+      removeToast: (...args) => toastRef.value!.removeToast(...args)
     });
   }
 });
