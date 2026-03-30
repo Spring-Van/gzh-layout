@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { ProjectConfig, ImageFile, ProjectStatus, SyncStatus, ArticleConfig } from '../types';
+import { dbGetAllProjects, dbSaveProject, dbDeleteProject } from '../api/native';
 
 export const useProjectStore = defineStore('project', () => {
   // 当前项目
@@ -8,6 +9,7 @@ export const useProjectStore = defineStore('project', () => {
   const projectList = ref<ProjectConfig[]>([]);
   const projectStatus = ref<ProjectStatus>('idle');
   const syncStatus = ref<SyncStatus>('idle');
+  const isLoading = ref(false);
 
   // 选中的图片
   const selectedImages = ref<string[]>([]);
@@ -55,7 +57,7 @@ export const useProjectStore = defineStore('project', () => {
     syncStatus.value = status;
   }
 
-  function updateArticleConfig(config: Partial<ArticleConfig>) {
+  async function updateArticleConfig(config: Partial<ArticleConfig>) {
     articleConfig.value = { ...articleConfig.value, ...config };
     if (currentProject.value) {
       currentProject.value.articleTitle = articleConfig.value.title;
@@ -63,13 +65,15 @@ export const useProjectStore = defineStore('project', () => {
       currentProject.value.coverImage = articleConfig.value.coverImage;
       currentProject.value.templateId = articleConfig.value.templateId;
       currentProject.value.images = articleConfig.value.images;
+      await saveProject();
     }
   }
 
-  function updateImages(images: ImageFile[]) {
+  async function updateImages(images: ImageFile[]) {
     if (currentProject.value) {
       currentProject.value.images = images;
       articleConfig.value.images = images;
+      await saveProject();
     }
   }
 
@@ -82,7 +86,7 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
-  function setCoverImage(imageId: string) {
+  async function setCoverImage(imageId: string) {
     if (currentProject.value) {
       currentProject.value.images.forEach(img => {
         img.isCover = img.id === imageId;
@@ -90,17 +94,19 @@ export const useProjectStore = defineStore('project', () => {
       const coverImg = currentProject.value.images.find(img => img.id === imageId);
       articleConfig.value.coverImage = coverImg?.path || '';
       currentProject.value.coverImage = coverImg?.path || '';
+      await saveProject();
     }
   }
 
-  function toggleImageEnabled(imageId: string) {
+  async function toggleImageEnabled(imageId: string) {
     const img = images.value.find(i => i.id === imageId);
     if (img) {
       img.enabled = !img.enabled;
+      await saveProject();
     }
   }
 
-  function reorderImages(newOrder: string[]) {
+  async function reorderImages(newOrder: string[]) {
     if (currentProject.value) {
       const imgMap = new Map(images.value.map(img => [img.id, img]));
       currentProject.value.images = newOrder
@@ -108,10 +114,11 @@ export const useProjectStore = defineStore('project', () => {
         .filter(Boolean)
         .map((img, idx) => ({ ...img!, order: idx }));
       articleConfig.value.images = currentProject.value.images;
+      await saveProject();
     }
   }
 
-  function createGroups(images: ImageFile[], splitCount: number) {
+  async function createGroups(images: ImageFile[], splitCount: number) {
     if (currentProject.value) {
       const groups: Array<{ id: string; images: ImageFile[] }> = [];
       for (let i = 0; i < images.length; i += splitCount) {
@@ -121,18 +128,51 @@ export const useProjectStore = defineStore('project', () => {
         });
       }
       currentProject.value.groups = groups;
+      await saveProject();
     }
   }
 
-  function loadProjectList() {
-    // TODO: 从本地存储加载项目列表
-    projectList.value = [];
+  async function loadProjectList() {
+    isLoading.value = true;
+    try {
+      const projects = await dbGetAllProjects();
+      projectList.value = projects;
+    } catch (error) {
+      console.error('加载项目列表失败:', error);
+    } finally {
+      isLoading.value = false;
+    }
   }
 
-  function saveProject() {
+  async function saveProject() {
     if (currentProject.value) {
       currentProject.value.updatedAt = new Date().toISOString();
-      // TODO: 保存到本地存储
+      try {
+        await dbSaveProject(currentProject.value);
+      } catch (error) {
+        console.error('保存项目失败:', error);
+      }
+    }
+  }
+
+  async function addProjectToDb(project: ProjectConfig) {
+    projectList.value.push(project);
+    try {
+      await dbSaveProject(project);
+    } catch (error) {
+      console.error('保存项目失败:', error);
+    }
+  }
+
+  async function deleteProjectFromDb(projectId: string) {
+    projectList.value = projectList.value.filter(p => p.projectId !== projectId);
+    if (currentProject.value?.projectId === projectId) {
+      currentProject.value = null;
+    }
+    try {
+      await dbDeleteProject(projectId);
+    } catch (error) {
+      console.error('删除项目失败:', error);
     }
   }
 
@@ -163,6 +203,7 @@ export const useProjectStore = defineStore('project', () => {
     syncStatus,
     selectedImages,
     articleConfig,
+    isLoading,
 
     // Computed
     hasProject,
@@ -183,6 +224,8 @@ export const useProjectStore = defineStore('project', () => {
     createGroups,
     loadProjectList,
     saveProject,
+    addProjectToDb,
+    deleteProjectFromDb,
     createProject,
   };
 });

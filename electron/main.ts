@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { registerFileIpc } from './ipc/file'
 import { registerImageIpc } from './ipc/image'
+import { registerDatabaseIpc } from './ipc/database'
+import { dbService } from './services/database.service'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -51,8 +53,10 @@ app.on('activate', () => {
   }
 })
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await dbService.init()
   createWindow()
   registerFileIpc()
   registerImageIpc()
+  registerDatabaseIpc()
 })

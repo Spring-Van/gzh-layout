@@ -1,7 +1,10 @@
+var __defProp = Object.defineProperty;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 import { dialog, ipcMain, app, BrowserWindow } from "electron";
 import { fileURLToPath } from "node:url";
 import path$e from "node:path";
-import require$$0$2 from "fs";
+import fs$k from "fs";
 import require$$0 from "constants";
 import require$$0$1 from "stream";
 import require$$4 from "util";
@@ -422,7 +425,7 @@ function clone$1(obj) {
   });
   return copy2;
 }
-var fs$i = require$$0$2;
+var fs$i = fs$k;
 var polyfills = polyfills$1;
 var legacy = legacyStreams;
 var clone = clone_1;
@@ -1991,7 +1994,7 @@ let _fs;
 try {
   _fs = gracefulFs;
 } catch (_) {
-  _fs = require$$0$2;
+  _fs = fs$k;
 }
 const universalify = universalify$1;
 const { stringify: stringify$2, stripBom } = utils;
@@ -2369,6 +2372,151 @@ function registerImageIpc() {
     return ImageService.scanImagesInFolder(folderPath);
   });
 }
+class DatabaseService {
+  constructor() {
+    __publicField(this, "dbPath");
+    __publicField(this, "data");
+    const userDataPath = app.getPath("userData");
+    this.dbPath = path$d.join(userDataPath, "gzh-layout.json");
+    this.data = this.loadFromFile();
+  }
+  loadFromFile() {
+    if (fs$k.existsSync(this.dbPath)) {
+      try {
+        const content = fs$k.readFileSync(this.dbPath, "utf-8");
+        const data = JSON.parse(content);
+        return {
+          projects: data.projects || [],
+          templates: data.templates || [],
+          coverTemplates: data.coverTemplates || [],
+          wechatAccounts: data.wechatAccounts || [],
+          draftRecords: data.draftRecords || []
+        };
+      } catch (error) {
+        console.error("读取数据库文件失败:", error);
+      }
+    }
+    return {
+      projects: [],
+      templates: [],
+      coverTemplates: [],
+      wechatAccounts: [],
+      draftRecords: []
+    };
+  }
+  saveToFile() {
+    try {
+      fs$k.writeFileSync(this.dbPath, JSON.stringify(this.data, null, 2), "utf-8");
+    } catch (error) {
+      console.error("保存数据库文件失败:", error);
+    }
+  }
+  async init() {
+  }
+  // ========== Projects ==========
+  getAllProjects() {
+    return [...this.data.projects].sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    );
+  }
+  getProject(projectId) {
+    return this.data.projects.find((p) => p.projectId === projectId) || null;
+  }
+  saveProject(project) {
+    const index = this.data.projects.findIndex((p) => p.projectId === project.projectId);
+    if (index !== -1) {
+      this.data.projects[index] = project;
+    } else {
+      this.data.projects.push(project);
+    }
+    this.saveToFile();
+  }
+  deleteProject(projectId) {
+    this.data.projects = this.data.projects.filter((p) => p.projectId !== projectId);
+    this.saveToFile();
+  }
+  // ========== Templates ==========
+  getAllTemplates() {
+    return [...this.data.templates].sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    );
+  }
+  saveTemplate(template) {
+    const index = this.data.templates.findIndex((t) => t.id === template.id);
+    if (index !== -1) {
+      this.data.templates[index] = template;
+    } else {
+      this.data.templates.push(template);
+    }
+    this.saveToFile();
+  }
+  deleteTemplate(templateId) {
+    this.data.templates = this.data.templates.filter((t) => t.id !== templateId);
+    this.saveToFile();
+  }
+  // ========== Cover Templates ==========
+  getAllCoverTemplates() {
+    return [...this.data.coverTemplates].sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    );
+  }
+  saveCoverTemplate(template) {
+    const index = this.data.coverTemplates.findIndex((t) => t.id === template.id);
+    if (index !== -1) {
+      this.data.coverTemplates[index] = template;
+    } else {
+      this.data.coverTemplates.push(template);
+    }
+    this.saveToFile();
+  }
+  deleteCoverTemplate(templateId) {
+    this.data.coverTemplates = this.data.coverTemplates.filter((t) => t.id !== templateId);
+    this.saveToFile();
+  }
+}
+const dbService = new DatabaseService();
+function registerDatabaseIpc() {
+  ipcMain.handle("db:init", async () => {
+    await dbService.init();
+    return { success: true };
+  });
+  ipcMain.handle("db:getAllProjects", () => {
+    return dbService.getAllProjects();
+  });
+  ipcMain.handle("db:getProject", (_event, projectId) => {
+    return dbService.getProject(projectId);
+  });
+  ipcMain.handle("db:saveProject", (_event, project) => {
+    dbService.saveProject(project);
+    return { success: true };
+  });
+  ipcMain.handle("db:deleteProject", (_event, projectId) => {
+    dbService.deleteProject(projectId);
+    return { success: true };
+  });
+  ipcMain.handle("db:getAllTemplates", () => {
+    return dbService.getAllTemplates();
+  });
+  ipcMain.handle("db:saveTemplate", (_event, template) => {
+    dbService.saveTemplate(template);
+    return { success: true };
+  });
+  ipcMain.handle("db:deleteTemplate", (_event, templateId) => {
+    dbService.deleteTemplate(templateId);
+    return { success: true };
+  });
+  ipcMain.handle("db:getAllCoverTemplates", () => {
+    return dbService.getAllCoverTemplates();
+  });
+  ipcMain.handle("db:saveCoverTemplate", (_event, template) => {
+    dbService.saveCoverTemplate(template);
+    return { success: true };
+  });
+  ipcMain.handle("db:deleteCoverTemplate", (_event, templateId) => {
+    dbService.deleteCoverTemplate(templateId);
+    return { success: true };
+  });
+}
 const __dirname$1 = path$e.dirname(fileURLToPath(import.meta.url));
 process.env.APP_ROOT = path$e.join(__dirname$1, "..");
 const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
@@ -2406,10 +2554,12 @@ app.on("activate", () => {
     createWindow();
   }
 });
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await dbService.init();
   createWindow();
   registerFileIpc();
   registerImageIpc();
+  registerDatabaseIpc();
 });
 export {
   MAIN_DIST,

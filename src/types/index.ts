@@ -13,7 +13,34 @@ export type SplitRule = 'count' | 'orientation' | 'resolution' | 'name' | 'smart
 export type DedupMode = 'hash' | 'phash' | 'manual';
 
 // 模板类型
-export type TemplateType = 'minimal' | 'card' | 'grid' | 'section' | 'cover';
+export type TemplateType = 'minimal' | 'card' | 'grid' | 'section' | 'cover' | 'custom';
+
+// 自定义模板
+export interface CustomTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  html: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 封面模板
+export interface CoverTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  html: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 文章封面配置
+export interface ArticleCoverConfig {
+  templateId?: string;
+  selectedImageIds: string[];
+  title?: string;
+}
 
 // 公众号同步状态
 export type SyncStatus = 'idle' | 'authorizing' | 'uploading' | 'creating' | 'success' | 'failed';
@@ -85,6 +112,7 @@ export interface ArticleConfig {
   themeColor: string;
   borderRadius: number;
   imageGap: number;
+  coverConfig?: ArticleCoverConfig;
 }
 
 // 模板配置

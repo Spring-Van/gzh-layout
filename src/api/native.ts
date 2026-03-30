@@ -1,4 +1,4 @@
-import type { ImageFile, ProjectConfig } from '../types';
+import type { ImageFile, ProjectConfig, CustomTemplate, CoverTemplate } from '../types';
 
 export async function selectFolder(): Promise<string | null> {
   return window.electronAPI.selectFolder();
@@ -78,4 +78,50 @@ export async function createProjectFromFolder(): Promise<{ project: ProjectConfi
   };
 
   return { project, images };
+}
+
+// ========== Database API ==========
+
+export async function dbInit() {
+  return window.electronAPI.db.init();
+}
+
+export async function dbGetAllProjects(): Promise<ProjectConfig[]> {
+  return window.electronAPI.db.getAllProjects();
+}
+
+export async function dbGetProject(projectId: string): Promise<ProjectConfig | null> {
+  return window.electronAPI.db.getProject(projectId);
+}
+
+export async function dbSaveProject(project: ProjectConfig) {
+  return window.electronAPI.db.saveProject(project);
+}
+
+export async function dbDeleteProject(projectId: string) {
+  return window.electronAPI.db.deleteProject(projectId);
+}
+
+export async function dbGetAllTemplates(): Promise<CustomTemplate[]> {
+  return window.electronAPI.db.getAllTemplates();
+}
+
+export async function dbSaveTemplate(template: CustomTemplate) {
+  return window.electronAPI.db.saveTemplate(template);
+}
+
+export async function dbDeleteTemplate(templateId: string) {
+  return window.electronAPI.db.deleteTemplate(templateId);
+}
+
+export async function dbGetAllCoverTemplates(): Promise<CoverTemplate[]> {
+  return window.electronAPI.db.getAllCoverTemplates();
+}
+
+export async function dbSaveCoverTemplate(template: CoverTemplate) {
+  return window.electronAPI.db.saveCoverTemplate(template);
+}
+
+export async function dbDeleteCoverTemplate(templateId: string) {
+  return window.electronAPI.db.deleteCoverTemplate(templateId);
 }

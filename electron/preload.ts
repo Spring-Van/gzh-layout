@@ -26,4 +26,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   calculateMD5: (filePath: string) => ipcRenderer.invoke('file:calculateMD5', filePath),
   splitIntoFolders: (sourcePath: string, images: Array<{ path: string; name: string }>, splitCount: number, folderTime: string) =>
     ipcRenderer.invoke('file:splitIntoFolders', sourcePath, images, splitCount, folderTime),
+  db: {
+    init: () => ipcRenderer.invoke('db:init'),
+    getAllProjects: () => ipcRenderer.invoke('db:getAllProjects'),
+    getProject: (projectId: string) => ipcRenderer.invoke('db:getProject', projectId),
+    saveProject: (project: any) => ipcRenderer.invoke('db:saveProject', project),
+    deleteProject: (projectId: string) => ipcRenderer.invoke('db:deleteProject', projectId),
+    getAllTemplates: () => ipcRenderer.invoke('db:getAllTemplates'),
+    saveTemplate: (template: any) => ipcRenderer.invoke('db:saveTemplate', template),
+    deleteTemplate: (templateId: string) => ipcRenderer.invoke('db:deleteTemplate', templateId),
+    getAllCoverTemplates: () => ipcRenderer.invoke('db:getAllCoverTemplates'),
+    saveCoverTemplate: (template: any) => ipcRenderer.invoke('db:saveCoverTemplate', template),
+    deleteCoverTemplate: (templateId: string) => ipcRenderer.invoke('db:deleteCoverTemplate', templateId),
+  },
 })

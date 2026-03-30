@@ -23,5 +23,18 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   scanFolder: (folderPath) => electron.ipcRenderer.invoke("image:scanFolder", folderPath),
   backupFolder: (sourcePath) => electron.ipcRenderer.invoke("file:backupFolder", sourcePath),
   calculateMD5: (filePath) => electron.ipcRenderer.invoke("file:calculateMD5", filePath),
-  splitIntoFolders: (sourcePath, images, splitCount, folderTime) => electron.ipcRenderer.invoke("file:splitIntoFolders", sourcePath, images, splitCount, folderTime)
+  splitIntoFolders: (sourcePath, images, splitCount, folderTime) => electron.ipcRenderer.invoke("file:splitIntoFolders", sourcePath, images, splitCount, folderTime),
+  db: {
+    init: () => electron.ipcRenderer.invoke("db:init"),
+    getAllProjects: () => electron.ipcRenderer.invoke("db:getAllProjects"),
+    getProject: (projectId) => electron.ipcRenderer.invoke("db:getProject", projectId),
+    saveProject: (project) => electron.ipcRenderer.invoke("db:saveProject", project),
+    deleteProject: (projectId) => electron.ipcRenderer.invoke("db:deleteProject", projectId),
+    getAllTemplates: () => electron.ipcRenderer.invoke("db:getAllTemplates"),
+    saveTemplate: (template) => electron.ipcRenderer.invoke("db:saveTemplate", template),
+    deleteTemplate: (templateId) => electron.ipcRenderer.invoke("db:deleteTemplate", templateId),
+    getAllCoverTemplates: () => electron.ipcRenderer.invoke("db:getAllCoverTemplates"),
+    saveCoverTemplate: (template) => electron.ipcRenderer.invoke("db:saveCoverTemplate", template),
+    deleteCoverTemplate: (templateId) => electron.ipcRenderer.invoke("db:deleteCoverTemplate", templateId)
+  }
 });

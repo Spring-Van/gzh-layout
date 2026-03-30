@@ -116,6 +116,9 @@
                 </span>
               </div>
             </template>
+            <template v-else-if="currentCustomTemplate">
+              <div v-html="processedCustomHtml"></div>
+            </template>
           </template>
         </div>
         <div class="mt-16 mb-8 text-center text-slate-400 text-xs">
@@ -197,6 +200,23 @@
 
         <hr class="border-slate-100" />
 
+        <!-- 封面配置 -->
+        <div v-if="currentArticle">
+          <CoverSelector
+            :images="currentArticle.images"
+            :cover-config="currentArticle.coverConfig"
+            :get-image-url="getImageUrl"
+            @update:cover-config="
+              (config) => {
+                if (currentArticle) currentArticle.coverConfig = config;
+              }
+            "
+            @open-manager="showCoverTemplateManager = true"
+          />
+        </div>
+
+        <hr class="border-slate-100" />
+
         <!-- 全局排版模板 -->
         <div>
           <div class="flex justify-between items-center mb-3">
@@ -205,7 +225,7 @@
             >
             <span
               class="text-[10px] text-slate-400 cursor-pointer hover:text-primary"
-              @click="$emit('open-modal', 'template')"
+              @click="showTemplateModal = true"
             >
               管理
             </span>
@@ -245,6 +265,38 @@
               <span class="text-xs font-bold text-slate-700">留白画框</span>
             </div>
           </div>
+          <div v-if="templateStore.customTemplates.length > 0" class="mt-4">
+            <p class="text-xs font-medium text-slate-500 mb-2">自定义模板</p>
+            <div class="space-y-2">
+              <div
+                v-for="template in templateStore.customTemplates"
+                :key="template.id"
+                class="border-2 rounded-lg p-2.5 cursor-pointer transition"
+                :class="[
+                  globalTemplate === 'custom' &&
+                  selectedCustomTemplateId === template.id
+                    ? 'border-primary bg-blue-50/30'
+                    : 'border-slate-200 hover:border-slate-300',
+                ]"
+                @click="setTemplate('custom', template.id)"
+              >
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-bold text-slate-700 truncate">{{
+                    template.name
+                  }}</span>
+                  <span class="text-[10px] text-slate-400">{{
+                    formatDate(template.updatedAt)
+                  }}</span>
+                </div>
+                <p
+                  v-if="template.description"
+                  class="text-[10px] text-slate-500 truncate mt-1"
+                >
+                  {{ template.description }}
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="flex-1 mt-4"></div>
@@ -278,6 +330,16 @@
         </div>
       </div>
     </div>
+    <ModalTemplate
+      :visible="showTemplateModal"
+      @close="showTemplateModal = false"
+      @select="handleSelectCustomTemplate"
+    />
+
+    <ModalCoverTemplate
+      :visible="showCoverTemplateManager"
+      @close="showCoverTemplateManager = false"
+    />
   </section>
 </template>
 
@@ -285,17 +347,27 @@
 import { ref, reactive, computed, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useProjectStore } from "../stores/project";
+import { useTemplateStore } from "../stores/template";
+import { useCoverTemplateStore } from "../stores/coverTemplate";
 import PhoneMockup from "../components/common/PhoneMockup.vue";
 import ArticleCard from "../components/common/ArticleCard.vue";
+import ModalTemplate from "../components/layout/ModalTemplate.vue";
+import ModalCoverTemplate from "../components/layout/ModalCoverTemplate.vue";
+import CoverSelector from "../components/common/CoverSelector.vue";
 import { useToast } from "../hooks/useToast";
-import type { ImageFile } from "../types";
+import { useTemplateRender } from "../composables/useTemplateRender";
+import type { ImageFile, CustomTemplate, ArticleCoverConfig } from "../types";
 
 const { success } = useToast();
 
 const projectStore = useProjectStore();
+const templateStore = useTemplateStore();
+const coverTemplateStore = useCoverTemplateStore();
+const { renderTemplate } = useTemplateRender();
 const router = useRouter();
 
-const emit = defineEmits(["open-modal"]);
+const showTemplateModal = ref(false);
+const showCoverTemplateManager = ref(false);
 
 interface Article {
   id: string;
@@ -306,15 +378,37 @@ interface Article {
     path: string;
     name: string;
   }[];
+  coverConfig?: ArticleCoverConfig;
 }
 
 const articles = ref<Article[]>([]);
 const currentArticleIndex = ref(0);
-const globalTemplate = ref<"flow" | "card">("flow");
+const globalTemplate = ref<string>("flow");
+const selectedCustomTemplateId = ref<string>("");
 const batchTitlePrefix = ref("每日高级无字壁纸分享 | ");
 const currentForm = reactive({
   title: "",
   summary: "",
+});
+
+const currentCustomTemplate = computed<CustomTemplate | undefined>(() => {
+  if (globalTemplate.value === "custom" && selectedCustomTemplateId.value) {
+    return templateStore.customTemplates.find(
+      (t) => t.id === selectedCustomTemplateId.value,
+    );
+  }
+  return undefined;
+});
+
+const processedCustomHtml = computed(() => {
+  if (!currentCustomTemplate.value || !currentArticle.value) return "";
+
+  // 使用模板渲染 composable 处理实际图片
+  return renderTemplate(
+    currentCustomTemplate.value,
+    currentArticle.value.images,
+    getImageUrl,
+  );
 });
 
 // 初始化
@@ -410,8 +504,21 @@ function applyBatchTitles() {
   success("批量标题已应用");
 }
 
-function setTemplate(type: "flow" | "card") {
+function setTemplate(type: string, templateId?: string) {
   globalTemplate.value = type;
+  if (templateId) {
+    selectedCustomTemplateId.value = templateId;
+  }
+}
+
+function formatDate(dateString: string): string {
+  const date = new Date(dateString);
+  return date.toLocaleDateString("zh-CN");
+}
+
+function handleSelectCustomTemplate(templateId: string) {
+  setTemplate("custom", templateId);
+  success("模板已选择");
 }
 
 // 将文件路径转换为可预览的 URL

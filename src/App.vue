@@ -1,41 +1,58 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-import AppHeader from './components/layout/AppHeader.vue';
-import ModalTemplate from './components/layout/ModalTemplate.vue';
-import ModalAccount from './components/layout/ModalAccount.vue';
-import Toast from './components/common/Toast.vue';
-import { useToastProvider } from './hooks/useToast';
+import { ref, computed, onMounted } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import AppHeader from "./components/layout/AppHeader.vue";
+import ModalTemplate from "./components/layout/ModalTemplate.vue";
+import ModalCoverTemplate from "./components/layout/ModalCoverTemplate.vue";
+import ModalAccount from "./components/layout/ModalAccount.vue";
+import Toast from "./components/common/Toast.vue";
+import { useToastProvider } from "./hooks/useToast";
+import { useTemplateStore } from "./stores/template";
+import { useCoverTemplateStore } from "./stores/coverTemplate";
+import { useProjectStore } from "./stores/project";
 
 const toastRef = ref<InstanceType<typeof Toast> | null>(null);
 const setToastInstance = useToastProvider();
+const templateStore = useTemplateStore();
+const coverTemplateStore = useCoverTemplateStore();
+const projectStore = useProjectStore();
 
 // 提供Toast实例给所有子组件
-onMounted(() => {
+onMounted(async () => {
   if (toastRef.value) {
     setToastInstance({
       addToast: (...args) => toastRef.value!.addToast(...args),
-      removeToast: (...args) => toastRef.value!.removeToast(...args)
+      removeToast: (...args) => toastRef.value!.removeToast(...args),
     });
   }
+
+  // 加载数据
+  await Promise.all([
+    templateStore.loadTemplates(),
+    coverTemplateStore.loadCoverTemplates(),
+    projectStore.loadProjectList(),
+  ]);
 });
 
 const route = useRoute();
 
 const currentStep = computed(() => {
-  if (route.path === '/setup') return 'setup';
-  if (route.path === '/typeset') return 'typeset';
-  if (route.path === '/sync') return 'sync';
-  return 'home';
+  if (route.path === "/setup") return "setup";
+  if (route.path === "/typeset") return "typeset";
+  if (route.path === "/sync") return "sync";
+  return "home";
 });
 
 const showTemplateModal = ref(false);
+const showCoverTemplateModal = ref(false);
 const showAccountModal = ref(false);
 
 function openModal(type: string) {
-  if (type === 'template') {
+  if (type === "template") {
     showTemplateModal.value = true;
-  } else if (type === 'account') {
+  } else if (type === "coverTemplate") {
+    showCoverTemplateModal.value = true;
+  } else if (type === "account") {
     showAccountModal.value = true;
   }
 }
@@ -45,7 +62,9 @@ function openModal(type: string) {
   <div id="app" class="h-screen flex flex-col overflow-hidden">
     <AppHeader
       :current-step="currentStep"
-      @go-to-step="(step: string) => $router.push(`/${step === 'home' ? '' : step}`)"
+      @go-to-step="
+        (step: string) => $router.push(`/${step === 'home' ? '' : step}`)
+      "
       @open-modal="openModal"
     />
 
@@ -56,6 +75,11 @@ function openModal(type: string) {
     <ModalTemplate
       :visible="showTemplateModal"
       @close="showTemplateModal = false"
+    />
+
+    <ModalCoverTemplate
+      :visible="showCoverTemplateModal"
+      @close="showCoverTemplateModal = false"
     />
 
     <ModalAccount
@@ -77,6 +101,8 @@ function openModal(type: string) {
 #app {
   width: 100%;
   height: 100vh;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
 }
 </style>
