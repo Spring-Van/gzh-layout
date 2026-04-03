@@ -1,5 +1,96 @@
 export type AppView = 'home' | 'project' | 'templates' | 'history' | 'settings';
 
+// 预览模式
+export type PreviewMode = 'cover' | 'content';
+
+// 编号规则
+export type NumberingRule = 'none' | 'vol' | 'issue' | 'custom';
+
+// 全局设置 - 标题配置
+export interface GlobalTitleConfig {
+  enabled: boolean;
+  prefix: string;
+  numberingRule: NumberingRule;
+  customFormat: string;
+  separator: string;
+}
+
+// 全局设置 - 封面配置
+export interface GlobalCoverConfig {
+  templateId?: string;
+  imageSource: 'default' | 'specified' | 'perArticle';
+  specifiedImageId?: string;
+  showTitle: boolean;
+  showSubtitle: boolean;
+  cropMode: 'cover' | 'contain';
+}
+
+// 全局设置 - 排版配置
+export interface GlobalLayoutConfig {
+  templateId: string;
+  imageSortRule: 'original' | 'name' | 'size' | 'date';
+  imageFillMode: 'cover' | 'contain';
+  imageStructure: 'flow' | 'card' | 'grid';
+}
+
+// 全局设置
+export interface GlobalConfig {
+  title: GlobalTitleConfig;
+  cover: GlobalCoverConfig;
+  layout: GlobalLayoutConfig;
+}
+
+// 文章覆盖标记
+export interface ArticleOverride {
+  title: boolean;
+  cover: boolean;
+  layout: boolean;
+}
+
+// 文章 - 标题配置
+export interface ArticleTitleConfig {
+  inheritGlobal: boolean;
+  title: string;
+  subtitle?: string;
+  prefix?: string;
+  numbering?: string;
+}
+
+// 文章 - 封面配置
+export interface ArticleCoverConfig {
+  inheritGlobal: boolean;
+  templateId?: string;
+  selectedImageIds: string[];
+  cropMode: 'cover' | 'contain';
+  titlePosition?: { x: number; y: number };
+}
+
+// 文章 - 排版配置
+export interface ArticleLayoutConfig {
+  inheritGlobal: boolean;
+  templateId?: string;
+}
+
+// 文章配置
+export interface BatchArticle {
+  id: string;
+  titleConfig: ArticleTitleConfig;
+  coverConfig: ArticleCoverConfig;
+  layoutConfig: ArticleLayoutConfig;
+  images: {
+    id: string;
+    path: string;
+    name: string;
+  }[];
+  override: ArticleOverride;
+}
+
+// 右栏模式
+export type ConfigMode = 'global' | 'article';
+
+// 右栏 Tab
+export type ConfigTab = 'title' | 'cover' | 'layout';
+
 // 项目状态
 export type ProjectStatus = 'idle' | 'scanning' | 'processing' | 'ready' | 'synced' | 'failed';
 
