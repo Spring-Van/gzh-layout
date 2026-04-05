@@ -23,6 +23,9 @@ export interface GlobalCoverConfig {
   showTitle: boolean;
   showSubtitle: boolean;
   cropMode: 'cover' | 'contain';
+  selectedImageIds?: string[];
+  pic_crop_235_1?: string;
+  pic_crop_1_1?: string;
 }
 
 // 全局设置 - 排版配置
@@ -63,6 +66,8 @@ export interface ArticleCoverConfig {
   selectedImageIds: string[];
   cropMode: 'cover' | 'contain';
   titlePosition?: { x: number; y: number };
+  pic_crop_235_1?: string;
+  pic_crop_1_1?: string;
 }
 
 // 文章 - 排版配置
@@ -126,12 +131,10 @@ export interface CoverTemplate {
   updatedAt: string;
 }
 
-// 文章封面配置
-export interface ArticleCoverConfig {
-  templateId?: string;
-  selectedImageIds: string[];
+// 文章封面配置（合并到上方 ArticleCoverConfig，此处保留别名引用）
+export type ArticleCoverConfigSimple = Pick<ArticleCoverConfig, 'templateId' | 'selectedImageIds' | 'title'> & {
   title?: string;
-}
+};
 
 // 公众号同步状态
 export type SyncStatus = 'idle' | 'authorizing' | 'uploading' | 'creating' | 'success' | 'failed';
