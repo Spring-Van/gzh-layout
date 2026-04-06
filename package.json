@@ -10,8 +10,10 @@
   },
   "dependencies": {
     "@vueuse/core": "^14.2.1",
+    "fs-extra": "^11.3.4",
     "html2canvas": "^1.4.1",
     "lucide-vue-next": "^1.0.0",
+    "nanoid": "^5.1.7",
     "pinia": "^3.0.4",
     "sql.js": "^1.14.1",
     "vue": "^3.4.21",
