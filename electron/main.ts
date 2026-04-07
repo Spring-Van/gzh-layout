@@ -4,6 +4,7 @@ import path from 'node:path'
 import { registerFileIpc } from './ipc/file'
 import { registerImageIpc } from './ipc/image'
 import { registerDatabaseIpc } from './ipc/database'
+import { registerWechatIpc } from './ipc/wechat'
 import { dbService } from './services/database.service'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -59,4 +60,5 @@ app.whenReady().then(async () => {
   registerFileIpc()
   registerImageIpc()
   registerDatabaseIpc()
+  registerWechatIpc()
 })

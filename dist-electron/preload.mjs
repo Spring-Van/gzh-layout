@@ -36,5 +36,22 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
     getAllCoverTemplates: () => electron.ipcRenderer.invoke("db:getAllCoverTemplates"),
     saveCoverTemplate: (template) => electron.ipcRenderer.invoke("db:saveCoverTemplate", template),
     deleteCoverTemplate: (templateId) => electron.ipcRenderer.invoke("db:deleteCoverTemplate", templateId)
+  },
+  wechat: {
+    getAccessToken: (appId, appSecret) => electron.ipcRenderer.invoke("wechat:getAccessToken", appId, appSecret),
+    clearTokenCache: () => electron.ipcRenderer.invoke("wechat:clearTokenCache"),
+    uploadCoverImage: (accessToken, imagePath) => electron.ipcRenderer.invoke("wechat:uploadCoverImage", accessToken, imagePath),
+    uploadContentImage: (accessToken, imagePath) => electron.ipcRenderer.invoke("wechat:uploadContentImage", accessToken, imagePath),
+    batchUploadContentImages: (accessToken, imagePaths) => electron.ipcRenderer.invoke("wechat:batchUploadContentImages", accessToken, imagePaths),
+    createDraft: (accessToken, params) => electron.ipcRenderer.invoke("wechat:createDraft", accessToken, params),
+    publishDraft: (accessToken, draftMediaId) => electron.ipcRenderer.invoke("wechat:publishDraft", accessToken, draftMediaId),
+    buildArticleHtml: (title, imageUrls) => electron.ipcRenderer.invoke("wechat:buildArticleHtml", title, imageUrls),
+    calculateCropParams: (originalRatio) => electron.ipcRenderer.invoke("wechat:calculateCropParams", originalRatio),
+    batchUpload: (params) => electron.ipcRenderer.invoke("wechat:batchUpload", params),
+    onUploadProgress: (callback) => {
+      const listener = (_event, progress) => callback(progress);
+      electron.ipcRenderer.on("wechat:uploadProgress", listener);
+      return () => electron.ipcRenderer.off("wechat:uploadProgress", listener);
+    }
   }
 });

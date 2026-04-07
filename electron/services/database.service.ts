@@ -130,6 +130,42 @@ export class DatabaseService {
         this.data.coverTemplates = this.data.coverTemplates.filter(t => t.id !== templateId);
         this.saveToFile();
     }
+
+    // ========== Wechat Accounts ==========
+
+    getAllWechatAccounts(): WechatAccount[] {
+        return [...this.data.wechatAccounts];
+    }
+
+    getWechatAccount(accountId: string): WechatAccount | null {
+        return this.data.wechatAccounts.find(a => a.id === accountId) || null;
+    }
+
+    getActiveWechatAccount(): WechatAccount | null {
+        return this.data.wechatAccounts.find(a => a.isActive) || null;
+    }
+
+    saveWechatAccount(account: WechatAccount): void {
+        const index = this.data.wechatAccounts.findIndex(a => a.id === account.id);
+        if (index !== -1) {
+            this.data.wechatAccounts[index] = account;
+        } else {
+            this.data.wechatAccounts.push(account);
+        }
+        this.saveToFile();
+    }
+
+    setActiveWechatAccount(accountId: string): void {
+        this.data.wechatAccounts.forEach(a => {
+            a.isActive = a.id === accountId;
+        });
+        this.saveToFile();
+    }
+
+    deleteWechatAccount(accountId: string): void {
+        this.data.wechatAccounts = this.data.wechatAccounts.filter(a => a.id !== accountId);
+        this.saveToFile();
+    }
 }
 
 export const dbService = new DatabaseService();

@@ -12,6 +12,7 @@ import require$$5 from "assert";
 import path$c from "path";
 import crypto from "crypto";
 import { webcrypto } from "node:crypto";
+import { Buffer as Buffer$1 } from "node:buffer";
 var commonjsGlobal = typeof globalThis !== "undefined" ? globalThis : typeof window !== "undefined" ? window : typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : {};
 function getDefaultExportFromCjs(x) {
   return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x["default"] : x;
@@ -2225,6 +2226,299 @@ function registerDatabaseIpc() {
     return { success: true };
   });
 }
+const WECHAT_API_BASE = "https://api.weixin.qq.com";
+const TOKEN_EXPIRE_BUFFER = 300;
+const BOUNDARY_PREFIX = "----WechatFormBoundary";
+function generateBoundary() {
+  return `${BOUNDARY_PREFIX}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+function buildMultipartBody(fieldName, fileName, fileBuffer, mimeType) {
+  const boundary = generateBoundary();
+  const header = Buffer$1.from(
+    `--${boundary}\r
+Content-Disposition: form-data; name="${fieldName}"; filename="${fileName}"\r
+Content-Type: ${mimeType}\r
+\r
+`,
+    "utf-8"
+  );
+  const footer = Buffer$1.from(`\r
+--${boundary}--\r
+`, "utf-8");
+  return {
+    body: Buffer$1.concat([header, fileBuffer, footer]),
+    contentType: `multipart/form-data; boundary=${boundary}`,
+    boundary
+  };
+}
+class WechatService {
+  constructor() {
+    __publicField(this, "tokenCache", null);
+  }
+  async getAccessToken(appId, appSecret) {
+    if (this.tokenCache && this.tokenCache.expiresAt > Date.now()) {
+      return this.tokenCache.accessToken;
+    }
+    const url = `${WECHAT_API_BASE}/cgi-bin/token?grant_type=client_credential&appId=${encodeURIComponent(appId)}&secret=${encodeURIComponent(appSecret)}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    if (data.errcode) {
+      throw new Error(`获取AccessToken失败 [${data.errcode}]: ${data.errmsg}`);
+    }
+    this.tokenCache = {
+      accessToken: data.access_token,
+      expiresAt: Date.now() + (data.expires_in - TOKEN_EXPIRE_BUFFER) * 1e3
+    };
+    return data.access_token;
+  }
+  clearTokenCache() {
+    this.tokenCache = null;
+  }
+  async uploadCoverImage(accessToken, imagePath) {
+    const buffer = await fs.readFile(imagePath);
+    const fileName = path$c.basename(imagePath);
+    const ext = path$c.extname(fileName).toLowerCase();
+    const mimeMap = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif" };
+    const mimeType = mimeMap[ext] || "image/jpeg";
+    const { body: multipartBody, contentType } = buildMultipartBody("media", fileName, buffer, mimeType);
+    const url = `${WECHAT_API_BASE}/cgi-bin/material/add_material?access_token=${accessToken}&type=image`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": contentType },
+      body: new Uint8Array(multipartBody)
+    });
+    const data = await response.json();
+    if (data.errcode) {
+      throw new Error(`上传封面图失败 [${data.errcode}]: ${data.errmsg}`);
+    }
+    return { mediaId: data.media_id, url: data.url };
+  }
+  async uploadContentImage(accessToken, imagePath) {
+    const buffer = await fs.readFile(imagePath);
+    const fileName = path$c.basename(imagePath);
+    const ext = path$c.extname(fileName).toLowerCase();
+    const mimeMap = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif" };
+    const mimeType = mimeMap[ext] || "image/jpeg";
+    const { body: multipartBody, contentType } = buildMultipartBody("media", fileName, buffer, mimeType);
+    const url = `${WECHAT_API_BASE}/cgi-bin/media/uploadimg?access_token=${accessToken}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": contentType },
+      body: new Uint8Array(multipartBody)
+    });
+    const data = await response.json();
+    if (data.errcode) {
+      throw new Error(`上传正文图片失败 (${fileName}) [${data.errcode}]: ${data.errmsg}`);
+    }
+    return { originalPath: imagePath, url: data.url };
+  }
+  async batchUploadContentImages(accessToken, imagePaths, onProgress, articleIndex, totalArticles) {
+    const results = [];
+    for (let i = 0; i < imagePaths.length; i++) {
+      onProgress == null ? void 0 : onProgress({
+        currentArticleIndex: articleIndex ?? 0,
+        totalArticles: totalArticles ?? 1,
+        step: "images",
+        message: `正在上传正文图片 ${i + 1}/${imagePaths.length}...`
+      });
+      const result = await this.uploadContentImage(accessToken, imagePaths[i]);
+      results.push(result);
+      if (i < imagePaths.length - 1) {
+        await this.delay(300);
+      }
+    }
+    return results;
+  }
+  async createDraft(accessToken, params) {
+    const body = {
+      articles: [
+        {
+          title: params.title,
+          thumb_media_id: params.thumbMediaId,
+          author: params.author ?? "",
+          digest: params.digest ?? params.title,
+          content: params.content,
+          content_source_url: params.contentSourceUrl ?? "",
+          need_open_comment: params.needOpenComment ?? 1,
+          only_fans_can_comment: params.onlyFansCanComment ?? 0,
+          pic_crop_235_1: params.picCrop2351 ?? "0_0_1_1",
+          pic_crop_1_1: params.picCrop11 ?? "0.287234_0_0.712766_1"
+        }
+      ]
+    };
+    const url = `${WECHAT_API_BASE}/cgi-bin/draft/add?access_token=${accessToken}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const data = await response.json();
+    if (data.errcode) {
+      throw new Error(`创建草稿失败 [${data.errcode}]: ${data.errmsg}`);
+    }
+    return data.media_id;
+  }
+  async publishDraft(accessToken, draftMediaId) {
+    const body = { media_id: draftMediaId };
+    const url = `${WECHAT_API_BASE}/cgi-bin/freepublish/submit?access_token=${accessToken}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const data = await response.json();
+    if (data.errcode) {
+      throw new Error(`发布草稿失败 [${data.errcode}]: ${data.errmsg}`);
+    }
+    return data.publish_id;
+  }
+  buildArticleHtml(title, imageUrls) {
+    const header = `<section style="text-align:center;color:#000;font-size:16px;padding-bottom:20px;font-weight:bold;">${this.escapeHtml(title)}</section>`;
+    const images = imageUrls.map((url) => `<p><img src="${url}" data-src="${url}" style="max-width:100%;display:block;margin:0 auto;"></p>`).join("\n");
+    return header + images;
+  }
+  calculateCropParams(originalRatio = 2.35) {
+    const pic_crop_235_1 = "0_0_1_1";
+    const cropWidth = 1 / originalRatio;
+    const margin = (1 - cropWidth) / 2;
+    const x1 = margin.toFixed(6);
+    const x2 = (1 - margin).toFixed(6);
+    const pic_crop_1_1 = `${x1}_0_${x2}_1`;
+    return { pic_crop_235_1, pic_crop_1_1 };
+  }
+  delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+  escapeHtml(text) {
+    return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+}
+const wechatService = new WechatService();
+function registerWechatIpc() {
+  ipcMain.handle("wechat:getAccessToken", async (_, appId, appSecret) => {
+    return wechatService.getAccessToken(appId, appSecret);
+  });
+  ipcMain.handle("wechat:clearTokenCache", async () => {
+    wechatService.clearTokenCache();
+  });
+  ipcMain.handle("wechat:uploadCoverImage", async (_, accessToken, imagePath) => {
+    return wechatService.uploadCoverImage(accessToken, imagePath);
+  });
+  ipcMain.handle("wechat:uploadContentImage", async (_, accessToken, imagePath) => {
+    return wechatService.uploadContentImage(accessToken, imagePath);
+  });
+  ipcMain.handle("wechat:batchUploadContentImages", async (_, accessToken, imagePaths) => {
+    return wechatService.batchUploadContentImages(accessToken, imagePaths);
+  });
+  ipcMain.handle("wechat:createDraft", async (_, accessToken, params) => {
+    return wechatService.createDraft(accessToken, params);
+  });
+  ipcMain.handle("wechat:publishDraft", async (_, accessToken, draftMediaId) => {
+    return wechatService.publishDraft(accessToken, draftMediaId);
+  });
+  ipcMain.handle("wechat:buildArticleHtml", async (_, title, imageUrls) => {
+    return wechatService.buildArticleHtml(title, imageUrls);
+  });
+  ipcMain.handle("wechat:calculateCropParams", async (_, originalRatio) => {
+    return wechatService.calculateCropParams(originalRatio);
+  });
+  ipcMain.handle("wechat:batchUpload", async (event, params) => {
+    const { appId, appSecret, articles, publish = false } = params;
+    const results = [];
+    const sender = event.sender;
+    const sendProgress = (progress) => {
+      try {
+        if (!sender.isDestroyed()) {
+          sender.send("wechat:uploadProgress", progress);
+        }
+      } catch {
+      }
+    };
+    try {
+      sendProgress({
+        currentArticleIndex: 0,
+        totalArticles: articles.length,
+        step: "token",
+        message: "正在获取 AccessToken..."
+      });
+      const accessToken = await wechatService.getAccessToken(appId, appSecret);
+      for (let i = 0; i < articles.length; i++) {
+        const article = articles[i];
+        sendProgress({
+          currentArticleIndex: i,
+          totalArticles: articles.length,
+          step: "cover",
+          message: `[${i + 1}/${articles.length}] 正在上传封面图...`
+        });
+        const coverResult = await wechatService.uploadCoverImage(accessToken, article.coverImagePath);
+        sendProgress({
+          currentArticleIndex: i,
+          totalArticles: articles.length,
+          step: "images",
+          message: `[${i + 1}/${articles.length}] 正在上传正文图片 (${article.contentImagePaths.length} 张)...`
+        });
+        const contentResults = await wechatService.batchUploadContentImages(
+          accessToken,
+          article.contentImagePaths,
+          (p) => sendProgress({ ...p, currentArticleIndex: i, totalArticles: articles.length }),
+          i,
+          articles.length
+        );
+        sendProgress({
+          currentArticleIndex: i,
+          totalArticles: articles.length,
+          step: "draft",
+          message: `[${i + 1}/${articles.length}] 正在创建草稿...`
+        });
+        const imageUrls = contentResults.map((r) => r.url);
+        const htmlContent = wechatService.buildArticleHtml(article.title, imageUrls);
+        const draftMediaId = await wechatService.createDraft(accessToken, {
+          title: article.title,
+          thumbMediaId: coverResult.mediaId,
+          author: article.author,
+          digest: article.digest,
+          content: htmlContent,
+          picCrop2351: article.picCrop2351,
+          picCrop11: article.picCrop11
+        });
+        const result = {
+          title: article.title,
+          draftMediaId,
+          coverUrl: coverResult.url
+        };
+        if (publish) {
+          sendProgress({
+            currentArticleIndex: i,
+            totalArticles: articles.length,
+            step: "publish",
+            message: `[${i + 1}/${articles.length}] 正在发布草稿...`
+          });
+          result.publishId = await wechatService.publishDraft(accessToken, draftMediaId);
+        }
+        results.push(result);
+        if (i < articles.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+      }
+      sendProgress({
+        currentArticleIndex: articles.length,
+        totalArticles: articles.length,
+        step: "done",
+        message: `全部完成！共处理 ${articles.length} 篇文章。`
+      });
+      return { success: true, results };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      sendProgress({
+        currentArticleIndex: results.length,
+        totalArticles: articles.length,
+        step: "done",
+        message: `上传失败: ${message}`
+      });
+      return { success: false, error: message, results };
+    }
+  });
+}
 const __dirname$1 = path$d.dirname(fileURLToPath(import.meta.url));
 process.env.APP_ROOT = path$d.join(__dirname$1, "..");
 const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
@@ -2268,6 +2562,7 @@ app.whenReady().then(async () => {
   registerFileIpc();
   registerImageIpc();
   registerDatabaseIpc();
+  registerWechatIpc();
 });
 export {
   MAIN_DIST,

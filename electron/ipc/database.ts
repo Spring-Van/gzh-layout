@@ -56,4 +56,32 @@ export function registerDatabaseIpc() {
     dbService.deleteCoverTemplate(templateId);
     return { success: true };
   });
+
+  // Wechat Accounts
+  ipcMain.handle('db:getAllWechatAccounts', () => {
+    return dbService.getAllWechatAccounts();
+  });
+
+  ipcMain.handle('db:getWechatAccount', (_event, accountId: string) => {
+    return dbService.getWechatAccount(accountId);
+  });
+
+  ipcMain.handle('db:getActiveWechatAccount', () => {
+    return dbService.getActiveWechatAccount();
+  });
+
+  ipcMain.handle('db:saveWechatAccount', (_event, account) => {
+    dbService.saveWechatAccount(account);
+    return { success: true };
+  });
+
+  ipcMain.handle('db:setActiveWechatAccount', (_event, accountId: string) => {
+    dbService.setActiveWechatAccount(accountId);
+    return { success: true };
+  });
+
+  ipcMain.handle('db:deleteWechatAccount', (_event, accountId: string) => {
+    dbService.deleteWechatAccount(accountId);
+    return { success: true };
+  });
 }
