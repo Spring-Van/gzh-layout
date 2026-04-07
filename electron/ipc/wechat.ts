@@ -114,7 +114,17 @@ export function registerWechatIpc() {
         message: '正在获取 AccessToken...',
       });
 
-      const accessToken = await wechatService.getAccessToken(appId, appSecret);
+      let accessToken: string;
+      if (appSecret) {
+        accessToken = await wechatService.getAccessToken(appId, appSecret);
+      } else {
+        const tokenInfo = wechatService.getTokenCacheInfo();
+        if (tokenInfo && tokenInfo.expiresAt > Date.now()) {
+          accessToken = tokenInfo.accessToken;
+        } else {
+          throw new Error('AccessToken 已过期，请重新鉴权');
+        }
+      }
 
       for (let i = 0; i < articles.length; i++) {
         const article = articles[i];

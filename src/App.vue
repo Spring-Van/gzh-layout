@@ -10,12 +10,14 @@ import { useToastProvider } from "./hooks/useToast";
 import { useTemplateStore } from "./stores/template";
 import { useCoverTemplateStore } from "./stores/coverTemplate";
 import { useProjectStore } from "./stores/project";
+import { useWechatAccountStore } from "./stores/wechatAccount";
 
 const toastRef = ref<InstanceType<typeof Toast> | null>(null);
 const setToastInstance = useToastProvider();
 const templateStore = useTemplateStore();
 const coverTemplateStore = useCoverTemplateStore();
 const projectStore = useProjectStore();
+const wechatAccountStore = useWechatAccountStore();
 
 // 提供Toast实例给所有子组件
 onMounted(async () => {
@@ -31,6 +33,7 @@ onMounted(async () => {
     templateStore.loadTemplates(),
     coverTemplateStore.loadCoverTemplates(),
     projectStore.loadProjectList(),
+    wechatAccountStore.loadAccounts(),
   ]);
 });
 

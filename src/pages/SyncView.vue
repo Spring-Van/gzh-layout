@@ -15,29 +15,57 @@
       <div v-if="!uploadSuccess" class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
         <div class="bg-slate-50/80 px-5 py-3 border-b border-slate-200 flex items-center justify-between">
           <span class="text-sm font-bold text-slate-700">公众号配置</span>
-          <span class="text-xs text-slate-500 bg-white border rounded px-2 py-0.5">必填</span>
+          <span
+            v-if="wechatAccountStore.hasActiveAccount"
+            class="text-xs text-green-600 bg-green-50 border border-green-200 rounded px-2 py-0.5"
+          >
+            已绑定: {{ wechatAccountStore.activeAccount?.nickname }}
+          </span>
+          <span v-else class="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-0.5">
+            未绑定
+          </span>
         </div>
         <div class="p-5 space-y-4">
-          <div>
-            <label class="block text-xs font-medium text-slate-500 mb-1.5">AppID</label>
-            <input
-              v-model="appId"
-              type="text"
-              placeholder="微信公众号 AppID"
-              class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition"
-              :disabled="isUploading"
-            />
+          <div v-if="wechatAccountStore.hasActiveAccount" class="bg-green-50 border border-green-100 p-4 rounded-xl">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center text-white flex-shrink-0">
+                {{ wechatAccountStore.activeAccount?.nickname?.charAt(0) || '微' }}
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="font-bold text-green-800 truncate">{{ wechatAccountStore.activeAccount?.nickname }}</div>
+                <div class="text-[10px] text-green-600 font-medium">
+                  {{ wechatAccountStore.activeAccount?.appId }}
+                </div>
+              </div>
+              <button
+                class="text-xs px-3 py-1.5 border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-50 transition"
+                @click="$emit('open-modal', 'account')"
+              >
+                更换账号
+              </button>
+            </div>
           </div>
-          <div>
-            <label class="block text-xs font-medium text-slate-500 mb-1.5">AppSecret</label>
-            <input
-              v-model="appSecret"
-              type="password"
-              placeholder="微信公众号 AppSecret"
-              class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition"
-              :disabled="isUploading"
-            />
+
+          <div v-else class="bg-amber-50 border border-amber-100 p-4 rounded-xl">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-full bg-amber-500 flex items-center justify-center text-white flex-shrink-0">
+                !
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="font-bold text-amber-800">暂未绑定公众号</div>
+                <div class="text-[10px] text-amber-600">
+                  请先完成账号鉴权
+                </div>
+              </div>
+              <button
+                class="text-xs px-3 py-1.5 bg-primary text-white rounded-lg hover:bg-primary-hover transition"
+                @click="$emit('open-modal', 'account')"
+              >
+                绑定账号
+              </button>
+            </div>
           </div>
+
           <div class="flex items-center gap-2">
             <input
               id="publish-checkbox"
@@ -151,10 +179,12 @@ import { useToast } from '../hooks/useToast';
 import { useWechatUpload } from '../composables/useWechatUpload';
 import type { SyncArticleItem } from '../composables/useWechatUpload';
 import { useBatchTypesetStore } from '../stores/batchTypeset';
+import { useWechatAccountStore } from '../stores/wechatAccount';
 
 const router = useRouter();
 const { success, error: showError } = useToast();
 const batchStore = useBatchTypesetStore();
+const wechatAccountStore = useWechatAccountStore();
 
 const {
   isUploading,
@@ -167,8 +197,6 @@ const {
   startBatchUpload,
 } = useWechatUpload();
 
-const appId = ref('');
-const appSecret = ref('');
 const shouldPublish = ref(false);
 const showConsole = ref(false);
 const consoleRef = ref<HTMLElement | null>(null);
@@ -181,7 +209,7 @@ const syncArticles = computed<SyncArticleItem[]>(() => {
 });
 
 const canStartUpload = computed(() => {
-  return appId.value.trim().length > 0 && appSecret.value.trim().length > 0 && syncArticles.value.length > 0;
+  return wechatAccountStore.hasActiveAccount && syncArticles.value.length > 0;
 });
 
 watch(consoleLogs, () => {
@@ -218,11 +246,11 @@ function generateFallbackArticles(): SyncArticleItem[] {
 }
 
 async function startBatchSync() {
-  if (!canStartUpload.value) return;
+  if (!canStartUpload.value || !wechatAccountStore.activeAccount) return;
 
   const result = await startBatchUpload(syncArticles.value, {
-    appId: appId.value.trim(),
-    appSecret: appSecret.value.trim(),
+    appId: wechatAccountStore.activeAccount.appId,
+    appSecret: '',
     publish: shouldPublish.value,
   });
 

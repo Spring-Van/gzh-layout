@@ -58,6 +58,28 @@ export interface UploadProgress {
   message: string;
 }
 
+export interface WechatAccountInfo {
+  nickname: string;
+  headImg: string;
+  serviceType: number;
+  verifyType: number;
+  userName: string;
+  alias: string;
+  qrcodeUrl: string;
+}
+
+export interface AuthResult {
+  success: boolean;
+  accessToken: string;
+  expiresIn: number;
+  accountInfo: WechatAccountInfo;
+}
+
+export interface WechatTokenCacheInfo {
+  accessToken: string;
+  expiresAt: number;
+}
+
 export type UnsubscribeFn = () => void;
 
 export async function wechatGetAccessToken(appId: string, appSecret: string): Promise<string> {
@@ -66,6 +88,22 @@ export async function wechatGetAccessToken(appId: string, appSecret: string): Pr
 
 export async function wechatClearTokenCache(): Promise<void> {
   return window.electronAPI.wechat.clearTokenCache();
+}
+
+export async function wechatGetAccountInfo(accessToken: string): Promise<WechatAccountInfo> {
+  return window.electronAPI.wechat.getAccountInfo(accessToken);
+}
+
+export async function wechatAuthenticate(appId: string, appSecret: string): Promise<AuthResult> {
+  return window.electronAPI.wechat.authenticate(appId, appSecret);
+}
+
+export async function wechatVerifyToken(accessToken: string): Promise<boolean> {
+  return window.electronAPI.wechat.verifyToken(accessToken);
+}
+
+export async function wechatGetTokenCacheInfo(): Promise<WechatTokenCacheInfo | null> {
+  return window.electronAPI.wechat.getTokenCacheInfo();
 }
 
 export async function wechatUploadCoverImage(accessToken: string, imagePath: string): Promise<CoverUploadResult> {
@@ -102,4 +140,28 @@ export async function wechatBatchUpload(params: BatchUploadParams): Promise<Batc
 
 export function onWechatUploadProgress(callback: (progress: UploadProgress) => void): UnsubscribeFn {
   return window.electronAPI.wechat.onUploadProgress(callback);
+}
+
+export async function dbGetAllWechatAccounts() {
+  return window.electronAPI.db.getAllWechatAccounts();
+}
+
+export async function dbGetWechatAccount(accountId: string) {
+  return window.electronAPI.db.getWechatAccount(accountId);
+}
+
+export async function dbGetActiveWechatAccount() {
+  return window.electronAPI.db.getActiveWechatAccount();
+}
+
+export async function dbSaveWechatAccount(account: any) {
+  return window.electronAPI.db.saveWechatAccount(account);
+}
+
+export async function dbSetActiveWechatAccount(accountId: string) {
+  return window.electronAPI.db.setActiveWechatAccount(accountId);
+}
+
+export async function dbDeleteWechatAccount(accountId: string) {
+  return window.electronAPI.db.deleteWechatAccount(accountId);
 }

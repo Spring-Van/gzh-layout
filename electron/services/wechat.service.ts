@@ -38,18 +38,6 @@ interface FreepublishSubmitResponse {
   errmsg?: string;
 }
 
-interface AccountInfoResponse {
-  nickname: string;
-  head_img: string;
-  service_type: number;
-  verify_type: number;
-  user_name: string;
-  alias: string;
-  qrcode_url: string;
-  errcode?: number;
-  errmsg?: string;
-}
-
 interface CallbackIpResponse {
   ip_list: string[];
   errcode?: number;
