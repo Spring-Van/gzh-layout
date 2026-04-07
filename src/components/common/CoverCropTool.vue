@@ -63,10 +63,13 @@
         <div v-else class="relative bg-slate-100 rounded-xl overflow-hidden">
           <div class="w-full" style="height: 400px">
             <Cropper
+              :key="cropperKey"
               :src="imageSrc"
               :stencil-props="{
                 aspectRatio: aspectRatio,
               }"
+              :default-size="defaultSizeFn"
+              :default-position="defaultPositionFn"
               class="w-full h-full"
               @change="onCropChange"
             />
@@ -131,14 +134,11 @@ const emit = defineEmits<{
 }>();
 
 const currentRatio = ref<"235" | "11">("235");
+const cropperKey = ref(0);
 
+// 归一化的默认值（仅作为 onCropChange 未触发前的占位）
 const DEFAULT_CROP_235: CropData = { left: 0, top: 0, width: 1, height: 1 };
-const DEFAULT_CROP_11: CropData = {
-  left: 0.287234,
-  top: 0,
-  width: 0.425532,
-  height: 1,
-};
+const DEFAULT_CROP_11: CropData = { left: 0, top: 0, width: 1, height: 1 };
 
 const crop235 = ref<CropData>({ ...DEFAULT_CROP_235 });
 const crop11 = ref<CropData>({ ...DEFAULT_CROP_11 });
@@ -160,6 +160,39 @@ const currentRatioLabel = computed(() => {
 
 const currentCrop = computed<CropData>(() => {
   return currentRatio.value === "235" ? crop235.value : crop11.value;
+});
+
+// 2.35:1 → 完整图片尺寸；1:1 → 以图片高度为边长的正方形
+const defaultSizeFn = computed(() => {
+  return ({ imageSize }: { imageSize: { width: number; height: number } }) => {
+    if (currentRatio.value === "235") {
+      return {
+        width: imageSize.width,
+        height: imageSize.height,
+      };
+    } else {
+      // 正方形边长 = 图片高度
+      return {
+        width: imageSize.height,
+        height: imageSize.height,
+      };
+    }
+  };
+});
+
+// 2.35:1 → 左上角对齐；1:1 → 水平居中，垂直顶部对齐
+const defaultPositionFn = computed(() => {
+  return ({ imageSize }: { imageSize: { width: number; height: number } }) => {
+    if (currentRatio.value === "235") {
+      return { left: 0, top: 0 };
+    } else {
+      // 水平居中：left = (图片宽 - 正方形边长) / 2
+      return {
+        left: (imageSize.width - imageSize.height) / 2,
+        top: 0,
+      };
+    }
+  };
 });
 
 function formatCrop(c: CropData): string {
@@ -209,6 +242,8 @@ function onCropChange(event: any) {
 
 function switchRatio(ratio: "235" | "11") {
   currentRatio.value = ratio;
+  // 强制重新挂载 Cropper，让 defaultSize/defaultPosition 重新生效
+  cropperKey.value++;
 }
 
 function resetCurrentToDefault() {
@@ -217,6 +252,8 @@ function resetCurrentToDefault() {
   } else {
     crop11.value = { ...DEFAULT_CROP_11 };
   }
+  // 重新挂载 Cropper，让默认框选重新计算
+  cropperKey.value++;
 }
 
 function handleConfirm() {
@@ -242,6 +279,8 @@ watch(
         ? parseCrop(props.initialCrop11)
         : { ...DEFAULT_CROP_11 };
       currentRatio.value = props.initialRatio || "235";
+      // 打开弹窗时重新挂载 Cropper
+      cropperKey.value++;
     }
   },
 );
