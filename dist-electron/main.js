@@ -2182,6 +2182,35 @@ class DatabaseService {
     this.data.coverTemplates = this.data.coverTemplates.filter((t) => t.id !== templateId);
     this.saveToFile();
   }
+  // ========== Wechat Accounts ==========
+  getAllWechatAccounts() {
+    return [...this.data.wechatAccounts];
+  }
+  getWechatAccount(accountId) {
+    return this.data.wechatAccounts.find((a) => a.id === accountId) || null;
+  }
+  getActiveWechatAccount() {
+    return this.data.wechatAccounts.find((a) => a.isActive) || null;
+  }
+  saveWechatAccount(account) {
+    const index = this.data.wechatAccounts.findIndex((a) => a.id === account.id);
+    if (index !== -1) {
+      this.data.wechatAccounts[index] = account;
+    } else {
+      this.data.wechatAccounts.push(account);
+    }
+    this.saveToFile();
+  }
+  setActiveWechatAccount(accountId) {
+    this.data.wechatAccounts.forEach((a) => {
+      a.isActive = a.id === accountId;
+    });
+    this.saveToFile();
+  }
+  deleteWechatAccount(accountId) {
+    this.data.wechatAccounts = this.data.wechatAccounts.filter((a) => a.id !== accountId);
+    this.saveToFile();
+  }
 }
 const dbService = new DatabaseService();
 function registerDatabaseIpc() {
@@ -2223,6 +2252,27 @@ function registerDatabaseIpc() {
   });
   ipcMain.handle("db:deleteCoverTemplate", (_event, templateId) => {
     dbService.deleteCoverTemplate(templateId);
+    return { success: true };
+  });
+  ipcMain.handle("db:getAllWechatAccounts", () => {
+    return dbService.getAllWechatAccounts();
+  });
+  ipcMain.handle("db:getWechatAccount", (_event, accountId) => {
+    return dbService.getWechatAccount(accountId);
+  });
+  ipcMain.handle("db:getActiveWechatAccount", () => {
+    return dbService.getActiveWechatAccount();
+  });
+  ipcMain.handle("db:saveWechatAccount", (_event, account) => {
+    dbService.saveWechatAccount(account);
+    return { success: true };
+  });
+  ipcMain.handle("db:setActiveWechatAccount", (_event, accountId) => {
+    dbService.setActiveWechatAccount(accountId);
+    return { success: true };
+  });
+  ipcMain.handle("db:deleteWechatAccount", (_event, accountId) => {
+    dbService.deleteWechatAccount(accountId);
     return { success: true };
   });
 }
@@ -2273,6 +2323,58 @@ class WechatService {
   }
   clearTokenCache() {
     this.tokenCache = null;
+  }
+  getTokenCacheInfo() {
+    return this.tokenCache;
+  }
+  async getAccountInfo(accessToken) {
+    const verifyUrl = `${WECHAT_API_BASE}/cgi-bin/getcallbackip?access_token=${accessToken}`;
+    const verifyResponse = await fetch(verifyUrl);
+    const verifyData = await verifyResponse.json();
+    if (verifyData.errcode) {
+      throw new Error(`Token 校验失败 [${verifyData.errcode}]: ${verifyData.errmsg}`);
+    }
+    const infoUrl = `${WECHAT_API_BASE}/cgi-bin/account/getaccountbasicinfo?access_token=${accessToken}`;
+    const infoResponse = await fetch(infoUrl, { method: "POST" });
+    const infoData = await infoResponse.json();
+    if (infoData.errcode) {
+      return {
+        nickname: "",
+        headImg: "",
+        serviceType: -1,
+        verifyType: -1,
+        userName: "",
+        alias: "",
+        qrcodeUrl: ""
+      };
+    }
+    return {
+      nickname: infoData.nickname || "",
+      headImg: infoData.head_img || "",
+      serviceType: infoData.service_type ?? -1,
+      verifyType: infoData.verify_type ?? -1,
+      userName: infoData.user_name || "",
+      alias: infoData.alias || "",
+      qrcodeUrl: infoData.qrcode_url || ""
+    };
+  }
+  async authenticate(appId, appSecret) {
+    const accessToken = await this.getAccessToken(appId, appSecret);
+    const tokenCache = this.tokenCache;
+    const expiresIn = Math.floor((tokenCache.expiresAt - Date.now()) / 1e3);
+    const accountInfo = await this.getAccountInfo(accessToken);
+    return {
+      success: true,
+      accessToken,
+      expiresIn,
+      accountInfo
+    };
+  }
+  async verifyToken(accessToken) {
+    const url = `${WECHAT_API_BASE}/cgi-bin/getcallbackip?access_token=${accessToken}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    return !data.errcode;
   }
   async uploadCoverImage(accessToken, imagePath) {
     const buffer = await fs.readFile(imagePath);
@@ -2401,6 +2503,18 @@ function registerWechatIpc() {
   ipcMain.handle("wechat:clearTokenCache", async () => {
     wechatService.clearTokenCache();
   });
+  ipcMain.handle("wechat:getAccountInfo", async (_, accessToken) => {
+    return wechatService.getAccountInfo(accessToken);
+  });
+  ipcMain.handle("wechat:authenticate", async (_, appId, appSecret) => {
+    return wechatService.authenticate(appId, appSecret);
+  });
+  ipcMain.handle("wechat:verifyToken", async (_, accessToken) => {
+    return wechatService.verifyToken(accessToken);
+  });
+  ipcMain.handle("wechat:getTokenCacheInfo", async () => {
+    return wechatService.getTokenCacheInfo();
+  });
   ipcMain.handle("wechat:uploadCoverImage", async (_, accessToken, imagePath) => {
     return wechatService.uploadCoverImage(accessToken, imagePath);
   });
@@ -2441,7 +2555,17 @@ function registerWechatIpc() {
         step: "token",
         message: "正在获取 AccessToken..."
       });
-      const accessToken = await wechatService.getAccessToken(appId, appSecret);
+      let accessToken;
+      if (appSecret) {
+        accessToken = await wechatService.getAccessToken(appId, appSecret);
+      } else {
+        const tokenInfo = wechatService.getTokenCacheInfo();
+        if (tokenInfo && tokenInfo.expiresAt > Date.now()) {
+          accessToken = tokenInfo.accessToken;
+        } else {
+          throw new Error("AccessToken 已过期，请重新鉴权");
+        }
+      }
       for (let i = 0; i < articles.length; i++) {
         const article = articles[i];
         sendProgress({

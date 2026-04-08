@@ -372,7 +372,7 @@
           <div
             class="flex items-center gap-2 text-sm text-slate-500 mb-6 font-medium"
           >
-            <span class="text-[#576b95]">微信公众号配置名称</span>
+            <span class="text-[#576b95]">{{ wechatOfficialAccountName }}</span>
           </div>
 
           <div
@@ -625,6 +625,31 @@
                   </svg>
                   裁剪
                 </button>
+              </div>
+            </div>
+
+            <div v-if="batchStore.globalConfig.cover.templateId">
+              <button
+                @click="showCoverImageIndexSelector = true"
+                class="w-full py-2.5 text-sm font-medium text-primary bg-primary/10 rounded-xl hover:bg-primary/20 transition flex items-center justify-center gap-2"
+              >
+                <svg
+                  class="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2v12a2 2 0 002 2z"
+                  ></path>
+                </svg>
+                选择封面图片序号
+              </button>
+              <div v-if="batchStore.globalConfig.cover.coverImageIndices && batchStore.globalConfig.cover.coverImageIndices.length > 0" class="mt-2 text-xs text-slate-500">
+                已选序号: {{ batchStore.globalConfig.cover.coverImageIndices.join(", ") }}
               </div>
             </div>
 
@@ -993,6 +1018,14 @@
       "
     />
 
+    <CoverImageIndexSelectorDrawer
+      :visible="showCoverImageIndexSelector"
+      :initial-indices="batchStore.globalConfig.cover.coverImageIndices || []"
+      :required-image-count="globalCoverTemplateImageCount"
+      @close="showCoverImageIndexSelector = false"
+      @confirm="handleConfirmCoverImageIndices"
+    />
+
     <ModalCoverTemplateSelector
       :visible="showCoverTemplateSelector"
       :current-template-id="batchStore.globalConfig.cover.templateId"
@@ -1035,12 +1068,14 @@ import { useProjectStore } from "../stores/project";
 import { useTemplateStore } from "../stores/template";
 import { useCoverTemplateStore } from "../stores/coverTemplate";
 import { useBatchTypesetStore } from "../stores/batchTypeset";
+import { useWechatAccountStore } from "../stores/wechatAccount";
 import PhoneMockup from "../components/common/PhoneMockup.vue";
 import ModalTemplate from "../components/layout/ModalTemplate.vue";
 import ModalCoverTemplate from "../components/layout/ModalCoverTemplate.vue";
 import ModalCoverTemplateSelector from "../components/layout/ModalCoverTemplateSelector.vue";
 import CoverSelector from "../components/common/CoverSelector.vue";
 import CoverImageSelectorDrawer from "../components/common/CoverImageSelectorDrawer.vue";
+import CoverImageIndexSelectorDrawer from "../components/common/CoverImageIndexSelectorDrawer.vue";
 import CoverCropTool from "../components/common/CoverCropTool.vue";
 import GlobalTitleConfig from "../components/typeset/GlobalTitleConfig.vue";
 import ArticleTitleConfig from "../components/typeset/ArticleTitleConfig.vue";
@@ -1053,12 +1088,14 @@ const projectStore = useProjectStore();
 const templateStore = useTemplateStore();
 const coverTemplateStore = useCoverTemplateStore();
 const batchStore = useBatchTypesetStore();
+const wechatAccountStore = useWechatAccountStore();
 
 const showTemplateModal = ref(false);
 const showCoverTemplateManager = ref(false);
 const showCoverTemplateSelector = ref(false);
 const showArticleCoverTemplateSelector = ref(false);
 const showCoverImageSelector = ref(false);
+const showCoverImageIndexSelector = ref(false);
 const showCoverCropTool = ref(false);
 const showImageManagerDrawer = ref(false);
 const selectedCoverIndex = ref(0);
@@ -1080,6 +1117,10 @@ const previewModes = [
 ];
 
 const currentArticle = computed(() => batchStore.currentArticle);
+
+const wechatOfficialAccountName = computed(() => {
+  return wechatAccountStore.activeAccount?.nickname || "微信公众号配置名称";
+});
 
 const currentTemplateId = computed(() => {
   if (!currentArticle.value) return "flow";
@@ -1113,6 +1154,23 @@ const globalCoverTemplateName = computed(() => {
   const tpl = coverTemplateStore.coverTemplates.find((t) => t.id === tid);
   return tpl?.name || "未知模板";
 });
+
+const globalCoverTemplateImageCount = computed(() => {
+  const tid = batchStore.globalConfig.cover.templateId;
+  if (!tid) return 0;
+  const tpl = coverTemplateStore.coverTemplates.find((t) => t.id === tid);
+  if (!tpl) return 0;
+  const imgRegex = /<img[^>]*>/gi;
+  const matches = tpl.html.match(imgRegex);
+  return matches ? matches.length : 0;
+});
+
+function handleConfirmCoverImageIndices(indices: number[]) {
+  batchStore.setGlobalCoverConfig({
+    coverImageIndices: indices,
+  });
+  batchStore.updateArticlesCoverImagesByIndices();
+}
 
 const currentArticleCoverTemplateName = computed(() => {
   const tid = currentArticle.value?.coverConfig.templateId;
@@ -1336,6 +1394,7 @@ onMounted(() => {
   generateArticlesFromProject();
   templateStore.loadTemplates();
   coverTemplateStore.loadCoverTemplates();
+  wechatAccountStore.loadAccounts();
   nextTick(() => {
     if (coverImageRef.value) {
       coverImageHeight.value = coverImageRef.value.offsetHeight;
@@ -1381,6 +1440,7 @@ function generateArticlesFromProject() {
   }
 
   batchStore.initArticles(articleData);
+  batchStore.updateArticlesCoverImagesByIndices();
 }
 
 function getArticleDisplayTitle(article: any, index: number): string {
@@ -1421,15 +1481,22 @@ function toggleInheritGlobalCover() {
 function handleCoverTemplateSelect(templateId: string) {
   batchStore.setGlobalCoverConfig({ templateId });
 
-  // 自动按顺序选择前 N 张图片
-  if (currentArticle.value) {
-    const template = coverTemplateStore.coverTemplates.find(
-      (t) => t.id === templateId,
-    );
-    if (template) {
-      const imgRegex = /<img[^>]*>/gi;
-      const matches = template.html.match(imgRegex);
-      const imageCount = matches ? matches.length : 0;
+  const template = coverTemplateStore.coverTemplates.find(
+    (t) => t.id === templateId,
+  );
+  if (template) {
+    const imgRegex = /<img[^>]*>/gi;
+    const matches = template.html.match(imgRegex);
+    const imageCount = matches ? matches.length : 0;
+
+    // 默认按顺序选择前 N 张图片的序号
+    const defaultIndices = Array.from({ length: imageCount }, (_, i) => i + 1);
+    batchStore.setGlobalCoverConfig({
+      coverImageIndices: defaultIndices,
+    });
+
+    // 自动按顺序选择前 N 张图片
+    if (currentArticle.value) {
       const availableImages = currentArticle.value.images;
       if (imageCount > 0 && availableImages.length > 0) {
         const selectedIds = availableImages
@@ -1440,6 +1507,9 @@ function handleCoverTemplateSelect(templateId: string) {
         });
       }
     }
+
+    // 更新所有文章的封面图片
+    batchStore.updateArticlesCoverImagesByIndices();
   }
 }
 

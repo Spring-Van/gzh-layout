@@ -39,6 +39,7 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
       showSubtitle: true,
       cropMode: 'cover',
       selectedImageIds: [],
+      coverImageIndices: [],
     },
     layout: {
       templateId: 'flow',
@@ -264,6 +265,27 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
     });
   }
 
+  /**
+   * 根据全局配置的封面图片序号更新各文章的封面图片
+   */
+  function updateArticlesCoverImagesByIndices() {
+    const { coverImageIndices } = globalConfig.value.cover;
+    if (!coverImageIndices || coverImageIndices.length === 0) {
+      return;
+    }
+
+    articles.value.forEach((article) => {
+      const selectedImageIds: string[] = [];
+      coverImageIndices.forEach((index) => {
+        if (article.images[index - 1]) {
+          selectedImageIds.push(article.images[index - 1].id);
+        }
+      });
+
+      article.coverConfig.selectedImageIds = selectedImageIds;
+    });
+  }
+
   return {
     // State
     globalConfig,
@@ -294,5 +316,6 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
     setPreviewMode,
     applyBatchTitles,
     generateNumbering,
+    updateArticlesCoverImagesByIndices,
   };
 });

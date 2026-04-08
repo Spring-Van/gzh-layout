@@ -26,6 +26,7 @@ export interface GlobalCoverConfig {
   selectedImageIds?: string[];
   pic_crop_235_1?: string;
   pic_crop_1_1?: string;
+  coverImageIndices?: number[];
 }
 
 // 全局设置 - 排版配置

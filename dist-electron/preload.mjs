@@ -35,11 +35,21 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
     deleteTemplate: (templateId) => electron.ipcRenderer.invoke("db:deleteTemplate", templateId),
     getAllCoverTemplates: () => electron.ipcRenderer.invoke("db:getAllCoverTemplates"),
     saveCoverTemplate: (template) => electron.ipcRenderer.invoke("db:saveCoverTemplate", template),
-    deleteCoverTemplate: (templateId) => electron.ipcRenderer.invoke("db:deleteCoverTemplate", templateId)
+    deleteCoverTemplate: (templateId) => electron.ipcRenderer.invoke("db:deleteCoverTemplate", templateId),
+    getAllWechatAccounts: () => electron.ipcRenderer.invoke("db:getAllWechatAccounts"),
+    getWechatAccount: (accountId) => electron.ipcRenderer.invoke("db:getWechatAccount", accountId),
+    getActiveWechatAccount: () => electron.ipcRenderer.invoke("db:getActiveWechatAccount"),
+    saveWechatAccount: (account) => electron.ipcRenderer.invoke("db:saveWechatAccount", account),
+    setActiveWechatAccount: (accountId) => electron.ipcRenderer.invoke("db:setActiveWechatAccount", accountId),
+    deleteWechatAccount: (accountId) => electron.ipcRenderer.invoke("db:deleteWechatAccount", accountId)
   },
   wechat: {
     getAccessToken: (appId, appSecret) => electron.ipcRenderer.invoke("wechat:getAccessToken", appId, appSecret),
     clearTokenCache: () => electron.ipcRenderer.invoke("wechat:clearTokenCache"),
+    getAccountInfo: (accessToken) => electron.ipcRenderer.invoke("wechat:getAccountInfo", accessToken),
+    authenticate: (appId, appSecret) => electron.ipcRenderer.invoke("wechat:authenticate", appId, appSecret),
+    verifyToken: (accessToken) => electron.ipcRenderer.invoke("wechat:verifyToken", accessToken),
+    getTokenCacheInfo: () => electron.ipcRenderer.invoke("wechat:getTokenCacheInfo"),
     uploadCoverImage: (accessToken, imagePath) => electron.ipcRenderer.invoke("wechat:uploadCoverImage", accessToken, imagePath),
     uploadContentImage: (accessToken, imagePath) => electron.ipcRenderer.invoke("wechat:uploadContentImage", accessToken, imagePath),
     batchUploadContentImages: (accessToken, imagePaths) => electron.ipcRenderer.invoke("wechat:batchUploadContentImages", accessToken, imagePaths),
