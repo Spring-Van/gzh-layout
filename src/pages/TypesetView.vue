@@ -1321,33 +1321,82 @@ const processedTemplateHtml = computed(() => {
   const templateHtml = currentTemplate.value.html;
   const images = currentArticle.value.images;
 
-  // 先统计模板中有多少个占位图
-  const placeholderMatch = templateHtml.match(
-    /https:\/\/toai\.art\/b\d+\.png/g,
-  );
+  if (images.length === 0) return templateHtml;
+
+  // 首先检查模板中是否有 img 标签
+  const imgTagRegex = /<img[^>]*>/gi;
+  const hasImgTags = imgTagRegex.test(templateHtml);
+  
+  // 如果有 img 标签，使用新的替换逻辑
+  if (hasImgTags) {
+    let resultHtml = templateHtml;
+    let imageIdx = 0;
+    
+    // 使用全局替换函数，逐个替换 img 标签的 src
+    resultHtml = resultHtml.replace(imgTagRegex, (imgTag) => {
+      if (imageIdx < images.length) {
+        const imgUrl = getImageUrl(images[imageIdx].path);
+        imageIdx++;
+        // 替换 src 属性
+        return imgTag.replace(/src\s*=\s*(['"])[^'"]*\1/, `src="${imgUrl}"`);
+      }
+      return imgTag;
+    });
+    
+    // 如果图片数量超过模板中的 img 标签数量，重复填充
+    if (images.length > 0) {
+      const imgTagCount = (templateHtml.match(imgTagRegex) || []).length;
+      if (imgTagCount > 0) {
+        const fullBlocks = Math.floor(images.length / imgTagCount);
+        let finalHtml = "";
+        let currentImageIdx = 0;
+        
+        for (let i = 0; i < fullBlocks; i++) {
+          let blockHtml = templateHtml;
+          let blockImageIdx = 0;
+          
+          blockHtml = blockHtml.replace(imgTagRegex, (imgTag) => {
+            if (currentImageIdx + blockImageIdx < images.length) {
+              const imgUrl = getImageUrl(images[currentImageIdx + blockImageIdx].path);
+              blockImageIdx++;
+              return imgTag.replace(/src\s*=\s*(['"])[^'"]*\1/, `src="${imgUrl}"`);
+            }
+            return imgTag;
+          });
+          
+          finalHtml += blockHtml;
+          currentImageIdx += imgTagCount;
+        }
+        
+        return finalHtml || resultHtml;
+      }
+    }
+    
+    return resultHtml;
+  }
+  
+  // 如果没有 img 标签，使用原来的方法（兼容旧模板）
+  const placeholderMatch = templateHtml.match(/https:\/\/toai\.art\/b\d+\.png/g);
   const placeholderCount = placeholderMatch ? placeholderMatch.length : 0;
-
+  
   if (placeholderCount === 0) return templateHtml;
-
-  let resultHtml = "";
-  let imageIndex = 0;
-  const totalImages = images.length;
-
-  // 计算需要多少个完整块
-  const fullBlocks = Math.floor(totalImages / placeholderCount);
-  const remainingImages = totalImages % placeholderCount;
-
+  
+  let finalHtml = "";
+  let imageIdx = 0;
+  const fullBlocks = Math.floor(images.length / placeholderCount);
+  const remainingImages = images.length % placeholderCount;
+  
   // 生成完整块
   for (let i = 0; i < fullBlocks; i++) {
     let blockHtml = templateHtml;
     blockHtml = blockHtml.replace(/https:\/\/toai\.art\/b\d+\.png/g, () => {
-      const imgUrl = getImageUrl(images[imageIndex].path);
-      imageIndex++;
+      const imgUrl = getImageUrl(images[imageIdx].path);
+      imageIdx++;
       return imgUrl;
     });
-    resultHtml += blockHtml;
+    finalHtml += blockHtml;
   }
-
+  
   // 如果有剩余图片，生成最后一个块
   if (remainingImages > 0) {
     const placeholderRegex = /https:\/\/toai\.art\/b\d+\.png/g;
@@ -1373,9 +1422,9 @@ const processedTemplateHtml = computed(() => {
     for (let i = 0; i < keptParts.length; i++) {
       const part = keptParts[i];
       if (part.match(placeholderRegex)) {
-        if (placeholderIdx < remainingImages && imageIndex < totalImages) {
-          const imgUrl = getImageUrl(images[imageIndex].path);
-          imageIndex++;
+        if (placeholderIdx < remainingImages && imageIdx < images.length) {
+          const imgUrl = getImageUrl(images[imageIdx].path);
+          imageIdx++;
           placeholderIdx++;
           finalBlockHtml += imgUrl;
         }
@@ -1384,10 +1433,10 @@ const processedTemplateHtml = computed(() => {
       }
     }
 
-    resultHtml += finalBlockHtml;
+    finalHtml += finalBlockHtml;
   }
 
-  return resultHtml;
+  return finalHtml;
 });
 
 onMounted(() => {
