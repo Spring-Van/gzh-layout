@@ -33,7 +33,7 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
       separator: ' | ',
     },
     cover: {
-      templateId: 'built-in-wallpaper',
+      templateId: '',
       imageSource: 'default',
       showTitle: true,
       showSubtitle: true,
@@ -150,7 +150,7 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
       },
       coverConfig: {
         inheritGlobal: true,
-        templateId: 'built-in-wallpaper',
+        templateId: '',
         selectedImageIds: data.images.length > 0 ? data.images.slice(0, 6).map(img => img.id) : [],
         cropMode: 'cover',
       },

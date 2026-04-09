@@ -206,7 +206,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, watch } from "vue";
 import { useToast } from "../../hooks/useToast";
 import { useTemplateStore } from "../../stores/template";
 import TemplateEditor from "../common/TemplateEditor.vue";
@@ -227,6 +227,16 @@ const { success } = useToast();
 const templateStore = useTemplateStore();
 const selectedTemplateId = ref<string>("");
 const editingTemplate = ref<CustomTemplate | undefined>(undefined);
+
+watch(
+  () => props.visible,
+  (newVal) => {
+    if (newVal && templateStore.customTemplates.length === 0) {
+      templateStore.openEditor();
+    }
+  },
+  { immediate: true },
+);
 
 const selectedTemplate = computed<CustomTemplate | undefined>(() => {
   if (!selectedTemplateId.value) return undefined;

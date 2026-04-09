@@ -80,6 +80,7 @@
       :current-template-id="localConfig.templateId"
       @close="showSelector = false"
       @select="updateTemplate"
+      @open-template="openTemplateManager"
     />
   </div>
 </template>
@@ -108,6 +109,10 @@ const localConfig = computed({
   get: () => props.config,
   set: (val) => emit("update:config", val),
 });
+
+function openTemplateManager() {
+  emit("open-template-manager");
+}
 
 const currentTemplateName = computed(() => {
   if (props.config.templateId === "flow") return "常规极简流";

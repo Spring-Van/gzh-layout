@@ -163,6 +163,7 @@
       :current-template-id="localConfig.templateId || ''"
       @close="showSelector = false"
       @select="updateTemplate"
+      @open-template="openTemplateManager"
     />
   </div>
 </template>
@@ -189,10 +190,15 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   "update:config": [config: ArticleLayoutConfig];
   "open-image-manager": [];
+  "open-template-manager": [];
 }>();
 
 const templateStore = useTemplateStore();
 const showSelector = ref(false);
+
+function openTemplateManager() {
+  emit("open-template-manager");
+}
 
 const customTemplates = computed<CustomTemplate[]>(
   () => templateStore.customTemplates,

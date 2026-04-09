@@ -648,8 +648,15 @@
                 </svg>
                 选择封面图片序号
               </button>
-              <div v-if="batchStore.globalConfig.cover.coverImageIndices && batchStore.globalConfig.cover.coverImageIndices.length > 0" class="mt-2 text-xs text-slate-500">
-                已选序号: {{ batchStore.globalConfig.cover.coverImageIndices.join(", ") }}
+              <div
+                v-if="
+                  batchStore.globalConfig.cover.coverImageIndices &&
+                  batchStore.globalConfig.cover.coverImageIndices.length > 0
+                "
+                class="mt-2 text-xs text-slate-500"
+              >
+                已选序号:
+                {{ batchStore.globalConfig.cover.coverImageIndices.join(", ") }}
               </div>
             </div>
 
@@ -948,6 +955,7 @@
             :images="currentArticle.images"
             @update:config="batchStore.updateCurrentArticleLayoutConfig"
             @open-image-manager="showImageManagerDrawer = true"
+            @open-template-manager="showTemplateModal = true"
           />
         </template>
 
@@ -1031,6 +1039,10 @@
       :current-template-id="batchStore.globalConfig.cover.templateId"
       @close="showCoverTemplateSelector = false"
       @select="handleCoverTemplateSelect"
+      @open-cover-template="
+        showCoverTemplateSelector = false;
+        showCoverTemplateManager = true;
+      "
     />
 
     <ModalCoverTemplateSelector
@@ -1038,6 +1050,10 @@
       :current-template-id="currentArticle?.coverConfig.templateId"
       @close="showArticleCoverTemplateSelector = false"
       @select="handleArticleCoverTemplateSelect"
+      @open-cover-template="
+        showArticleCoverTemplateSelector = false;
+        showCoverTemplateManager = true;
+      "
     />
 
     <CoverCropTool
@@ -1326,12 +1342,12 @@ const processedTemplateHtml = computed(() => {
   // 首先检查模板中是否有 img 标签
   const imgTagRegex = /<img[^>]*>/gi;
   const hasImgTags = imgTagRegex.test(templateHtml);
-  
+
   // 如果有 img 标签，使用新的替换逻辑
   if (hasImgTags) {
     let resultHtml = templateHtml;
     let imageIdx = 0;
-    
+
     // 使用全局替换函数，逐个替换 img 标签的 src
     resultHtml = resultHtml.replace(imgTagRegex, (imgTag) => {
       if (imageIdx < images.length) {
@@ -1342,7 +1358,7 @@ const processedTemplateHtml = computed(() => {
       }
       return imgTag;
     });
-    
+
     // 如果图片数量超过模板中的 img 标签数量，重复填充
     if (images.length > 0) {
       const imgTagCount = (templateHtml.match(imgTagRegex) || []).length;
@@ -1350,42 +1366,49 @@ const processedTemplateHtml = computed(() => {
         const fullBlocks = Math.floor(images.length / imgTagCount);
         let finalHtml = "";
         let currentImageIdx = 0;
-        
+
         for (let i = 0; i < fullBlocks; i++) {
           let blockHtml = templateHtml;
           let blockImageIdx = 0;
-          
+
           blockHtml = blockHtml.replace(imgTagRegex, (imgTag) => {
             if (currentImageIdx + blockImageIdx < images.length) {
-              const imgUrl = getImageUrl(images[currentImageIdx + blockImageIdx].path);
+              const imgUrl = getImageUrl(
+                images[currentImageIdx + blockImageIdx].path,
+              );
               blockImageIdx++;
-              return imgTag.replace(/src\s*=\s*(['"])[^'"]*\1/, `src="${imgUrl}"`);
+              return imgTag.replace(
+                /src\s*=\s*(['"])[^'"]*\1/,
+                `src="${imgUrl}"`,
+              );
             }
             return imgTag;
           });
-          
+
           finalHtml += blockHtml;
           currentImageIdx += imgTagCount;
         }
-        
+
         return finalHtml || resultHtml;
       }
     }
-    
+
     return resultHtml;
   }
-  
+
   // 如果没有 img 标签，使用原来的方法（兼容旧模板）
-  const placeholderMatch = templateHtml.match(/https:\/\/toai\.art\/b\d+\.png/g);
+  const placeholderMatch = templateHtml.match(
+    /https:\/\/toai\.art\/b\d+\.png/g,
+  );
   const placeholderCount = placeholderMatch ? placeholderMatch.length : 0;
-  
+
   if (placeholderCount === 0) return templateHtml;
-  
+
   let finalHtml = "";
   let imageIdx = 0;
   const fullBlocks = Math.floor(images.length / placeholderCount);
   const remainingImages = images.length % placeholderCount;
-  
+
   // 生成完整块
   for (let i = 0; i < fullBlocks; i++) {
     let blockHtml = templateHtml;
@@ -1396,7 +1419,7 @@ const processedTemplateHtml = computed(() => {
     });
     finalHtml += blockHtml;
   }
-  
+
   // 如果有剩余图片，生成最后一个块
   if (remainingImages > 0) {
     const placeholderRegex = /https:\/\/toai\.art\/b\d+\.png/g;

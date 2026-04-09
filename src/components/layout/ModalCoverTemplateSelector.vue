@@ -36,7 +36,7 @@
         <div class="w-64 border-r border-slate-200 bg-slate-50 flex flex-col">
           <div class="flex-1 overflow-y-auto p-3 space-y-2">
             <div
-              v-for="template in coverTemplateStore.coverTemplates"
+              v-for="template in userTemplates"
               :key="template.id"
               class="p-3 border border-slate-200 rounded-lg cursor-pointer hover:border-primary transition"
               :class="{
@@ -50,17 +50,9 @@
               <p class="text-xs text-slate-500 truncate mt-1">
                 {{ template.description || "无描述" }}
               </p>
-              <div class="mt-2">
-                <span
-                  v-if="coverTemplateStore.isBuiltInTemplate(template.id)"
-                  class="text-[10px] text-primary bg-blue-100 px-1.5 py-0.5 rounded"
-                >
-                  内置
-                </span>
-              </div>
             </div>
             <p
-              v-if="coverTemplateStore.coverTemplates.length === 0"
+              v-if="userTemplates.length === 0"
               class="text-sm text-slate-500 text-center py-4"
             >
               暂无封面模板
@@ -146,10 +138,14 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   (e: "close"): void;
   (e: "select", templateId: string): void;
+  (e: "openCoverTemplate"): void;
 }>();
 
 const coverTemplateStore = useCoverTemplateStore();
 const selectedTemplateId = ref<string | undefined>(props.currentTemplateId);
+
+const userTemplates = computed(() => coverTemplateStore.coverTemplates);
+
 const selectedTemplate = computed(() => {
   if (!selectedTemplateId.value) return null;
   return (
@@ -158,6 +154,23 @@ const selectedTemplate = computed(() => {
     ) || null
   );
 });
+
+function openCoverTemplateModal() {
+  emit("openCoverTemplate");
+}
+
+watch(
+  () => props.visible,
+  (newVal) => {
+    if (newVal && coverTemplateStore.coverTemplates.length === 0) {
+      if (confirm("暂无封面模板，是否立即新建封面模板？")) {
+        emit("openCoverTemplate");
+        emit("close");
+      }
+    }
+  },
+  { immediate: true },
+);
 
 const selectedTemplatePreview = computed(() => {
   if (!selectedTemplate.value) return "";

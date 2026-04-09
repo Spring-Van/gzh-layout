@@ -60,7 +60,7 @@
               v-if="templateStore.customTemplates.length === 0"
               class="text-sm text-slate-500 text-center py-4"
             >
-              暂无自定义模板
+              暂无排版模板
             </p>
           </div>
         </div>
@@ -147,10 +147,28 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   (e: "close"): void;
   (e: "select", templateId: string): void;
+  (e: "openTemplate"): void;
 }>();
 
 const templateStore = useTemplateStore();
 const selectedTemplateId = ref<string>(props.currentTemplateId || "");
+
+function openTemplateModal() {
+  emit("openTemplate");
+}
+
+watch(
+  () => props.visible,
+  (newVal) => {
+    if (newVal && templateStore.customTemplates.length === 0) {
+      if (confirm("暂无排版模板，是否立即新建排版模板？")) {
+        emit("openTemplate");
+        emit("close");
+      }
+    }
+  },
+  { immediate: true },
+);
 
 const selectedTemplate = computed<CustomTemplate | undefined>(() => {
   if (!selectedTemplateId.value) return undefined;
