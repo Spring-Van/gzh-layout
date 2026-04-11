@@ -1171,14 +1171,26 @@ const globalCoverTemplateName = computed(() => {
   return tpl?.name || "未知模板";
 });
 
-const globalCoverTemplateImageCount = computed(() => {
-  const tid = batchStore.globalConfig.cover.templateId;
-  if (!tid) return 0;
-  const tpl = coverTemplateStore.coverTemplates.find((t) => t.id === tid);
-  if (!tpl) return 0;
+// 通用工具函数：获取封面模板需要的图片数量
+function getCoverTemplateImageCount(templateId: string): number {
+  if (!templateId) return 0;
+  const template = coverTemplateStore.coverTemplates.find(
+    (t) => t.id === templateId,
+  );
+  if (!template) return 0;
+
+  // 先处理模板 HTML 中的反引号，再匹配 img 标签
+  let html = template.html;
+  // 替换反引号包裹的图片 URL 为标准格式
+  html = html.replace(/`([^`"]+)`/g, '"$1"');
+
   const imgRegex = /<img[^>]*>/gi;
-  const matches = tpl.html.match(imgRegex);
+  const matches = html.match(imgRegex);
   return matches ? matches.length : 0;
+}
+
+const globalCoverTemplateImageCount = computed(() => {
+  return getCoverTemplateImageCount(batchStore.globalConfig.cover.templateId);
 });
 
 function handleConfirmCoverImageIndices(indices: number[]) {
@@ -1196,13 +1208,9 @@ const currentArticleCoverTemplateName = computed(() => {
 });
 
 const currentArticleCoverTemplateImageCount = computed(() => {
-  const tid = currentArticle.value?.coverConfig.templateId;
-  if (!tid) return 0;
-  const tpl = coverTemplateStore.coverTemplates.find((t) => t.id === tid);
-  if (!tpl) return 0;
-  const imgRegex = /<img[^>]*>/gi;
-  const matches = tpl.html.match(imgRegex);
-  return matches ? matches.length : 0;
+  return getCoverTemplateImageCount(
+    currentArticle.value?.coverConfig.templateId || "",
+  );
 });
 
 // 生成封面预览图（使用选中的模板和图片）
@@ -1293,12 +1301,43 @@ watch(
   () => [
     currentArticle.value?.coverConfig.templateId,
     currentArticle.value?.coverConfig.selectedImageIds?.join(","),
+    currentArticle.value?.images?.length,
   ],
   async () => {
     if (!currentArticle.value?.coverConfig.templateId) {
       generatedCoverImageSrc.value = "";
       return;
     }
+
+    // 检查已选择的图片是否仍然存在
+    const selectedIds = currentArticle.value.coverConfig.selectedImageIds || [];
+    const availableImageIds = currentArticle.value.images.map((img) => img.id);
+    const missingIds = selectedIds.filter(
+      (id) => !availableImageIds.includes(id),
+    );
+
+    if (missingIds.length > 0) {
+      // 有图片被删除了，需要重新选择
+      const remainingIds = selectedIds.filter((id) =>
+        availableImageIds.includes(id),
+      );
+      const newImagesNeeded =
+        currentArticleCoverTemplateImageCount.value - remainingIds.length;
+
+      if (newImagesNeeded > 0) {
+        // 从剩余图片中补充
+        const additionalIds = currentArticle.value.images
+          .filter((img) => !remainingIds.includes(img.id))
+          .slice(0, newImagesNeeded)
+          .map((img) => img.id);
+
+        batchStore.updateCurrentArticleCoverConfig({
+          selectedImageIds: [...remainingIds, ...additionalIds],
+        });
+        return;
+      }
+    }
+
     generatedCoverImageSrc.value = await generateCoverImage(
       currentArticle.value.coverConfig.templateId,
       currentArticle.value.coverConfig.selectedImageIds,
@@ -1312,7 +1351,7 @@ watch(
 watch(
   () => [
     batchStore.globalConfig.cover.templateId,
-    batchStore.globalConfig.cover.selectedImageIds?.join(","),
+    batchStore.globalConfig.cover.coverImageIndices?.join(","),
   ],
   async () => {
     if (!batchStore.globalConfig.cover.templateId) {
@@ -1321,10 +1360,27 @@ watch(
     }
     // 全局封面使用当前文章的图片作为演示
     if (currentArticle.value) {
+      const coverImageIndices = batchStore.globalConfig.cover.coverImageIndices;
+      let selectedImageIds: string[] = [];
+
+      if (coverImageIndices && coverImageIndices.length > 0) {
+        // 根据序号选择图片
+        selectedImageIds = coverImageIndices
+          .map((index) => currentArticle.value?.images[index - 1]?.id)
+          .filter((id) => id !== undefined);
+      } else {
+        // 默认使用前 N 张图片（根据模板需要的图片数量）
+        const imageCount = getCoverTemplateImageCount(
+          batchStore.globalConfig.cover.templateId,
+        );
+        selectedImageIds = currentArticle.value.images
+          .slice(0, imageCount)
+          .map((img) => img.id);
+      }
+
       globalGeneratedCoverImageSrc.value = await generateCoverImage(
         batchStore.globalConfig.cover.templateId,
-        batchStore.globalConfig.cover.selectedImageIds ||
-          currentArticle.value.images.slice(0, 6).map((img) => img.id),
+        selectedImageIds,
         currentArticle.value.images,
       );
     }
@@ -1551,46 +1607,30 @@ function toggleInheritGlobalCover() {
 }
 
 function handleCoverTemplateSelect(templateId: string) {
-  batchStore.setGlobalCoverConfig({ templateId });
+  // 获取模板需要的图片数量
+  const imageCount = getCoverTemplateImageCount(templateId);
 
-  const template = coverTemplateStore.coverTemplates.find(
-    (t) => t.id === templateId,
-  );
-  if (template) {
-    const imgRegex = /<img[^>]*>/gi;
-    const matches = template.html.match(imgRegex);
-    const imageCount = matches ? matches.length : 0;
+  // 默认按顺序选择前 N 张图片的序号
+  const defaultIndices = Array.from({ length: imageCount }, (_, i) => i + 1);
 
-    // 默认按顺序选择前 N 张图片的序号
-    const defaultIndices = Array.from({ length: imageCount }, (_, i) => i + 1);
-    batchStore.setGlobalCoverConfig({
-      coverImageIndices: defaultIndices,
-    });
+  // 设置全局封面配置（包括模板 ID 和图片序号）
+  batchStore.setGlobalCoverConfig({
+    templateId,
+    coverImageIndices: defaultIndices,
+  });
 
-    // 自动按顺序选择前 N 张图片
-    if (currentArticle.value) {
-      const availableImages = currentArticle.value.images;
-      if (imageCount > 0 && availableImages.length > 0) {
-        const selectedIds = availableImages
-          .slice(0, imageCount)
-          .map((img) => img.id);
-        batchStore.setGlobalCoverConfig({
-          selectedImageIds: selectedIds,
-        });
-      }
-    }
-
-    // 更新所有文章的封面图片
-    batchStore.updateArticlesCoverImagesByIndices();
-  }
+  // 更新所有文章的封面图片
+  batchStore.updateArticlesCoverImagesByIndices();
 }
 
 function handleArticleCoverTemplateSelect(templateId: string) {
   if (currentArticle.value) {
     batchStore.updateCurrentArticleCoverConfig({ templateId });
 
+    // 获取模板需要的图片数量
+    const imageCount = getCoverTemplateImageCount(templateId);
+
     // 自动按顺序选择前 N 张图片
-    const imageCount = currentArticleCoverTemplateImageCount.value;
     const availableImages = currentArticle.value.images;
     if (imageCount > 0 && availableImages.length > 0) {
       const selectedIds = availableImages
@@ -1599,6 +1639,11 @@ function handleArticleCoverTemplateSelect(templateId: string) {
       batchStore.updateCurrentArticleCoverConfig({
         selectedImageIds: selectedIds,
       });
+    } else if (imageCount > 0 && availableImages.length === 0) {
+      // 提示用户需要添加图片
+      alert(
+        `封面模板需要 ${imageCount} 张图片，但当前文章没有图片素材。请先添加图片素材后再选择封面图片。`,
+      );
     }
   }
 }

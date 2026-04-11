@@ -52,7 +52,7 @@
 
           <div class="grid grid-cols-6 gap-2">
             <button
-              v-for="index in 9"
+              v-for="index in requiredImageCount"
               :key="index"
               @click="toggleIndex(index)"
               :class="[
@@ -65,6 +65,9 @@
               {{ index }}
             </button>
           </div>
+          <p class="text-[10px] text-slate-400 mt-2">
+            提示：最大可选序号为 {{ requiredImageCount }}，表示每篇文章使用对应位置的图片作为封面
+          </p>
         </div>
 
         <div class="p-3 bg-blue-50 rounded-xl border border-blue-200">
