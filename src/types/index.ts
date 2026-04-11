@@ -69,6 +69,7 @@ export interface ArticleCoverConfig {
   titlePosition?: { x: number; y: number };
   pic_crop_235_1?: string;
   pic_crop_1_1?: string;
+  generatedCoverImage?: string;
 }
 
 // 文章 - 排版配置
@@ -133,7 +134,7 @@ export interface CoverTemplate {
 }
 
 // 文章封面配置（合并到上方 ArticleCoverConfig，此处保留别名引用）
-export type ArticleCoverConfigSimple = Pick<ArticleCoverConfig, 'templateId' | 'selectedImageIds' | 'title'> & {
+export type ArticleCoverConfigSimple = Pick<ArticleCoverConfig, 'templateId' | 'selectedImageIds'> & {
   title?: string;
 };
 

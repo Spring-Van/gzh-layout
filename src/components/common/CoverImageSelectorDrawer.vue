@@ -153,7 +153,7 @@
 
           <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
             <div
-              v-for="(img, idx) in availableImages"
+              v-for="img in availableImages"
               :key="img.id"
               class="aspect-square rounded-lg overflow-hidden cursor-pointer border-2 transition relative"
               :class="[
@@ -161,7 +161,7 @@
                   ? 'border-primary bg-blue-50'
                   : 'border-transparent hover:border-primary/30',
               ]"
-              @click="handleDirectSelect(img)"
+              @click="() => handleDirectSelect(img)"
             >
               <img
                 :src="getImageUrl(img.path)"
@@ -275,7 +275,7 @@
                   ? 'border-primary bg-blue-50'
                   : 'border-transparent',
               ]"
-              @click="selectImage(img)"
+              @click="() => handleImagePickerSelect(img)"
             >
               <img
                 :src="getImageUrl(img.path)"
@@ -314,7 +314,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
-import type { ImageFile } from "../types";
+import type { ImageFile } from "../../types";
 
 interface Props {
   visible: boolean;
@@ -371,15 +371,6 @@ function closeImagePicker() {
   currentPickingIndex.value = null;
 }
 
-function selectImage(img: ImageFile) {
-  if (currentPickingIndex.value !== null) {
-    const newIds = [...localSelectedIds.value];
-    newIds[currentPickingIndex.value] = img.id;
-    localSelectedIds.value = newIds;
-    closeImagePicker();
-  }
-}
-
 // 直接点选模式的处理函数
 function handleDirectSelect(img: ImageFile) {
   if (directSelectionOrder.value.includes(img.id)) {
@@ -392,6 +383,15 @@ function handleDirectSelect(img: ImageFile) {
     directSelectionOrder.value.push(img.id);
   }
   // 如果已选满且点击的是未选中的图，不执行任何操作
+}
+
+function handleImagePickerSelect(img: ImageFile) {
+  if (currentPickingIndex.value !== null) {
+    const newIds = [...localSelectedIds.value];
+    newIds[currentPickingIndex.value] = img.id;
+    localSelectedIds.value = newIds;
+    closeImagePicker();
+  }
 }
 
 function handleSave() {

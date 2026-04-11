@@ -107,7 +107,7 @@
                 ? 'bg-primary text-white shadow-sm'
                 : 'text-slate-600 hover:bg-slate-100',
             ]"
-            @click="batchStore.setPreviewMode(mode.value)"
+            @click="batchStore.setPreviewMode(mode.value as any)"
           >
             {{ mode.label }}
           </button>
@@ -479,7 +479,7 @@
                 ? 'border-primary text-primary'
                 : 'border-transparent text-slate-400 hover:text-slate-600',
             ]"
-            @click="batchStore.setConfigTab(tab.value)"
+            @click="batchStore.setConfigTab(tab.value as any)"
           >
             {{ tab.label }}
           </button>
@@ -816,71 +816,27 @@
                 </div>
               </div>
 
-              <div>
-                <div class="flex items-center justify-between mb-1">
-                  <label class="text-xs font-medium text-slate-500 block"
-                    >图片素材</label
-                  >
-                  <span
-                    v-if="currentArticleCoverTemplateImageCount > 0"
-                    class="text-[10px] text-slate-400"
-                  >
-                    需要 {{ currentArticleCoverTemplateImageCount }} 张图
-                  </span>
-                </div>
-                <div class="grid grid-cols-4 gap-2">
-                  <template
-                    v-for="(img, idx) in currentArticle.images.slice(0, 4)"
-                    :key="img.id"
-                  >
-                    <div
-                      class="aspect-square rounded-lg overflow-hidden bg-slate-100 cursor-pointer hover:ring-2 hover:ring-primary/30 transition relative"
-                      @click="showImageManagerDrawer = true"
-                    >
-                      <img
-                        :src="getImageUrl(img.path)"
-                        :alt="img.name"
-                        class="w-full h-full object-cover"
-                        @error="
-                          (e) => {
-                            (e.target as HTMLImageElement).style.display =
-                              'none';
-                          }
-                        "
-                      />
-                      <div
-                        v-if="idx < currentArticleCoverTemplateImageCount"
-                        class="absolute top-1 left-1 w-5 h-5 bg-primary/90 text-white text-xs rounded-full flex items-center justify-center font-medium"
-                      >
-                        {{ idx + 1 }}
-                      </div>
-                      <div
-                        v-else
-                        class="absolute inset-0 bg-slate-900/40 flex items-center justify-center"
-                      >
-                        <span
-                          class="text-[10px] text-white bg-black/60 px-1.5 py-0.5 rounded"
-                          >未使用</span
-                        >
-                      </div>
-                    </div>
-                  </template>
+              <div v-if="currentArticleGeneratedCoverImageSrc">
+                <label class="block text-xs font-medium text-slate-500 mb-2"
+                  >封面预览</label
+                >
+                <div
+                  class="aspect-[2.35/1] w-full rounded-2xl overflow-hidden bg-slate-100 relative"
+                >
                   <div
-                    v-if="currentArticle.images.length > 4"
-                    class="aspect-square rounded-lg overflow-hidden bg-slate-100 cursor-pointer hover:ring-2 hover:ring-primary/30 transition flex items-center justify-center"
-                    @click="showImageManagerDrawer = true"
-                  >
-                    <span class="text-xs text-slate-500 font-medium"
-                      >+{{ currentArticle.images.length - 4 }}</span
-                    >
-                  </div>
-                  <div
-                    v-if="currentArticle.images.length === 0"
-                    class="aspect-square rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 cursor-pointer hover:border-primary/50 hover:bg-blue-50/50 transition flex flex-col items-center justify-center gap-1"
-                    @click="showImageManagerDrawer = true"
+                    class="w-full h-full"
+                    :style="{
+                      backgroundImage: `url(${currentArticleGeneratedCoverImageSrc})`,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                    }"
+                  ></div>
+                  <button
+                    @click="openArticleCoverCropTool('235')"
+                    class="absolute top-2 right-2 px-3 py-1.5 text-xs bg-black/60 text-white rounded-lg hover:bg-black/80 transition flex items-center gap-1"
                   >
                     <svg
-                      class="w-5 h-5 text-slate-400"
+                      class="w-3.5 h-3.5"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -889,56 +845,34 @@
                         stroke-linecap="round"
                         stroke-linejoin="round"
                         stroke-width="2"
-                        d="M12 4v16m8-8H4"
+                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2 2v12a2 2 0 002 2z"
                       ></path>
                     </svg>
-                    <span class="text-[10px] text-slate-400">添加图片</span>
-                  </div>
+                    裁剪
+                  </button>
                 </div>
-                <button
-                  class="mt-2 w-full border border-slate-200 rounded-lg p-2 text-center text-sm text-slate-600 hover:bg-slate-50 transition flex items-center justify-center gap-2"
-                  @click="showCoverImageSelector = true"
-                >
-                  <svg
-                    class="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                    ></path>
-                  </svg>
-                  选择封面图片
-                </button>
-                <p
-                  v-if="currentArticleCoverTemplateImageCount > 0"
-                  class="text-[10px] text-slate-400 mt-1.5"
-                >
-                  将自动按顺序使用前
-                  {{
-                    Math.min(
-                      currentArticleCoverTemplateImageCount,
-                      currentArticle.images.length,
-                    )
-                  }}
-                  张图片制作封面
-                </p>
               </div>
-            </template>
 
-            <div class="bg-blue-50 rounded-lg p-3 border border-blue-200">
-              <p class="text-xs text-blue-600">
-                {{
-                  currentArticle.coverConfig.inheritGlobal
-                    ? "当前生效：来自全局模板"
-                    : "当前生效：已自定义封面模板"
-                }}
-              </p>
-            </div>
+              <button
+                class="w-full py-2.5 text-sm font-medium text-primary bg-primary/10 rounded-xl hover:bg-primary/20 transition flex items-center justify-center gap-2"
+                @click="showCoverImageSelector = true"
+              >
+                <svg
+                  class="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  ></path>
+                </svg>
+                选择封面图片
+              </button>
+            </template>
           </div>
         </template>
 
@@ -1010,14 +944,14 @@
 
     <CoverImageSelectorDrawer
       :visible="showCoverImageSelector"
-      :images="currentArticle?.images || []"
+      :images="(currentArticle?.images as any) || []"
       :selected-image-ids="currentArticle?.coverConfig.selectedImageIds || []"
       :required-count="currentArticleCoverTemplateImageCount"
       :get-image-url="getImageUrl"
       @close="showCoverImageSelector = false"
       @update:selected-image-ids="
         (ids) => {
-          if (currentArticle.value) {
+          if (currentArticle) {
             batchStore.updateCurrentArticleCoverConfig({
               selectedImageIds: ids,
             });
@@ -1030,6 +964,7 @@
       :visible="showCoverImageIndexSelector"
       :initial-indices="batchStore.globalConfig.cover.coverImageIndices || []"
       :required-image-count="globalCoverTemplateImageCount"
+      :total-image-count="currentArticle?.images?.length || 0"
       @close="showCoverImageIndexSelector = false"
       @confirm="handleConfirmCoverImageIndices"
     />
@@ -1075,6 +1010,73 @@
       @close="showCoverCropTool = false"
       @confirm="handleCoverCropConfirm"
     />
+
+    <!-- 调试日志区域 -->
+    <div
+      class="fixed bottom-4 left-4 w-80 max-h-48 overflow-y-auto bg-slate-900/90 text-white text-xs p-3 rounded-lg shadow-2xl z-40 font-mono backdrop-blur-sm"
+      v-if="debugLogs.length > 0 && showDebugLogs"
+    >
+      <div
+        class="flex justify-between items-center mb-2 sticky top-0 bg-slate-900/90 pb-1 border-b border-slate-700"
+      >
+        <span class="font-bold">调试日志</span>
+        <div class="flex gap-1">
+          <button
+            @click="showDebugLogs = false"
+            class="text-slate-400 hover:text-white"
+            title="隐藏"
+          >
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M5 15l7-7 7 7"
+              ></path>
+            </svg>
+          </button>
+          <button
+            @click="debugLogs = []"
+            class="text-slate-400 hover:text-white"
+            title="清空"
+          >
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              ></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="space-y-0.5 text-[10px]">
+        <div
+          v-for="(log, idx) in debugLogs.slice(-30)"
+          :key="idx"
+          class="truncate"
+          :class="{
+            'text-green-400': log.includes('成功') || log.includes('完成'),
+            'text-red-400': log.includes('失败') || log.includes('错误'),
+            'text-yellow-400': log.includes('警告') || log.includes('warn'),
+            'text-blue-400': log.includes('开始') || log.includes('选择'),
+          }"
+        >
+          {{ log }}
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -1089,12 +1091,23 @@ import PhoneMockup from "../components/common/PhoneMockup.vue";
 import ModalTemplate from "../components/layout/ModalTemplate.vue";
 import ModalCoverTemplate from "../components/layout/ModalCoverTemplate.vue";
 import ModalCoverTemplateSelector from "../components/layout/ModalCoverTemplateSelector.vue";
-import CoverSelector from "../components/common/CoverSelector.vue";
 import CoverImageSelectorDrawer from "../components/common/CoverImageSelectorDrawer.vue";
 import CoverImageIndexSelectorDrawer from "../components/common/CoverImageIndexSelectorDrawer.vue";
 import CoverCropTool from "../components/common/CoverCropTool.vue";
 import GlobalTitleConfig from "../components/typeset/GlobalTitleConfig.vue";
 import ArticleTitleConfig from "../components/typeset/ArticleTitleConfig.vue";
+
+// 调试日志
+const debugLogs = ref<string[]>([]);
+const showDebugLogs = ref(false);
+function addLog(message: string) {
+  const timestamp = new Date().toLocaleTimeString();
+  debugLogs.value.push(`[${timestamp}] ${message}`);
+  // 保留最近 50 条日志
+  if (debugLogs.value.length > 50) {
+    debugLogs.value = debugLogs.value.slice(-50);
+  }
+}
 import GlobalLayoutConfig from "../components/typeset/GlobalLayoutConfig.vue";
 import ArticleLayoutConfig from "../components/typeset/ArticleLayoutConfig.vue";
 import ImageManagerDrawer from "../components/typeset/ImageManagerDrawer.vue";
@@ -1179,18 +1192,26 @@ function getCoverTemplateImageCount(templateId: string): number {
   );
   if (!template) return 0;
 
-  // 先处理模板 HTML 中的反引号，再匹配 img 标签
-  let html = template.html;
-  // 替换反引号包裹的图片 URL 为标准格式
-  html = html.replace(/`([^`"]+)`/g, '"$1"');
+  const html = template.html;
 
+  // 方式 1：计算 img 标签数量
   const imgRegex = /<img[^>]*>/gi;
-  const matches = html.match(imgRegex);
-  return matches ? matches.length : 0;
+  const imgMatches = html.match(imgRegex);
+  const imgCount = imgMatches ? imgMatches.length : 0;
+
+  // 方式 2：计算 background-image 数量（检查是否包含占位图 URL）
+  const bgImageRegex = /background-image:\s*url\(['"]?[^'")\s]+['"]?\)/gi;
+  const bgMatches = html.match(bgImageRegex);
+  const bgCount = bgMatches ? bgMatches.length : 0;
+
+  // 返回总数（img + background-image）
+  return imgCount + bgCount;
 }
 
 const globalCoverTemplateImageCount = computed(() => {
-  return getCoverTemplateImageCount(batchStore.globalConfig.cover.templateId);
+  return getCoverTemplateImageCount(
+    batchStore.globalConfig.cover.templateId || "",
+  );
 });
 
 function handleConfirmCoverImageIndices(indices: number[]) {
@@ -1217,6 +1238,19 @@ const currentArticleCoverTemplateImageCount = computed(() => {
 const generatedCoverImageSrc = ref<string>("");
 const globalGeneratedCoverImageSrc = ref<string>("");
 
+// 当前文章封面预览（计算属性）
+const currentArticleGeneratedCoverImageSrc = computed(() => {
+  if (batchStore.configMode === "article" && currentArticle.value) {
+    // 优先使用已生成的封面图
+    if (currentArticle.value.coverConfig.generatedCoverImage) {
+      return currentArticle.value.coverConfig.generatedCoverImage;
+    }
+    // 否则使用实时生成的封面图
+    return generatedCoverImageSrc.value;
+  }
+  return "";
+});
+
 // 生成封面图的通用函数
 async function generateCoverImage(
   templateId: string,
@@ -1227,21 +1261,26 @@ async function generateCoverImage(
     (t) => t.id === templateId,
   );
   if (!template) {
+    addLog("警告：封面模板不存在：" + templateId);
     return "";
   }
 
   if (!selectedImageIds || selectedImageIds.length === 0) {
+    addLog("警告：没有选中的图片");
     return "";
   }
+
+  addLog(
+    "开始生成封面图：" +
+      JSON.stringify({
+        templateId,
+        selectedImageIds,
+        imagesCount: images.length,
+      }),
+  );
 
   // 将模板中的占位图替换为选中的图片
   let html = template.html;
-  const imgRegex = /<img[^>]*>/gi;
-  const matches = template.html.match(imgRegex);
-
-  if (!matches || matches.length === 0) {
-    return "";
-  }
 
   // 创建临时 div 来渲染 HTML
   const tempDiv = document.createElement("div");
@@ -1252,22 +1291,86 @@ async function generateCoverImage(
   tempDiv.style.top = "-9999px";
   tempDiv.innerHTML = html;
 
+  // 方式 1：替换 img 标签的 src 属性
   const imgElements = tempDiv.querySelectorAll("img");
+  addLog("模板中的 img 标签数量：" + imgElements.length);
+
   imgElements.forEach((img, idx) => {
     if (idx < selectedImageIds.length) {
       const imageId = selectedImageIds[idx];
       const image = images.find((i) => i.id === imageId);
       if (image) {
-        img.setAttribute("src", getImageUrl(image.path));
+        const imgUrl = getImageUrl(image.path);
+        addLog(`替换 img ${idx}: ${imageId} -> ${imgUrl.substring(0, 50)}...`);
+        img.setAttribute("src", imgUrl);
+      } else {
+        addLog("警告：找不到图片：" + imageId);
       }
     }
   });
+
+  // 方式 2：替换 background-image 的 url（直接解析 style 属性）
+  const allElements = tempDiv.querySelectorAll("*");
+  let bgImageCount = 0;
+  allElements.forEach((el) => {
+    const htmlEl = el as HTMLElement;
+    const styleAttr = htmlEl.getAttribute("style") || "";
+
+    // 检查是否包含占位图 URL
+    if (
+      styleAttr.includes("background-image") &&
+      styleAttr.includes("maque.toai.art/static/emoji/default_bz.png")
+    ) {
+      const imageIndex = bgImageCount;
+      if (imageIndex < selectedImageIds.length) {
+        const imageId = selectedImageIds[imageIndex];
+        const image = images.find((i) => i.id === imageId);
+        if (image) {
+          const imgUrl = getImageUrl(image.path);
+          addLog(
+            `替换 background-image ${imageIndex}: ${imageId} -> ${imgUrl.substring(0, 50)}...`,
+          );
+          // 替换 style 属性中的 background-image url
+          const newStyle = styleAttr.replace(
+            /background-image:\s*url\(['"]?[^'")\s]+['"]?\)/gi,
+            `background-image: url('${imgUrl}')`,
+          );
+          htmlEl.setAttribute("style", newStyle);
+          bgImageCount++;
+        } else {
+          addLog("警告：找不到图片：" + imageId);
+        }
+      }
+    }
+  });
+
+  addLog("选中的图片数量：" + selectedImageIds.length);
+  addLog(
+    "总共替换的图片数量：img=" +
+      imgElements.length +
+      ", background-image=" +
+      bgImageCount,
+  );
 
   document.body.appendChild(tempDiv);
 
   try {
     // 等待图片加载完成
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await Promise.all(
+      Array.from(tempDiv.querySelectorAll("img")).map(
+        (img) =>
+          new Promise((resolve, reject) => {
+            if (img.complete) {
+              resolve(true);
+            } else {
+              img.onload = () => resolve(true);
+              img.onerror = () => reject(new Error("图片加载失败"));
+            }
+          }),
+      ),
+    );
+
+    addLog("所有图片加载完成，开始生成 canvas");
 
     // 使用 html2canvas 生成图片
     const html2canvas = (await import("html2canvas")).default;
@@ -1280,14 +1383,18 @@ async function generateCoverImage(
       logging: false,
     });
 
-    return canvas.toDataURL("image/png");
+    const dataUrl = canvas.toDataURL("image/png");
+    addLog("封面图生成成功：" + dataUrl.substring(0, 50) + "...");
+    return dataUrl;
   } catch (error) {
-    console.error("生成封面图失败:", error);
+    addLog("错误：生成封面图失败：" + (error as Error).message);
     // 降级显示第一张图片
     if (selectedImageIds.length > 0) {
       const firstImage = images.find((i) => i.id === selectedImageIds[0]);
       if (firstImage) {
-        return getImageUrl(firstImage.path);
+        const fallbackUrl = getImageUrl(firstImage.path);
+        addLog("降级显示第一张图片：" + fallbackUrl.substring(0, 50) + "...");
+        return fallbackUrl;
       }
     }
     return "";
@@ -1296,27 +1403,71 @@ async function generateCoverImage(
   }
 }
 
+// 监听当前文章索引变化，更新封面预览
+watch(
+  () => batchStore.currentArticleIndex,
+  () => {
+    addLog("切换文章，索引：" + batchStore.currentArticleIndex);
+
+    if (currentArticle.value) {
+      // 优先使用已生成的封面图
+      const generatedCover =
+        currentArticle.value.coverConfig.generatedCoverImage;
+      if (generatedCover) {
+        addLog("使用已生成的封面图");
+        generatedCoverImageSrc.value = generatedCover;
+      } else if (currentArticle.value.coverConfig.templateId) {
+        // 如果没有已生成的封面图但有模板，重新生成
+        addLog("没有已生成的封面图，重新生成...");
+        generateCoverImage(
+          currentArticle.value.coverConfig.templateId,
+          currentArticle.value.coverConfig.selectedImageIds,
+          currentArticle.value.images,
+        ).then((coverImage) => {
+          generatedCoverImageSrc.value = coverImage;
+        });
+      } else {
+        addLog("没有封面模板，清空预览");
+        generatedCoverImageSrc.value = "";
+      }
+
+      // 同时更新全局封面预览
+      if (batchStore.configMode === "global" && generatedCover) {
+        globalGeneratedCoverImageSrc.value = generatedCover;
+        addLog("全局封面预览已更新");
+      }
+    }
+  },
+);
+
 // 监听文章封面配置变化，重新生成封面图
 watch(
-  () => [
-    currentArticle.value?.coverConfig.templateId,
-    currentArticle.value?.coverConfig.selectedImageIds?.join(","),
-    currentArticle.value?.images?.length,
-  ],
-  async () => {
-    if (!currentArticle.value?.coverConfig.templateId) {
+  () => ({
+    templateId: currentArticle.value?.coverConfig.templateId,
+    selectedImageIds:
+      currentArticle.value?.coverConfig.selectedImageIds?.join(","),
+    imagesLength: currentArticle.value?.images?.length,
+  }),
+  async (newVal) => {
+    addLog("封面配置变化：" + JSON.stringify(newVal));
+
+    if (!newVal.templateId) {
+      addLog("没有封面模板，清空预览");
       generatedCoverImageSrc.value = "";
       return;
     }
 
     // 检查已选择的图片是否仍然存在
-    const selectedIds = currentArticle.value.coverConfig.selectedImageIds || [];
-    const availableImageIds = currentArticle.value.images.map((img) => img.id);
+    const selectedIds =
+      currentArticle.value?.coverConfig.selectedImageIds || [];
+    const availableImageIds =
+      currentArticle.value?.images.map((img) => img.id) || [];
     const missingIds = selectedIds.filter(
       (id) => !availableImageIds.includes(id),
     );
 
     if (missingIds.length > 0) {
+      addLog("有图片缺失，需要重新选择：" + JSON.stringify(missingIds));
       // 有图片被删除了，需要重新选择
       const remainingIds = selectedIds.filter((id) =>
         availableImageIds.includes(id),
@@ -1324,7 +1475,7 @@ watch(
       const newImagesNeeded =
         currentArticleCoverTemplateImageCount.value - remainingIds.length;
 
-      if (newImagesNeeded > 0) {
+      if (newImagesNeeded > 0 && currentArticle.value) {
         // 从剩余图片中补充
         const additionalIds = currentArticle.value.images
           .filter((img) => !remainingIds.includes(img.id))
@@ -1338,23 +1489,39 @@ watch(
       }
     }
 
-    generatedCoverImageSrc.value = await generateCoverImage(
-      currentArticle.value.coverConfig.templateId,
-      currentArticle.value.coverConfig.selectedImageIds,
-      currentArticle.value.images,
-    );
+    if (currentArticle.value) {
+      // 优先使用已生成的封面图
+      const generatedCover =
+        currentArticle.value.coverConfig.generatedCoverImage;
+      if (generatedCover) {
+        addLog("使用已生成的封面图");
+        generatedCoverImageSrc.value = generatedCover;
+      } else {
+        addLog("开始生成封面预览图...");
+        generatedCoverImageSrc.value = await generateCoverImage(
+          currentArticle.value.coverConfig.templateId,
+          currentArticle.value.coverConfig.selectedImageIds,
+          currentArticle.value.images,
+        );
+        addLog(
+          "封面预览图生成完成：" +
+            (generatedCoverImageSrc.value ? "成功" : "失败"),
+        );
+      }
+    }
   },
-  { immediate: true },
+  { immediate: true, deep: true },
 );
 
 // 监听全局封面配置变化，重新生成全局封面图
 watch(
-  () => [
-    batchStore.globalConfig.cover.templateId,
-    batchStore.globalConfig.cover.coverImageIndices?.join(","),
-  ],
-  async () => {
-    if (!batchStore.globalConfig.cover.templateId) {
+  () => ({
+    templateId: batchStore.globalConfig.cover.templateId,
+    coverImageIndices:
+      batchStore.globalConfig.cover.coverImageIndices?.join(","),
+  }),
+  async (newVal) => {
+    if (!newVal.templateId) {
       globalGeneratedCoverImageSrc.value = "";
       return;
     }
@@ -1385,7 +1552,7 @@ watch(
       );
     }
   },
-  { immediate: true },
+  { immediate: true, deep: true },
 );
 
 const processedTemplateHtml = computed(() => {
@@ -1542,8 +1709,8 @@ function generateArticlesFromProject() {
   ) {
     projectStore.currentProject.groups.forEach((group) => {
       articleData.push({
-        id: group.id,
-        images: (group as any).images.map((img: ImageFile) => ({
+        id: group.groupId,
+        images: group.images.map((img: ImageFile) => ({
           id: img.id,
           path: img.path,
           name: img.name,
@@ -1606,12 +1773,21 @@ function toggleInheritGlobalCover() {
   }
 }
 
-function handleCoverTemplateSelect(templateId: string) {
+async function handleCoverTemplateSelect(templateId: string) {
+  addLog("=== 选择全局封面模板：" + templateId + " ===");
+
+  if (!templateId) {
+    addLog("错误：全局封面模板 ID 为空");
+    return;
+  }
+
   // 获取模板需要的图片数量
   const imageCount = getCoverTemplateImageCount(templateId);
+  addLog("模板需要的图片数量：" + imageCount);
 
   // 默认按顺序选择前 N 张图片的序号
   const defaultIndices = Array.from({ length: imageCount }, (_, i) => i + 1);
+  addLog("默认图片序号：" + JSON.stringify(defaultIndices));
 
   // 设置全局封面配置（包括模板 ID 和图片序号）
   batchStore.setGlobalCoverConfig({
@@ -1619,16 +1795,67 @@ function handleCoverTemplateSelect(templateId: string) {
     coverImageIndices: defaultIndices,
   });
 
-  // 更新所有文章的封面图片
-  batchStore.updateArticlesCoverImagesByIndices();
+  // 为每篇文章生成封面图
+  const articles = batchStore.articles;
+  addLog("开始为 " + articles.length + " 篇文章生成封面图");
+
+  for (let i = 0; i < articles.length; i++) {
+    const article = articles[i];
+    if (article.images && article.images.length > 0) {
+      const selectedImageIds = defaultIndices
+        .map((index) => article.images[index - 1]?.id)
+        .filter((id) => id !== undefined);
+
+      addLog(
+        `文章 ${i + 1}: 选中的图片 ID: ` + JSON.stringify(selectedImageIds),
+      );
+
+      const coverImage = await generateCoverImage(
+        templateId,
+        selectedImageIds,
+        article.images,
+      );
+
+      // 更新文章的封面配置，包括生成的封面图
+      batchStore.updateArticleCoverConfigByIndex(i, {
+        templateId,
+        selectedImageIds,
+        generatedCoverImage: coverImage,
+      });
+
+      addLog(`文章 ${i + 1}: 封面图生成` + (coverImage ? "成功" : "失败"));
+    } else {
+      addLog(`文章 ${i + 1}: 没有图片，跳过`);
+    }
+  }
+
+  // 更新全局封面预览
+  if (currentArticle.value) {
+    const currentCoverConfig = currentArticle.value.coverConfig;
+    if (currentCoverConfig.generatedCoverImage) {
+      globalGeneratedCoverImageSrc.value =
+        currentCoverConfig.generatedCoverImage;
+      addLog("全局封面预览已更新");
+    }
+  }
+
+  addLog("所有文章封面图生成完成");
 }
 
-function handleArticleCoverTemplateSelect(templateId: string) {
+async function handleArticleCoverTemplateSelect(templateId: string) {
+  addLog("=== 选择文章封面模板：" + templateId + " ===");
+
+  if (!templateId) {
+    addLog("错误：模板 ID 为空");
+    return;
+  }
+
   if (currentArticle.value) {
-    batchStore.updateCurrentArticleCoverConfig({ templateId });
+    addLog("当前文章图片数量：" + currentArticle.value.images.length);
 
     // 获取模板需要的图片数量
     const imageCount = getCoverTemplateImageCount(templateId);
+    addLog("模板需要的图片数量：" + imageCount);
 
     // 自动按顺序选择前 N 张图片
     const availableImages = currentArticle.value.images;
@@ -1636,15 +1863,34 @@ function handleArticleCoverTemplateSelect(templateId: string) {
       const selectedIds = availableImages
         .slice(0, imageCount)
         .map((img) => img.id);
+
+      addLog("选中的图片 ID：" + JSON.stringify(selectedIds));
+
+      // 立即生成封面预览图（在更新配置之前，避免 watch 重复触发）
+      const coverImage = await generateCoverImage(
+        templateId,
+        selectedIds,
+        availableImages,
+      );
+
+      // 一次性更新所有配置
       batchStore.updateCurrentArticleCoverConfig({
+        templateId,
         selectedImageIds: selectedIds,
       });
+
+      // 设置生成的封面图
+      generatedCoverImageSrc.value = coverImage;
+      addLog("封面图已设置：" + (coverImage ? "成功" : "失败"));
     } else if (imageCount > 0 && availableImages.length === 0) {
       // 提示用户需要添加图片
+      addLog("错误：没有可用图片");
       alert(
         `封面模板需要 ${imageCount} 张图片，但当前文章没有图片素材。请先添加图片素材后再选择封面图片。`,
       );
     }
+  } else {
+    addLog("错误：没有当前文章");
   }
 }
 
@@ -1656,6 +1902,12 @@ function openCoverCropTool(ratio: "235" | "11" = "235") {
 
 function openGlobalCoverCropTool(ratio: "235" | "11" = "235") {
   isCropModeGlobal.value = true;
+  targetCropRatio.value = ratio;
+  showCoverCropTool.value = true;
+}
+
+function openArticleCoverCropTool(ratio: "235" | "11" = "235") {
+  isCropModeGlobal.value = false;
   targetCropRatio.value = ratio;
   showCoverCropTool.value = true;
 }
@@ -1677,40 +1929,6 @@ function handleCoverCropConfirm(data: {
       });
     }
   }
-}
-
-function selectCoverImage(index: number) {
-  selectedCoverIndex.value = index;
-
-  if (!currentArticle.value?.coverConfig.templateId) return;
-
-  const template = coverTemplateStore.coverTemplates.find(
-    (t) => t.id === currentArticle.value?.coverConfig.templateId,
-  );
-  if (!template) return;
-
-  const imageCount = currentArticleCoverTemplateImageCount.value;
-  if (imageCount === 0) return;
-
-  const images = currentArticle.value.images;
-  if (images.length === 0) return;
-
-  const selectedIds = images
-    .slice(index, index + imageCount)
-    .map((img) => img.id);
-
-  if (selectedIds.length < imageCount) {
-    const remaining = imageCount - selectedIds.length;
-    for (let i = 0; i < remaining; i++) {
-      if (images[i] && !selectedIds.includes(images[i].id)) {
-        selectedIds.push(images[i].id);
-      }
-    }
-  }
-
-  batchStore.updateCurrentArticleCoverConfig({
-    selectedImageIds: selectedIds,
-  });
 }
 
 function getImageUrl(filePath: string): string {

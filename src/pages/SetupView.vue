@@ -267,7 +267,6 @@ import { useProjectStore } from "../stores/project";
 import { useToast } from "../hooks/useToast";
 import {
   createProjectFromFolder,
-  backupFolder,
   deduplicateImages,
   splitIntoFolders,
   findDuplicateImages,

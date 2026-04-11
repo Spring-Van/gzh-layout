@@ -36,7 +36,7 @@
         <div class="w-64 border-r border-slate-200 bg-slate-50 flex flex-col">
           <div class="p-4 border-b border-slate-200">
             <button
-              @click="coverTemplateStore.openEditor"
+              @click="() => coverTemplateStore.openEditor()"
               class="w-full bg-primary text-white text-sm font-medium py-2 rounded-lg hover:bg-primary-hover transition flex items-center justify-center gap-2"
             >
               <svg
@@ -77,7 +77,7 @@
                 }}</span>
                 <div class="flex gap-1">
                   <button
-                    @click.stop="editTemplate(template)"
+                    @click.stop="() => editTemplate(template)"
                     class="text-slate-400 hover:text-primary transition"
                   >
                     <svg
@@ -127,7 +127,7 @@
         <div class="flex-1 overflow-hidden">
           <CoverTemplateEditor
             v-if="coverTemplateStore.showEditor || editingTemplate"
-            :template="editingTemplate"
+            :template="editingTemplate || undefined"
             @save="handleSaveTemplate"
             @cancel="handleCancelEdit"
           />
@@ -177,6 +177,7 @@
 </template>
 
 <script setup lang="ts">
+/* eslint-disable vue/no-unused-properties */
 import { ref, computed, watch } from "vue";
 import { useCoverTemplateStore } from "../../stores/coverTemplate";
 import CoverTemplateEditor from "../common/CoverTemplateEditor.vue";
@@ -187,6 +188,7 @@ interface Props {
 }
 
 const props = defineProps<Props>();
+/* eslint-enable vue/no-unused-properties */
 const emit = defineEmits<{
   (e: "close"): void;
   (e: "select", template: CoverTemplate): void;

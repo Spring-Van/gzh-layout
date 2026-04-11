@@ -133,6 +133,7 @@
 </template>
 
 <script setup lang="ts">
+/* eslint-disable vue/no-unused-properties */
 import { ref, computed, watch } from "vue";
 import { useTemplateStore } from "../../stores/template";
 import PhoneMockup from "../common/PhoneMockup.vue";
@@ -144,6 +145,7 @@ interface Props {
 }
 
 const props = defineProps<Props>();
+/* eslint-enable vue/no-unused-properties */
 const emit = defineEmits<{
   (e: "close"): void;
   (e: "select", templateId: string): void;
@@ -152,10 +154,6 @@ const emit = defineEmits<{
 
 const templateStore = useTemplateStore();
 const selectedTemplateId = ref<string>(props.currentTemplateId || "");
-
-function openTemplateModal() {
-  emit("openTemplate");
-}
 
 watch(
   () => props.visible,

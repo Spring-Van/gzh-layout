@@ -80,7 +80,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from "vue";
+/* eslint-disable vue/no-unused-properties, @typescript-eslint/no-unused-vars */
+import { computed } from "vue";
 import type { GlobalTitleConfig } from "../../types";
 
 interface Props {
@@ -88,6 +89,7 @@ interface Props {
 }
 
 const props = defineProps<Props>();
+/* eslint-enable vue/no-unused-properties, @typescript-eslint/no-unused-vars */
 
 const emit = defineEmits<{
   "update:config": [config: GlobalTitleConfig];

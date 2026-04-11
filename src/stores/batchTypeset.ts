@@ -9,12 +9,13 @@ import type {
   ArticleTitleConfig,
   ArticleCoverConfig,
   ArticleLayoutConfig,
-  ArticleOverride,
   ConfigMode,
   ConfigTab,
   PreviewMode,
   NumberingRule,
 } from '../types';
+import { useTemplateStore } from './template';
+import { useCoverTemplateStore } from './coverTemplate';
 
 /**
  * 批量排版 Store
@@ -42,7 +43,7 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
       coverImageIndices: [],
     },
     layout: {
-      templateId: 'flow',
+      templateId: '',
       imageSortRule: 'original',
       imageFillMode: 'cover',
       imageStructure: 'flow',
@@ -141,7 +142,19 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
     id: string;
     images: Array<{ id: string; path: string; name: string }>;
   }>) {
-    articles.value = articleData.map((data, index) => ({
+    // 获取第一个自定义排版模板 ID
+    const templateStore = useTemplateStore();
+    const firstLayoutTemplateId = templateStore.customTemplates.length > 0
+      ? templateStore.customTemplates[0].id
+      : '';
+
+    // 获取第一个自定义封面模板 ID
+    const coverTemplateStore = useCoverTemplateStore();
+    const firstCoverTemplateId = coverTemplateStore.coverTemplates.length > 0
+      ? coverTemplateStore.coverTemplates[0].id
+      : '';
+
+    articles.value = articleData.map((data) => ({
       id: data.id,
       titleConfig: {
         inheritGlobal: true,
@@ -150,13 +163,13 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
       },
       coverConfig: {
         inheritGlobal: true,
-        templateId: '',
+        templateId: firstCoverTemplateId,
         selectedImageIds: data.images.length > 0 ? data.images.slice(0, 6).map(img => img.id) : [],
         cropMode: 'cover',
       },
       layoutConfig: {
         inheritGlobal: true,
-        templateId: 'flow',
+        templateId: firstLayoutTemplateId,
       },
       images: data.images,
       override: {
@@ -165,6 +178,15 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
         layout: false,
       },
     }));
+
+    // 更新全局配置的模板 ID
+    if (firstLayoutTemplateId) {
+      globalConfig.value.layout.templateId = firstLayoutTemplateId;
+    }
+    if (firstCoverTemplateId) {
+      globalConfig.value.cover.templateId = firstCoverTemplateId;
+    }
+
     currentArticleIndex.value = 0;
   }
 
@@ -200,6 +222,25 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
     const article = currentArticle.value;
     if (!article) return;
 
+    article.coverConfig = { ...article.coverConfig, ...config };
+
+    if (!config.inheritGlobal) {
+      article.override.cover = true;
+    } else if (config.inheritGlobal) {
+      article.override.cover = false;
+    }
+  }
+
+  /**
+   * 根据索引更新文章封面配置
+   */
+  function updateArticleCoverConfigByIndex(
+    index: number,
+    config: Partial<ArticleCoverConfig>,
+  ) {
+    if (index < 0 || index >= articles.value.length) return;
+
+    const article = articles.value[index];
     article.coverConfig = { ...article.coverConfig, ...config };
 
     if (!config.inheritGlobal) {
@@ -259,7 +300,7 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
    * 批量应用标题
    */
   function applyBatchTitles() {
-    articles.value.forEach((article, index) => {
+    articles.value.forEach((article) => {
       article.titleConfig.inheritGlobal = true;
       article.override.title = false;
     });
@@ -309,6 +350,7 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
     selectArticle,
     updateCurrentArticleTitleConfig,
     updateCurrentArticleCoverConfig,
+    updateArticleCoverConfigByIndex,
     updateCurrentArticleLayoutConfig,
     updateCurrentArticleImages,
     setConfigMode,

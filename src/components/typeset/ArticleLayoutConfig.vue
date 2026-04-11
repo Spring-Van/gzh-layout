@@ -39,17 +39,23 @@
               <div
                 class="w-12 h-12 bg-white rounded-lg border border-slate-200 flex items-center justify-center shadow-sm overflow-hidden"
               >
-                <template v-if="localConfig.templateId === 'flow'">
-                  <div class="w-full h-full flex flex-col gap-0.5 p-1">
-                    <div class="w-full h-1 bg-slate-200 rounded-sm"></div>
-                    <div class="w-full h-1 bg-slate-200 rounded-sm"></div>
-                  </div>
-                </template>
-                <template v-else-if="localConfig.templateId === 'card'">
+                <template v-if="localConfig.templateId">
                   <div
                     class="w-full h-full flex items-center justify-center p-1"
                   >
-                    <div class="w-3/4 h-3/4 bg-slate-200 rounded"></div>
+                    <svg
+                      class="w-5 h-5 text-slate-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.5"
+                        d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"
+                      ></path>
+                    </svg>
                   </div>
                 </template>
                 <template v-else>
@@ -172,7 +178,7 @@
 import { ref, computed } from "vue";
 import { useTemplateStore } from "../../stores/template";
 import ModalTemplateSelector from "../layout/ModalTemplateSelector.vue";
-import type { ArticleLayoutConfig, CustomTemplate } from "../../types";
+import type { ArticleLayoutConfig } from "../../types";
 
 interface ImageItem {
   id: string;
@@ -200,10 +206,6 @@ function openTemplateManager() {
   emit("open-template-manager");
 }
 
-const customTemplates = computed<CustomTemplate[]>(
-  () => templateStore.customTemplates,
-);
-
 const localConfig = computed({
   get: () => props.config,
   set: (val) => emit("update:config", val),
@@ -211,8 +213,6 @@ const localConfig = computed({
 
 const currentTemplateName = computed(() => {
   if (!props.config.templateId) return "请选择模板";
-  if (props.config.templateId === "flow") return "常规极简流";
-  if (props.config.templateId === "card") return "留白画框";
   const custom = templateStore.customTemplates.find(
     (t) => t.id === props.config.templateId,
   );
@@ -221,8 +221,6 @@ const currentTemplateName = computed(() => {
 
 const currentTemplateDescription = computed(() => {
   if (!props.config.templateId) return "点击选择模板";
-  if (props.config.templateId === "flow") return "图片上下流式排列";
-  if (props.config.templateId === "card") return "图片居中画框样式";
   const custom = templateStore.customTemplates.find(
     (t) => t.id === props.config.templateId,
   );

@@ -120,10 +120,11 @@ export const useProjectStore = defineStore('project', () => {
 
   async function createGroups(images: ImageFile[], splitCount: number) {
     if (currentProject.value) {
-      const groups: Array<{ id: string; images: ImageFile[] }> = [];
+      const groups: Array<{ groupId: string; name: string; images: ImageFile[] }> = [];
       for (let i = 0; i < images.length; i += splitCount) {
         groups.push({
-          id: `group-${Date.now()}-${i}`,
+          groupId: `group-${Date.now()}-${i}`,
+          name: `分组 ${i / splitCount + 1}`,
           images: images.slice(i, i + splitCount),
         });
       }

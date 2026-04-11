@@ -125,9 +125,9 @@
 </template>
 
 <script setup lang="ts">
+/* eslint-disable vue/no-unused-properties */
 import { ref, computed, watch } from "vue";
 import { useCoverTemplateStore } from "../../stores/coverTemplate";
-import type { CoverTemplate } from "../../types";
 
 interface Props {
   visible: boolean;
@@ -135,6 +135,7 @@ interface Props {
 }
 
 const props = defineProps<Props>();
+/* eslint-enable vue/no-unused-properties */
 const emit = defineEmits<{
   (e: "close"): void;
   (e: "select", templateId: string): void;
@@ -154,10 +155,6 @@ const selectedTemplate = computed(() => {
     ) || null
   );
 });
-
-function openCoverTemplateModal() {
-  emit("openCoverTemplate");
-}
 
 watch(
   () => props.visible,
@@ -184,6 +181,9 @@ const selectedTemplatePreview = computed(() => {
 
 function selectTemplate(templateId: string) {
   selectedTemplateId.value = templateId;
+  // 立即触发选择事件
+  emit("select", templateId);
+  emit("close");
 }
 
 function handleSelectTemplate() {

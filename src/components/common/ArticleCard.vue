@@ -23,8 +23,6 @@
 </template>
 
 <script setup lang="ts">
-import type { TemplateType } from '../../types';
-
 interface Props {
   title: string;
   imageCount: number;

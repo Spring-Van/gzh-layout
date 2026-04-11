@@ -1,5 +1,5 @@
 import type { InjectionKey } from 'vue';
-import { inject, provide, ref, computed } from 'vue';
+import { inject, provide, ref } from 'vue';
 import type { ToastType } from '../components/common/Toast.vue';
 
 interface ToastInstance {
@@ -7,12 +7,16 @@ interface ToastInstance {
   removeToast: (id: number) => void;
 }
 
-const toastKey: InjectionKey<{ instance: ToastInstance | null }> = Symbol('toast');
+interface ToastContext {
+  instance: ToastInstance | null;
+}
+
+const toastKey: InjectionKey<ToastContext> = Symbol('toast');
 
 export function useToastProvider() {
   const instance = ref<ToastInstance | null>(null);
 
-  provide(toastKey, { instance });
+  provide(toastKey, { instance: instance.value });
 
   return (val: ToastInstance) => {
     instance.value = val;
@@ -32,7 +36,7 @@ export function useToast() {
       // 返回空方法避免报错
       return {
         addToast: () => 0,
-        removeToast: () => {}
+        removeToast: () => { }
       };
     }
     return toastCtx.instance;

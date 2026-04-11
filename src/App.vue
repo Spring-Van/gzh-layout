@@ -1,6 +1,7 @@
 <script setup lang="ts">
+/* eslint-disable vue/no-unused-properties */
 import { ref, computed, onMounted } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute } from "vue-router";
 import AppHeader from "./components/layout/AppHeader.vue";
 import ModalTemplate from "./components/layout/ModalTemplate.vue";
 import ModalCoverTemplate from "./components/layout/ModalCoverTemplate.vue";
@@ -13,6 +14,7 @@ import { useProjectStore } from "./stores/project";
 import { useWechatAccountStore } from "./stores/wechatAccount";
 
 const toastRef = ref<InstanceType<typeof Toast> | null>(null);
+/* eslint-enable vue/no-unused-properties */
 const setToastInstance = useToastProvider();
 const templateStore = useTemplateStore();
 const coverTemplateStore = useCoverTemplateStore();

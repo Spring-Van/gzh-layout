@@ -1,13 +1,12 @@
 <template>
   <div v-if="visible" class="fixed inset-0 z-50 flex justify-end">
-    <div
-      class="absolute inset-0 bg-black/40"
-      @click="handleClose"
-    ></div>
+    <div class="absolute inset-0 bg-black/40" @click="handleClose"></div>
     <div
       class="relative w-full max-w-md bg-white shadow-2xl h-full flex flex-col animate-slide-in"
     >
-      <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+      <div
+        class="p-4 border-b border-slate-100 flex items-center justify-between"
+      >
         <h3 class="font-bold text-slate-800">选择封面图片序号</h3>
         <button
           @click="handleClose"
@@ -42,6 +41,9 @@
             <label class="text-xs font-medium text-slate-700">
               需要 {{ requiredImageCount }} 张图片
             </label>
+            <div class="text-xs text-slate-500">
+              共 {{ totalImageCount }} 张图片
+            </div>
             <button
               @click="resetToDefault"
               class="text-xs text-primary hover:text-primary/80 transition"
@@ -52,7 +54,7 @@
 
           <div class="grid grid-cols-6 gap-2">
             <button
-              v-for="index in requiredImageCount"
+              v-for="index in totalImageCount"
               :key="index"
               @click="toggleIndex(index)"
               :class="[
@@ -66,7 +68,8 @@
             </button>
           </div>
           <p class="text-[10px] text-slate-400 mt-2">
-            提示：最大可选序号为 {{ requiredImageCount }}，表示每篇文章使用对应位置的图片作为封面
+            提示：已选择 {{ selectedIndices.length }} /
+            {{ requiredImageCount }} 张图片
           </p>
         </div>
 
@@ -106,6 +109,7 @@ interface Props {
   visible: boolean;
   initialIndices: number[];
   requiredImageCount: number;
+  totalImageCount: number;
 }
 
 interface Emits {
@@ -122,16 +126,17 @@ watch(
   () => props.initialIndices,
   (newIndices) => {
     selectedIndices.value = [...newIndices];
-  }
+  },
+  { immediate: true },
 );
 
 watch(
   () => props.requiredImageCount,
-  (newCount) => {
+  () => {
     if (selectedIndices.value.length === 0) {
       resetToDefault();
     }
-  }
+  },
 );
 
 function toggleIndex(index: number) {
@@ -147,7 +152,7 @@ function toggleIndex(index: number) {
 function resetToDefault() {
   selectedIndices.value = Array.from(
     { length: props.requiredImageCount },
-    (_, i) => i + 1
+    (_, i) => i + 1,
   );
 }
 
