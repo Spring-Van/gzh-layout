@@ -7,11 +7,20 @@
 
     <div class="flex items-center justify-between bg-slate-50 rounded-lg p-3 border border-slate-200">
       <label class="text-xs font-medium text-slate-600">继承全局标题规则</label>
-      <input
-        type="checkbox"
-        v-model="localInherit"
-        class="w-4 h-4 text-primary"
-      />
+      <button
+        :class="[
+          'w-11 h-6 rounded-full transition-colors relative',
+          localInherit ? 'bg-primary' : 'bg-slate-300',
+        ]"
+        @click="localInherit = !localInherit"
+      >
+        <span
+          :class="[
+            'absolute top-1 w-4 h-4 bg-white rounded-full transition-transform',
+            localInherit ? 'left-6' : 'left-1',
+          ]"
+        ></span>
+      </button>
     </div>
 
     <div v-if="!localInherit" class="space-y-3">

@@ -170,7 +170,9 @@
         </div>
 
         <!-- 处理按钮 -->
-        <div class="mt-8 pt-6 border-t border-slate-100 flex justify-end">
+        <div
+          class="mt-8 pt-6 border-t border-slate-100 flex items-center justify-end gap-3"
+        >
           <button
             id="btn-process"
             class="bg-primary text-white px-8 py-3 rounded-xl text-sm font-medium shadow-md hover:bg-primary-hover transition flex items-center gap-2"
@@ -215,6 +217,49 @@
               ></path>
             </svg>
           </button>
+
+          <button
+            v-if="processResult"
+            class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl text-sm font-medium shadow-md transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            :disabled="navigating"
+            @click="handleNavigateToTypeset"
+          >
+            <svg
+              v-if="navigating"
+              class="w-4 h-4 animate-spin"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                class="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="4"
+              ></circle>
+              <path
+                class="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              ></path>
+            </svg>
+            <span>{{ navigating ? "排版中..." : "前往批量排版" }}</span>
+            <svg
+              v-if="!navigating"
+              class="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 5l7 7-7 7"
+              ></path>
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -242,12 +287,6 @@
             篇文章组待定排版。
           </p>
         </div>
-        <button
-          class="bg-primary hover:bg-primary-hover text-white text-sm font-medium px-6 py-2 rounded-lg shadow transition"
-          @click="$router.push('/typeset')"
-        >
-          前往批量排版
-        </button>
       </div>
     </div>
 
@@ -264,12 +303,17 @@
 import { ref } from "vue";
 import { useRouter } from "vue-router";
 import { useProjectStore } from "../stores/project";
+import { useBatchTypesetStore } from "../stores/batchTypeset";
+import { useCoverTemplateStore } from "../stores/coverTemplate";
+import { useTemplateStore } from "../stores/template";
+import { useCoverManager } from "../composables/useCoverManager";
 import { useToast } from "../hooks/useToast";
 import {
   createProjectFromFolder,
   deduplicateImages,
   splitIntoFolders,
   findDuplicateImages,
+  backupFolder,
 } from "../api/native";
 import type { DedupMode, SplitRule, ImageFile } from "../types";
 import DuplicateImageModal from "../components/common/DuplicateImageModal.vue";
@@ -277,10 +321,24 @@ import DuplicateImageModal from "../components/common/DuplicateImageModal.vue";
 const { success, error } = useToast();
 
 const projectStore = useProjectStore();
+const batchStore = useBatchTypesetStore();
+const coverTemplateStore = useCoverTemplateStore();
+const templateStore = useTemplateStore();
 const router = useRouter();
+
+// 初始化封面生成器
+const {
+  getCoverTemplateImageCount,
+  initialGenerateAllArticleCovers,
+} = useCoverManager({
+  coverTemplates: coverTemplateStore.coverTemplates,
+  getImageUrl: (path) => `file://${path.replace(/\\/g, "/")}`,
+  addLog: (msg) => console.log("[封面生成]", msg),
+});
 
 const selectedFolder = ref<string | null>(null);
 const processing = ref(false);
+const navigating = ref(false);
 const scannedImages = ref(0);
 const processResult = ref<{
   totalImages: number;
@@ -392,6 +450,11 @@ async function completeProcessing(
 ) {
   const project = projectStore.currentProject!;
 
+  if (config.value.backupEnabled) {
+    await backupFolder(project.sourceFolder);
+    success("素材已安全备份");
+  }
+
   if (config.value.createFolders && config.value.splitMode === "count") {
     const imagesForSplit = workingImages.map((img) => ({
       path: img.path,
@@ -416,9 +479,139 @@ async function completeProcessing(
 
   projectStore.createGroups(workingImages, config.value.splitCount);
   success("处理完成");
-  setTimeout(() => {
-    router.push("/typeset");
-  }, 500);
   processing.value = false;
+}
+
+async function handleNavigateToTypeset() {
+  if (!projectStore.currentProject) {
+    error("请先选择文件夹");
+    return;
+  }
+
+  navigating.value = true;
+
+  try {
+    // 加载必要的模板数据
+    console.log("[排版跳转] 开始加载模板数据...");
+    await templateStore.loadTemplates();
+    await coverTemplateStore.loadCoverTemplates();
+    console.log("[排版跳转] 模板数据加载完成");
+
+    // 生成文章数据
+    const articleData: Array<{
+      id: string;
+      images: Array<{ id: string; path: string; name: string }>;
+    }> = [];
+
+    if (
+      projectStore.currentProject.groups &&
+      projectStore.currentProject.groups.length > 0
+    ) {
+      projectStore.currentProject.groups.forEach((group) => {
+        articleData.push({
+          id: group.groupId,
+          images: group.images,
+        });
+      });
+    } else if (projectStore.currentProject.images) {
+      const countPerArticle = config.value.splitCount;
+      const images = projectStore.currentProject.images;
+
+      for (let i = 0; i < images.length; i += countPerArticle) {
+        const chunk = images.slice(i, i + countPerArticle);
+        articleData.push({
+          id: `article_${articleData.length + 1}`,
+          images: chunk,
+        });
+      }
+    }
+
+    console.log("[排版跳转] 初始化批量排版 store...");
+    batchStore.initArticles(articleData);
+    console.log(
+      "[排版跳转] 批量排版 store 初始化完成，文章数量:",
+      batchStore.articles.length,
+    );
+
+    // 获取封面模板
+    const firstCoverTemplateId =
+      coverTemplateStore.coverTemplates.length > 0
+        ? coverTemplateStore.coverTemplates[0].id
+        : "";
+
+    console.log("[排版跳转] 封面模板 ID:", firstCoverTemplateId);
+
+    if (firstCoverTemplateId) {
+      batchStore.setGlobalCoverConfig({
+        templateId: firstCoverTemplateId,
+      });
+
+      const imageCount = getCoverTemplateImageCount(firstCoverTemplateId);
+      console.log("[排版跳转] 封面模板需要图片数量:", imageCount);
+
+      const project = projectStore.currentProject;
+      let coverBasePath: string;
+
+      if (config.value.backupEnabled) {
+        const folderName = project.sourceFolder.split(/[\\/]/).pop() || "";
+        const lastSlashIndex = project.sourceFolder.lastIndexOf(
+          /[\\/]/.exec(project.sourceFolder)?.[0] || "\\",
+        );
+        const parentDir =
+          lastSlashIndex > 0
+            ? project.sourceFolder.substring(0, lastSlashIndex)
+            : "";
+        coverBasePath = parentDir
+          ? `${parentDir}\\${folderName}-备份`
+          : `${folderName}-备份`;
+        console.log(
+          "[排版跳转] 使用备份文件夹作为封面基础路径:",
+          coverBasePath,
+        );
+      } else if (
+        config.value.createFolders &&
+        project.groups &&
+        project.groups.length > 0
+      ) {
+        coverBasePath = "";
+        console.log(
+          "[排版跳转] 使用拆分文件夹，封面将分别存储在各个分组文件夹中",
+        );
+      } else {
+        coverBasePath = project.sourceFolder;
+        console.log("[排版跳转] 使用源文件夹作为封面基础路径:", coverBasePath);
+      }
+
+      const defaultIndices = Array.from(
+        { length: imageCount },
+        (_, i) => i + 1,
+      );
+      await initialGenerateAllArticleCovers(
+        firstCoverTemplateId,
+        defaultIndices,
+        coverBasePath,
+      );
+
+      console.log("[排版跳转] 所有文章封面图生成完成");
+    } else {
+      console.warn("[排版跳转] 没有找到封面模板");
+    }
+
+    // 等待一下确保数据已保存
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    console.log("[排版跳转] 准备跳转到 /typeset");
+    // 跳转到批量排版页面
+    await router.push("/typeset");
+    console.log("[排版跳转] 跳转成功");
+  } catch (e) {
+    console.error("[排版跳转] 失败:", e);
+    error("跳转失败，请重试");
+    navigating.value = false;
+    return; // 提前返回，保持 navigating 为 false
+  }
+
+  // 成功跳转后重置状态
+  navigating.value = false;
 }
 </script>

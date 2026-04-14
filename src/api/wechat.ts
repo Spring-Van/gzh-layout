@@ -25,6 +25,7 @@ export interface UploadArticleParams {
   title: string;
   coverImagePath: string;
   contentImagePaths: string[];
+  contentHtml?: string;
   author?: string;
   digest?: string;
   picCrop2351?: string;

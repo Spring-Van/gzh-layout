@@ -91,7 +91,12 @@ declare global {
       scanFolder: (folderPath: string) => Promise<ImageFile[]>;
       backupFolder: (sourcePath: string) => Promise<string>;
       calculateMD5: (filePath: string) => Promise<string>;
-      splitIntoFolders: (sourcePath: string, images: Array<{ path: string; name: string }>, splitCount: number, folderTime: string) => Promise<string[]>;
+      splitIntoFolders: (sourcePath: string, images: Array<{ path: string; name: string }>, splitCount: number, folderDate: string) => Promise<string[]>;
+      saveBase64Image: (base64Data: string, filename: string) => Promise<string>;
+      createCoverFolder: (basePath: string) => Promise<string>;
+      saveCoverImage: (coverFolder: string, base64Data: string, filename: string) => Promise<string>;
+      deleteCoverFolder: (coverFolder: string) => Promise<void>;
+      deleteCoverImage: (filePath: string) => Promise<void>;
       db: {
         init: () => Promise<{ success: boolean }>;
         getAllProjects: () => Promise<ProjectConfig[]>;

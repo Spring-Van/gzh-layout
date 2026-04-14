@@ -172,7 +172,9 @@
     <CoverCropTool
       :visible="showCoverCropTool"
       :image-src="
-        isCropModeGlobal ? globalGeneratedCoverImageSrc : generatedCoverImageSrc
+        isCropModeGlobal
+          ? globalGeneratedCoverImageSrc
+          : currentArticleGeneratedCoverImageSrc
       "
       :initial-crop-235="
         isCropModeGlobal
@@ -194,19 +196,19 @@
       v-if="debugLogs.length > 0 && showDebugLogs"
       :logs="debugLogs"
       @close="showDebugLogs = false"
-      @clear="debugLogs = []"
+      @clear="clearDebugLogs"
     />
   </section>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useProjectStore } from "../stores/project";
 import { useTemplateStore } from "../stores/template";
 import { useCoverTemplateStore } from "../stores/coverTemplate";
 import { useBatchTypesetStore } from "../stores/batchTypeset";
 import { useWechatAccountStore } from "../stores/wechatAccount";
-import { useCoverGenerator } from "../composables/useCoverGenerator";
+import { useCoverManager } from "../composables/useCoverManager";
 import PhoneMockup from "../components/common/PhoneMockup.vue";
 import ModalTemplate from "../components/layout/ModalTemplate.vue";
 import ModalCoverTemplate from "../components/layout/ModalCoverTemplate.vue";
@@ -229,7 +231,11 @@ const batchStore = useBatchTypesetStore();
 const wechatAccountStore = useWechatAccountStore();
 
 const debugLogs = ref<string[]>([]);
-const showDebugLogs = ref(false);
+const showDebugLogs = ref(true);
+
+function clearDebugLogs() {
+  debugLogs.value = [];
+}
 
 function addLog(message: string) {
   const timestamp = new Date().toLocaleTimeString();
@@ -239,7 +245,12 @@ function addLog(message: string) {
   }
 }
 
-const { generateCoverImage, getCoverTemplateImageCount } = useCoverGenerator({
+const {
+  getCoverTemplateImageCount,
+  regenerateSingleArticleCover,
+  regenerateAllArticleCovers,
+  toggleArticleCoverInherit,
+} = useCoverManager({
   coverTemplates: coverTemplateStore.coverTemplates,
   getImageUrl: (path) => getImageUrl(path),
   addLog,
@@ -255,8 +266,6 @@ const showCoverCropTool = ref(false);
 const showImageManagerDrawer = ref(false);
 const selectedCoverIndex = ref(0);
 const selectedCoverRatio = ref<"235" | "11">("235");
-const coverImageHeight = ref(0);
-const coverImageRef = ref<HTMLDivElement>();
 const isCropModeGlobal = ref(false);
 const targetCropRatio = ref<"235" | "11">("235");
 
@@ -310,13 +319,6 @@ const globalCoverTemplateImageCount = computed(() => {
   );
 });
 
-function handleConfirmCoverImageIndices(indices: number[]) {
-  batchStore.setGlobalCoverConfig({
-    coverImageIndices: indices,
-  });
-  batchStore.updateArticlesCoverImagesByIndices();
-}
-
 const currentArticleCoverTemplateName = computed(() => {
   const tid = currentArticle.value?.coverConfig.templateId;
   if (!tid) return "";
@@ -330,174 +332,192 @@ const currentArticleCoverTemplateImageCount = computed(() => {
   );
 });
 
-const generatedCoverImageSrc = ref<string>("");
-const globalGeneratedCoverImageSrc = ref<string>("");
-
-const currentArticleGeneratedCoverImageSrc = computed(() => {
-  if (batchStore.configMode === "article" && currentArticle.value) {
-    if (currentArticle.value.coverConfig.generatedCoverImage) {
-      return currentArticle.value.coverConfig.generatedCoverImage;
-    }
-    return generatedCoverImageSrc.value;
+const displayGeneratedCoverImage = computed(() => {
+  if (currentArticle.value?.coverConfig.generatedCoverImagePath) {
+    return getImageUrl(
+      currentArticle.value.coverConfig.generatedCoverImagePath,
+    );
   }
   return "";
 });
 
-const displayGeneratedCoverImage = computed(() => {
-  if (currentArticle.value?.coverConfig.generatedCoverImage) {
-    return currentArticle.value.coverConfig.generatedCoverImage;
+const globalGeneratedCoverImageSrc = computed(() => {
+  if (currentArticle.value?.coverConfig.generatedCoverImagePath) {
+    return getImageUrl(
+      currentArticle.value.coverConfig.generatedCoverImagePath,
+    );
   }
-  return generatedCoverImageSrc.value;
+  return "";
 });
 
-watch(
-  () => batchStore.currentArticleIndex,
-  () => {
-    addLog("切换文章，索引：" + batchStore.currentArticleIndex);
-
-    if (currentArticle.value) {
-      const generatedCover =
-        currentArticle.value.coverConfig.generatedCoverImage;
-      if (generatedCover) {
-        addLog("使用已生成的封面图");
-        generatedCoverImageSrc.value = generatedCover;
-      } else if (currentArticle.value.coverConfig.templateId) {
-        addLog("没有已生成的封面图，重新生成...");
-        generateCoverImage(
-          currentArticle.value.coverConfig.templateId!,
-          currentArticle.value.coverConfig.selectedImageIds,
-          currentArticle.value.images,
-        ).then((coverImage) => {
-          generatedCoverImageSrc.value = coverImage;
-        });
-      } else {
-        addLog("没有封面模板，清空预览");
-        generatedCoverImageSrc.value = "";
-      }
-
-      if (batchStore.configMode === "global" && generatedCover) {
-        globalGeneratedCoverImageSrc.value = generatedCover;
-        addLog("全局封面预览已更新");
-      }
-    }
-  },
-);
-
-watch(
-  () => ({
-    templateId: currentArticle.value?.coverConfig.templateId,
-    selectedImageIds:
-      currentArticle.value?.coverConfig.selectedImageIds?.join(","),
-    imagesLength: currentArticle.value?.images?.length,
-  }),
-  async (newVal) => {
-    addLog("封面配置变化：" + JSON.stringify(newVal));
-
-    if (!newVal.templateId) {
-      addLog("没有封面模板，清空预览");
-      generatedCoverImageSrc.value = "";
-      return;
-    }
-
-    const selectedIds =
-      currentArticle.value?.coverConfig.selectedImageIds || [];
-    const availableImageIds =
-      currentArticle.value?.images.map((img) => img.id) || [];
-    const missingIds = selectedIds.filter(
-      (id) => !availableImageIds.includes(id),
+const currentArticleGeneratedCoverImageSrc = computed(() => {
+  if (currentArticle.value?.coverConfig.generatedCoverImagePath) {
+    return getImageUrl(
+      currentArticle.value.coverConfig.generatedCoverImagePath,
     );
+  }
+  return "";
+});
 
-    if (missingIds.length > 0) {
-      addLog("有图片缺失，需要重新选择：" + JSON.stringify(missingIds));
-      const remainingIds = selectedIds.filter((id) =>
-        availableImageIds.includes(id),
-      );
-      const newImagesNeeded =
-        currentArticleCoverTemplateImageCount.value - remainingIds.length;
+onMounted(() => {
+  generateArticlesFromProject();
+  templateStore.loadTemplates();
+  coverTemplateStore.loadCoverTemplates();
+  wechatAccountStore.loadAccounts();
+});
 
-      if (newImagesNeeded > 0 && currentArticle.value) {
-        const additionalIds = currentArticle.value.images
-          .filter((img) => !remainingIds.includes(img.id))
-          .slice(0, newImagesNeeded)
-          .map((img) => img.id);
+function generateArticlesFromProject() {
+  const articleData: Array<{
+    id: string;
+    images: ImageFile[];
+  }> = [];
 
-        batchStore.updateCurrentArticleCoverConfig({
-          selectedImageIds: [...remainingIds, ...additionalIds],
-        });
-        return;
-      }
+  if (
+    projectStore.currentProject?.groups &&
+    projectStore.currentProject.groups.length > 0
+  ) {
+    projectStore.currentProject.groups.forEach((group) => {
+      articleData.push({
+        id: group.groupId,
+        images: group.images,
+      });
+    });
+  } else if (projectStore.currentProject?.images) {
+    const countPerArticle = 9;
+    const images = projectStore.currentProject.images;
+
+    for (let i = 0; i < images.length; i += countPerArticle) {
+      const chunk = images.slice(i, i + countPerArticle);
+      articleData.push({
+        id: `article_${articleData.length + 1}`,
+        images: chunk,
+      });
     }
+  }
 
-    if (currentArticle.value) {
-      const generatedCover =
-        currentArticle.value.coverConfig.generatedCoverImage;
-      if (generatedCover) {
-        addLog("使用已生成的封面图");
-        generatedCoverImageSrc.value = generatedCover;
-      } else {
-        addLog("开始生成封面预览图...");
-        generatedCoverImageSrc.value = await generateCoverImage(
-          currentArticle.value.coverConfig.templateId!,
-          currentArticle.value.coverConfig.selectedImageIds,
-          currentArticle.value.images,
-        );
-        addLog(
-          "封面预览图生成完成：" +
-            (generatedCoverImageSrc.value ? "成功" : "失败"),
-        );
-      }
-    }
-  },
-  { immediate: true, deep: true },
-);
+  batchStore.initArticles(articleData);
+  batchStore.updateArticlesCoverImagesByIndices();
+}
 
-watch(
-  () => ({
-    templateId: batchStore.globalConfig.cover.templateId,
-    coverImageIndices:
-      batchStore.globalConfig.cover.coverImageIndices?.join(","),
-    articleImages: currentArticle.value?.images?.length,
-  }),
-  async (newVal) => {
-    if (!newVal.templateId || !currentArticle.value) {
-      globalGeneratedCoverImageSrc.value = "";
-      return;
-    }
+function handleUpdateArticleImages(images: any[]) {
+  if (currentArticle.value) {
+    batchStore.updateCurrentArticleImages(images);
+  }
+}
 
-    const coverImageIndices = batchStore.globalConfig.cover.coverImageIndices;
-    let selectedImageIds: string[] = [];
+async function toggleInheritGlobalCover() {
+  const result = await toggleArticleCoverInherit(
+    batchStore.currentArticleIndex,
+  );
+  if (result) {
+    addLog("封面继承切换成功");
+  }
+}
 
-    if (coverImageIndices && coverImageIndices.length > 0) {
-      selectedImageIds = coverImageIndices
-        .map((index) => currentArticle.value?.images[index - 1]?.id)
-        .filter((id) => id !== undefined);
-    } else {
-      const imageCount = getCoverTemplateImageCount(
-        batchStore.globalConfig.cover.templateId!,
-      );
-      selectedImageIds = currentArticle.value.images
+async function handleConfirmCoverImageIndices(indices: number[]) {
+  addLog("=== 确认封面图片序号：" + indices.join(", ") + " ===");
+
+  const templateId = batchStore.globalConfig.cover.templateId;
+  if (!templateId) {
+    addLog("错误：没有封面模板");
+    return;
+  }
+
+  await regenerateAllArticleCovers(templateId, indices);
+}
+
+async function handleCoverTemplateSelect(templateId: string) {
+  addLog("=== 选择全局封面模板：" + templateId + " ===");
+
+  if (!templateId) {
+    addLog("错误：全局封面模板 ID 为空");
+    return;
+  }
+
+  const imageCount = getCoverTemplateImageCount(templateId);
+  const defaultIndices = Array.from({ length: imageCount }, (_, i) => i + 1);
+
+  await regenerateAllArticleCovers(templateId, defaultIndices);
+}
+
+async function handleArticleCoverTemplateSelect(templateId: string) {
+  addLog("=== 选择文章封面模板：" + templateId + " ===");
+
+  if (!templateId) {
+    addLog("错误：模板 ID 为空");
+    return;
+  }
+
+  if (currentArticle.value) {
+    const imageCount = getCoverTemplateImageCount(templateId);
+    const availableImages = currentArticle.value.images;
+
+    if (imageCount > 0 && availableImages.length > 0) {
+      const selectedIds = availableImages
         .slice(0, imageCount)
         .map((img) => img.id);
-    }
 
-    addLog(
-      "生成全局封面预览，模板 ID：" +
-        newVal.templateId +
-        ", 图片数量：" +
-        selectedImageIds.length,
-    );
-    globalGeneratedCoverImageSrc.value = await generateCoverImage(
-      batchStore.globalConfig.cover.templateId!,
-      selectedImageIds,
-      currentArticle.value.images,
-    );
-    addLog(
-      "全局封面预览生成" +
-        (globalGeneratedCoverImageSrc.value ? "成功" : "失败"),
-    );
-  },
-  { immediate: true, deep: true },
-);
+      batchStore.updateCurrentArticleCoverConfig({
+        templateId,
+        selectedImageIds: selectedIds,
+      });
+
+      await regenerateSingleArticleCover(batchStore.currentArticleIndex);
+    } else if (imageCount > 0 && availableImages.length === 0) {
+      alert(
+        `封面模板需要 ${imageCount} 张图片，但当前文章没有图片素材。请先添加图片素材后再选择封面图片。`,
+      );
+    }
+  }
+}
+
+function handleCropRequest(mode: "global" | "article", ratio: "235" | "11") {
+  isCropModeGlobal.value = mode === "global";
+  targetCropRatio.value = ratio;
+  showCoverCropTool.value = true;
+}
+
+function openCoverCropTool(ratio: "235" | "11" = "235") {
+  isCropModeGlobal.value = false;
+  targetCropRatio.value = ratio;
+  showCoverCropTool.value = true;
+}
+
+function handleCoverCropConfirm(data: {
+  pic_crop_235_1: string;
+  pic_crop_1_1: string;
+}) {
+  if (isCropModeGlobal.value) {
+    batchStore.setGlobalCoverConfig({
+      pic_crop_235_1: data.pic_crop_235_1,
+      pic_crop_1_1: data.pic_crop_1_1,
+    });
+  } else {
+    if (currentArticle.value) {
+      batchStore.updateCurrentArticleCoverConfig({
+        pic_crop_235_1: data.pic_crop_235_1,
+        pic_crop_1_1: data.pic_crop_1_1,
+      });
+    }
+  }
+}
+
+async function handleUpdateCoverImageIds(ids: string[]) {
+  if (currentArticle.value) {
+    batchStore.updateCurrentArticleCoverConfig({
+      selectedImageIds: ids,
+    });
+
+    await regenerateSingleArticleCover(batchStore.currentArticleIndex);
+  }
+}
+
+function getImageUrl(filePath: string): string {
+  const normalizedPath = filePath.replace(/\\/g, "/");
+  return normalizedPath.match(/^[a-zA-Z]:/)
+    ? `file:///${normalizedPath}`
+    : `file://${normalizedPath}`;
+}
 
 const processedTemplateHtml = computed(() => {
   if (!currentTemplate.value || !currentArticle.value) return "";
@@ -620,226 +640,6 @@ const processedTemplateHtml = computed(() => {
 
   return finalHtml;
 });
-
-onMounted(() => {
-  generateArticlesFromProject();
-  templateStore.loadTemplates();
-  coverTemplateStore.loadCoverTemplates();
-  wechatAccountStore.loadAccounts();
-  nextTick(() => {
-    if (coverImageRef.value) {
-      coverImageHeight.value = coverImageRef.value.offsetHeight;
-    }
-  });
-});
-
-function generateArticlesFromProject() {
-  const articleData: Array<{
-    id: string;
-    images: ImageFile[];
-  }> = [];
-
-  if (
-    projectStore.currentProject?.groups &&
-    projectStore.currentProject.groups.length > 0
-  ) {
-    projectStore.currentProject.groups.forEach((group) => {
-      articleData.push({
-        id: group.groupId,
-        images: group.images,
-      });
-    });
-  } else if (projectStore.currentProject?.images) {
-    const countPerArticle = 9;
-    const images = projectStore.currentProject.images;
-
-    for (let i = 0; i < images.length; i += countPerArticle) {
-      const chunk = images.slice(i, i + countPerArticle);
-      articleData.push({
-        id: `article_${articleData.length + 1}`,
-        images: chunk,
-      });
-    }
-  }
-
-  batchStore.initArticles(articleData);
-  batchStore.updateArticlesCoverImagesByIndices();
-}
-
-watch(selectedCoverIndex, async (newIndex) => {
-  if (newIndex === 0) {
-    await nextTick();
-    if (coverImageRef.value) {
-      coverImageHeight.value = coverImageRef.value.offsetHeight;
-    }
-  }
-});
-
-function handleUpdateArticleImages(images: any[]) {
-  if (currentArticle.value) {
-    batchStore.updateCurrentArticleImages(images);
-  }
-}
-
-function toggleInheritGlobalCover() {
-  if (currentArticle.value) {
-    batchStore.updateCurrentArticleCoverConfig({
-      inheritGlobal: !currentArticle.value.coverConfig.inheritGlobal,
-    });
-  }
-}
-
-async function handleCoverTemplateSelect(templateId: string) {
-  addLog("=== 选择全局封面模板：" + templateId + " ===");
-
-  if (!templateId) {
-    addLog("错误：全局封面模板 ID 为空");
-    return;
-  }
-
-  const imageCount = getCoverTemplateImageCount(templateId);
-  addLog("模板需要的图片数量：" + imageCount);
-
-  const defaultIndices = Array.from({ length: imageCount }, (_, i) => i + 1);
-  addLog("默认图片序号：" + JSON.stringify(defaultIndices));
-
-  batchStore.setGlobalCoverConfig({
-    templateId,
-    coverImageIndices: defaultIndices,
-  });
-
-  const articles = batchStore.articles;
-  addLog("开始为 " + articles.length + " 篇文章生成封面图");
-
-  for (let i = 0; i < articles.length; i++) {
-    const article = articles[i];
-    if (article.images && article.images.length > 0) {
-      const selectedImageIds = defaultIndices
-        .map((index) => article.images[index - 1]?.id)
-        .filter((id) => id !== undefined);
-
-      addLog(
-        `文章 ${i + 1}: 选中的图片 ID: ` + JSON.stringify(selectedImageIds),
-      );
-
-      const coverImage = await generateCoverImage(
-        templateId,
-        selectedImageIds,
-        article.images,
-      );
-
-      batchStore.updateArticleCoverConfigByIndex(i, {
-        templateId,
-        selectedImageIds,
-        generatedCoverImage: coverImage,
-      });
-
-      addLog(`文章 ${i + 1}: 封面图生成` + (coverImage ? "成功" : "失败"));
-    } else {
-      addLog(`文章 ${i + 1}: 没有图片，跳过`);
-    }
-  }
-
-  if (currentArticle.value) {
-    const currentCoverConfig = currentArticle.value.coverConfig;
-    if (currentCoverConfig.generatedCoverImage) {
-      globalGeneratedCoverImageSrc.value =
-        currentCoverConfig.generatedCoverImage;
-      addLog("全局封面预览已更新");
-    }
-  }
-
-  addLog("所有文章封面图生成完成");
-}
-
-async function handleArticleCoverTemplateSelect(templateId: string) {
-  addLog("=== 选择文章封面模板：" + templateId + " ===");
-
-  if (!templateId) {
-    addLog("错误：模板 ID 为空");
-    return;
-  }
-
-  if (currentArticle.value) {
-    addLog("当前文章图片数量：" + currentArticle.value.images.length);
-
-    const imageCount = getCoverTemplateImageCount(templateId);
-    addLog("模板需要的图片数量：" + imageCount);
-
-    const availableImages = currentArticle.value.images;
-    if (imageCount > 0 && availableImages.length > 0) {
-      const selectedIds = availableImages
-        .slice(0, imageCount)
-        .map((img) => img.id);
-
-      addLog("选中的图片 ID：" + JSON.stringify(selectedIds));
-
-      const coverImage = await generateCoverImage(
-        templateId,
-        selectedIds,
-        availableImages,
-      );
-
-      batchStore.updateCurrentArticleCoverConfig({
-        templateId,
-        selectedImageIds: selectedIds,
-      });
-
-      generatedCoverImageSrc.value = coverImage;
-      addLog("封面图已设置：" + (coverImage ? "成功" : "失败"));
-    } else if (imageCount > 0 && availableImages.length === 0) {
-      addLog("错误：没有可用图片");
-      alert(
-        `封面模板需要 ${imageCount} 张图片，但当前文章没有图片素材。请先添加图片素材后再选择封面图片。`,
-      );
-    }
-  } else {
-    addLog("错误：没有当前文章");
-  }
-}
-
-function handleCropRequest(mode: "global" | "article", ratio: "235" | "11") {
-  isCropModeGlobal.value = mode === "global";
-  targetCropRatio.value = ratio;
-  showCoverCropTool.value = true;
-}
-
-function openCoverCropTool(ratio: "235" | "11" = "235") {
-  isCropModeGlobal.value = false;
-  targetCropRatio.value = ratio;
-  showCoverCropTool.value = true;
-}
-
-function handleCoverCropConfirm(data: {
-  pic_crop_235_1: string;
-  pic_crop_1_1: string;
-}) {
-  if (isCropModeGlobal.value) {
-    batchStore.setGlobalCoverConfig({
-      pic_crop_235_1: data.pic_crop_235_1,
-      pic_crop_1_1: data.pic_crop_1_1,
-    });
-  } else {
-    if (currentArticle.value) {
-      batchStore.updateCurrentArticleCoverConfig({
-        pic_crop_235_1: data.pic_crop_235_1,
-        pic_crop_1_1: data.pic_crop_1_1,
-      });
-    }
-  }
-}
-
-function handleUpdateCoverImageIds(ids: string[]) {
-  if (currentArticle.value) {
-    batchStore.updateCurrentArticleCoverConfig({
-      selectedImageIds: ids,
-    });
-  }
-}
-
-function getImageUrl(filePath: string): string {
-  return `file://${filePath.replace(/\\/g, "/")}`;
-}
 </script>
 
 <style>

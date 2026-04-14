@@ -154,30 +154,40 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
       ? coverTemplateStore.coverTemplates[0].id
       : '';
 
-    articles.value = articleData.map((data) => ({
-      id: data.id,
-      titleConfig: {
-        inheritGlobal: true,
-        title: '',
-        subtitle: '',
-      },
-      coverConfig: {
-        inheritGlobal: true,
-        templateId: firstCoverTemplateId,
-        selectedImageIds: data.images.length > 0 ? data.images.slice(0, 6).map(img => img.id) : [],
-        cropMode: 'cover',
-      },
-      layoutConfig: {
-        inheritGlobal: true,
-        templateId: firstLayoutTemplateId,
-      },
-      images: data.images,
-      override: {
-        title: false,
-        cover: false,
-        layout: false,
-      },
-    }));
+    articles.value = articleData.map((data) => {
+      // 查找是否已有这篇文章的配置（保留已生成的封面图等配置）
+      const existingArticle = articles.value.find(a => a.id === data.id);
+
+      return {
+        id: data.id,
+        titleConfig: {
+          inheritGlobal: true,
+          title: '',
+          subtitle: '',
+        },
+        coverConfig: {
+          inheritGlobal: true,
+          templateId: firstCoverTemplateId,
+          selectedImageIds: data.images.length > 0 ? data.images.slice(0, 6).map(img => img.id) : [],
+          cropMode: 'cover',
+          // 保留已生成的封面图配置
+          generatedCoverImage: existingArticle?.coverConfig.generatedCoverImage,
+          generatedCoverImagePath: existingArticle?.coverConfig.generatedCoverImagePath,
+          pic_crop_235_1: existingArticle?.coverConfig.pic_crop_235_1,
+          pic_crop_1_1: existingArticle?.coverConfig.pic_crop_1_1,
+        },
+        layoutConfig: {
+          inheritGlobal: true,
+          templateId: firstLayoutTemplateId,
+        },
+        images: data.images,
+        override: {
+          title: false,
+          cover: false,
+          layout: false,
+        },
+      };
+    });
 
     // 更新全局配置的模板 ID
     if (firstLayoutTemplateId) {

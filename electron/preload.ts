@@ -24,8 +24,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   scanFolder: (folderPath: string) => ipcRenderer.invoke('image:scanFolder', folderPath),
   backupFolder: (sourcePath: string) => ipcRenderer.invoke('file:backupFolder', sourcePath),
   calculateMD5: (filePath: string) => ipcRenderer.invoke('file:calculateMD5', filePath),
-  splitIntoFolders: (sourcePath: string, images: Array<{ path: string; name: string }>, splitCount: number, folderTime: string) =>
-    ipcRenderer.invoke('file:splitIntoFolders', sourcePath, images, splitCount, folderTime),
+  splitIntoFolders: (sourcePath: string, images: Array<{ path: string; name: string }>, splitCount: number, folderDate: string) =>
+    ipcRenderer.invoke('file:splitIntoFolders', sourcePath, images, splitCount, folderDate),
+  saveBase64Image: (base64Data: string, filename: string) => ipcRenderer.invoke('file:saveBase64Image', base64Data, filename),
+  createCoverFolder: (basePath: string) => ipcRenderer.invoke('file:createCoverFolder', basePath),
+  saveCoverImage: (coverFolder: string, base64Data: string, filename: string) => ipcRenderer.invoke('file:saveCoverImage', coverFolder, base64Data, filename),
+  deleteCoverFolder: (coverFolder: string) => ipcRenderer.invoke('file:deleteCoverFolder', coverFolder),
+  deleteCoverImage: (filePath: string) => ipcRenderer.invoke('file:deleteCoverImage', filePath),
   db: {
     init: () => ipcRenderer.invoke('db:init'),
     getAllProjects: () => ipcRenderer.invoke('db:getAllProjects'),

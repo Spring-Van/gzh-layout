@@ -9,6 +9,7 @@ export interface UploadArticleParams {
   title: string;
   coverImagePath: string;
   contentImagePaths: string[];
+  contentHtml?: string;
   author?: string;
   digest?: string;
   picCrop2351?: string;
@@ -103,7 +104,7 @@ export function registerWechatIpc() {
         if (!sender.isDestroyed()) {
           sender.send('wechat:uploadProgress', progress);
         }
-      } catch {}
+      } catch { }
     };
 
     try {
@@ -161,7 +162,18 @@ export function registerWechatIpc() {
         });
 
         const imageUrls = contentResults.map(r => r.url);
-        const htmlContent = wechatService.buildArticleHtml(article.title, imageUrls);
+        let htmlContent: string;
+
+        if (article.contentHtml) {
+          htmlContent = article.contentHtml;
+          for (let j = 0; j < contentResults.length; j++) {
+            const originalPath = contentResults[j].originalPath;
+            const wechatUrl = contentResults[j].url;
+            htmlContent = htmlContent.split(originalPath).join(wechatUrl);
+          }
+        } else {
+          htmlContent = wechatService.buildArticleHtml(article.title, imageUrls);
+        }
 
         const draftMediaId = await wechatService.createDraft(accessToken, {
           title: article.title,

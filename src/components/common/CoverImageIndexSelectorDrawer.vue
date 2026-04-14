@@ -31,8 +31,9 @@
       <div class="flex-1 overflow-y-auto p-4 space-y-4">
         <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
           <p class="text-xs text-slate-600">
-            选择图片序号，每张文章的封面将使用对应位置的图片。例如选择 1、2、3，
-            则第一张文章使用第 1、2、3 张图片作为封面图，以此类推。
+            按顺序点击选择图片序号，封面将按你选择的顺序填充图片。例如依次点击
+            9、5、6、4，则封面第一张使用第 9 张图，第二张使用第 5
+            张图，以此类推。
           </p>
         </div>
 
@@ -57,19 +58,45 @@
               v-for="index in totalImageCount"
               :key="index"
               @click="toggleIndex(index)"
+              :disabled="
+                !selectedIndices.includes(index) &&
+                selectedIndices.length >= requiredImageCount
+              "
               :class="[
-                'h-10 rounded-lg text-sm font-medium transition-all',
+                'h-10 rounded-lg text-sm font-medium transition-all flex flex-col items-center justify-center leading-none',
                 selectedIndices.includes(index)
                   ? 'bg-primary text-white shadow-md'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                  : !selectedIndices.includes(index) &&
+                      selectedIndices.length >= requiredImageCount
+                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
               ]"
             >
-              {{ index }}
+              <span>{{ index }}</span>
+              <span
+                v-if="selectedIndices.includes(index)"
+                class="text-[9px] opacity-80"
+              >
+                第{{ selectedIndices.indexOf(index) + 1 }}张
+              </span>
             </button>
           </div>
-          <p class="text-[10px] text-slate-400 mt-2">
+          <p
+            class="text-[10px] mt-2"
+            :class="
+              selectedIndices.length === requiredImageCount
+                ? 'text-green-600 font-medium'
+                : 'text-slate-400'
+            "
+          >
             提示：已选择 {{ selectedIndices.length }} /
             {{ requiredImageCount }} 张图片
+            <span
+              v-if="selectedIndices.length >= requiredImageCount"
+              class="text-green-600"
+            >
+              （已满）
+            </span>
           </p>
         </div>
 
@@ -87,10 +114,10 @@
       <div class="p-4 border-t border-slate-100">
         <button
           @click="handleConfirm"
-          :disabled="selectedIndices.length === 0"
+          :disabled="selectedIndices.length !== requiredImageCount"
           :class="[
             'w-full py-3 rounded-xl font-medium transition-all',
-            selectedIndices.length > 0
+            selectedIndices.length === requiredImageCount
               ? 'bg-primary text-white hover:bg-primary/90'
               : 'bg-slate-200 text-slate-400 cursor-not-allowed',
           ]"
@@ -142,10 +169,14 @@ watch(
 function toggleIndex(index: number) {
   const idx = selectedIndices.value.indexOf(index);
   if (idx > -1) {
+    // 取消选中
     selectedIndices.value.splice(idx, 1);
   } else {
+    // 选中：检查是否已达到最大数量
+    if (selectedIndices.value.length >= props.requiredImageCount) {
+      return; // 已达到最大数量，不能再选择
+    }
     selectedIndices.value.push(index);
-    selectedIndices.value.sort((a, b) => a - b);
   }
 }
 

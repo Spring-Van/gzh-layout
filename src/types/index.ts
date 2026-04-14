@@ -69,7 +69,8 @@ export interface ArticleCoverConfig {
   titlePosition?: { x: number; y: number };
   pic_crop_235_1?: string;
   pic_crop_1_1?: string;
-  generatedCoverImage?: string;
+  generatedCoverImage?: string; // base64 格式（已废弃，保留用于向后兼容）
+  generatedCoverImagePath?: string; // 文件路径，用于预览和上传到公众号
 }
 
 // 文章 - 排版配置

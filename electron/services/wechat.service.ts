@@ -124,7 +124,7 @@ class WechatService {
       return this.tokenCache.accessToken;
     }
 
-    const url = `${WECHAT_API_BASE}/cgi-bin/token?grant_type=client_credential&appId=${encodeURIComponent(appId)}&secret=${encodeURIComponent(appSecret)}`;
+    const url = `${WECHAT_API_BASE}/cgi-bin/token?grant_type=client_credential&appid=${encodeURIComponent(appId)}&secret=${encodeURIComponent(appSecret)}`;
 
     const response = await fetch(url);
     const data: AccessTokenResponse = await response.json();
