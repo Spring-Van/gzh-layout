@@ -20,6 +20,12 @@ export class FileService {
     static async backupFolder(sourcePath: string): Promise<string> {
         const folderName = path.basename(sourcePath);
         const backupPath = path.join(path.dirname(sourcePath), `${folderName}-备份`);
+        
+        // 如果备份文件夹已存在，先清空
+        if (await fs.pathExists(backupPath)) {
+            await fs.remove(backupPath);
+        }
+        
         await fs.copy(sourcePath, backupPath);
         return backupPath;
     }
@@ -43,6 +49,12 @@ export class FileService {
     ): Promise<string[]> {
         const folderName = path.basename(sourcePath);
         const backupPath = path.join(path.dirname(sourcePath), `${folderName}-备份`);
+        
+        // 如果备份文件夹已存在，先清空
+        if (await fs.pathExists(backupPath)) {
+            await fs.remove(backupPath);
+        }
+        
         await fs.ensureDir(backupPath);
 
         const createdFolders: string[] = [];

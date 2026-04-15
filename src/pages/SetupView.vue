@@ -1,6 +1,6 @@
 <template>
   <section class="w-full h-full flex flex-col overflow-hidden">
-    <div class="flex-1 min-h-0 overflow-y-auto p-6 md:p-10">
+    <div class="flex-1 min-h-0 overflow-y-auto p-6 md:p-5">
       <div class="max-w-4xl mx-auto w-full">
         <h2 class="text-2xl font-bold mb-6 text-slate-800">
           步骤 1：素材装载与自动化清洗配置
@@ -64,8 +64,12 @@
                   <span class="text-sm font-medium text-slate-700 block"
                     >素材安全备份</span
                   >
-                  <span class="text-[10px] text-slate-400"
-                    >处理前保留原始数据副本至 _backup</span
+                  <span class="text-[10px] text-slate-400">
+                    {{
+                      selectedFolder
+                        ? `原始数据备份到 ${selectedFolder}-备份 文件夹内`
+                        : "未选择"
+                    }}</span
                   >
                 </div>
                 <input
@@ -125,18 +129,24 @@
                     class="w-24 text-center text-sm border-slate-200 rounded-lg shadow-sm focus:border-primary focus:ring-primary bg-slate-50 px-2 py-2 border outline-none"
                   />
                   <span class="text-sm text-slate-500">张图片 / 每篇文章</span>
+                  <label class="flex items-center gap-2 cursor-pointer ml-auto">
+                    <input
+                      type="checkbox"
+                      v-model="config.shuffleBeforeSplit"
+                      class="w-4 h-4 text-primary rounded border-slate-300 focus:ring-primary"
+                    />
+                    <span class="text-[12px] text-slate-700">打乱顺序</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      v-model="config.createFolders"
+                      class="w-4 h-4 text-primary rounded border-slate-300 focus:ring-primary"
+                    />
+                    <span class="text-[12px] text-slate-700">备份拆分</span>
+                  </label>
                 </div>
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    v-model="config.createFolders"
-                    class="w-4 h-4 text-primary rounded border-slate-300 focus:ring-primary"
-                  />
-                  <span class="text-sm text-slate-700"
-                    >拆分后创建独立文件夹</span
-                  >
-                </label>
-                <div v-if="config.createFolders" class="mt-3">
+                <div v-if="config.createFolders" class="mb-3">
                   <span class="text-sm font-medium text-slate-700 block mb-2"
                     >文件夹命名日期</span
                   >
@@ -218,7 +228,8 @@
             </button>
 
             <button
-              v-if="processResult"
+              id="btn-navigate"
+              v-if="processResult && !processResult.error"
               class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl text-sm font-medium shadow-md transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               :disabled="navigating"
               @click="handleNavigateToTypeset"
@@ -265,26 +276,53 @@
         <div
           id="step-result"
           v-if="processResult"
-          class="bg-green-50 border border-green-200 p-5 rounded-xl flex items-center justify-between shadow-sm"
+          class="rounded-xl flex items-center justify-between shadow-sm p-5"
+          :class="[
+            processResult.error
+              ? 'bg-red-50 border border-red-200'
+              : 'bg-green-50 border border-green-200',
+          ]"
         >
           <div>
             <div class="flex items-center gap-2 mb-1">
               <div
-                class="w-5 h-5 bg-green-500 text-white rounded-full flex items-center justify-center text-xs"
+                class="w-5 h-5 rounded-full flex items-center justify-center text-xs"
+                :class="[
+                  processResult.error
+                    ? 'bg-red-500 text-white'
+                    : 'bg-green-500 text-white',
+                ]"
               >
-                ✓
+                {{ processResult.error ? "!" : "✓" }}
               </div>
-              <h3 class="font-bold text-green-800 text-sm">
-                🎉 清洗拆分完成！素材已就绪
+              <h3
+                class="font-bold text-sm"
+                :class="[
+                  processResult.error ? 'text-red-800' : 'text-green-800',
+                ]"
+              >
+                {{
+                  processResult.error
+                    ? "无法生成，请调整图片数量"
+                    : "🎉 清洗拆分完成！素材已就绪"
+                }}
               </h3>
             </div>
-            <p class="text-xs text-green-600 pl-7">
-              共录入 {{ processResult.totalImages }} 张素材，拦截重复
-              {{ processResult.duplicateCount }} 张，拆分出
-              <span class="font-bold text-sm">{{
-                processResult.groupCount
-              }}</span>
-              篇文章组，可前往排版。
+            <p
+              class="text-xs pl-7"
+              :class="[processResult.error ? 'text-red-600' : 'text-green-600']"
+            >
+              <template v-if="processResult.error">
+                {{ processResult.errorMessage }}
+              </template>
+              <template v-else>
+                共录入 {{ processResult.totalImages }} 张素材，拦截重复
+                {{ processResult.duplicateCount }} 张，拆分出
+                <span class="font-bold text-sm">{{
+                  processResult.groupCount
+                }}</span>
+                篇文章组，可前往排版。
+              </template>
             </p>
           </div>
         </div>
@@ -343,6 +381,8 @@ const processResult = ref<{
   totalImages: number;
   duplicateCount: number;
   groupCount: number;
+  error?: boolean;
+  errorMessage?: string;
 } | null>(null);
 
 const showDuplicateModal = ref(false);
@@ -364,6 +404,7 @@ const config = ref({
   dedupMode: "hash" as DedupMode | "none",
   splitMode: "count" as SplitRule,
   splitCount: 9,
+  shuffleBeforeSplit: false,
   createFolders: false,
   folderDate: getTodayDate(),
 });
@@ -376,6 +417,8 @@ async function selectFolder() {
     selectedFolder.value = result.project.sourceFolder;
     scannedImages.value = result.images.length;
     projectStore.setCurrentProject(result.project);
+    navigating.value = false;
+    processResult.value = null;
     success(`成功扫描 ${result.images.length} 张图片`);
   } catch (e) {
     console.error("选择文件夹失败:", e);
@@ -406,6 +449,31 @@ async function executeProcessing() {
         pendingWorkingImages = workingImages;
         processing.value = false;
         return;
+      }
+    }
+
+    if (config.value.splitMode === "count") {
+      const remainder = workingImages.length % config.value.splitCount;
+      if (remainder !== 0) {
+        processResult.value = {
+          totalImages: workingImages.length,
+          duplicateCount: 0,
+          groupCount: 0,
+          error: true,
+          errorMessage: `当前扫描到 ${workingImages.length} 张图片， ${config.value.splitCount} 张图片一篇文章（最后一篇文章只有 ${remainder} 张）。请调整文件夹内图片数量，确保每篇文章图片数量相等。`,
+        };
+        processing.value = false;
+        return;
+      }
+    }
+
+    if (config.value.shuffleBeforeSplit && config.value.splitMode === "count") {
+      for (let i = workingImages.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [workingImages[i], workingImages[j]] = [
+          workingImages[j],
+          workingImages[i],
+        ];
       }
     }
 
@@ -449,11 +517,6 @@ async function completeProcessing(
 ) {
   const project = projectStore.currentProject!;
 
-  if (config.value.backupEnabled) {
-    await backupFolder(project.sourceFolder);
-    success("素材已安全备份");
-  }
-
   if (config.value.createFolders && config.value.splitMode === "count") {
     const imagesForSplit = workingImages.map((img) => ({
       path: img.path,
@@ -465,6 +528,12 @@ async function completeProcessing(
       config.value.splitCount,
       config.value.folderDate,
     );
+    success("拆分完成，分组文件夹已创建");
+  } else {
+    if (config.value.backupEnabled) {
+      await backupFolder(project.sourceFolder);
+      success("素材已安全备份");
+    }
   }
 
   const validImages = totalImages - duplicateCount;

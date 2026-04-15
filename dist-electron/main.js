@@ -1972,6 +1972,9 @@ class FileService {
   static async backupFolder(sourcePath) {
     const folderName = path$c.basename(sourcePath);
     const backupPath = path$c.join(path$c.dirname(sourcePath), `${folderName}-备份`);
+    if (await fs.pathExists(backupPath)) {
+      await fs.remove(backupPath);
+    }
     await fs.copy(sourcePath, backupPath);
     return backupPath;
   }
@@ -1987,6 +1990,9 @@ class FileService {
   static async splitIntoFolders(sourcePath, images, splitCount, folderDate) {
     const folderName = path$c.basename(sourcePath);
     const backupPath = path$c.join(path$c.dirname(sourcePath), `${folderName}-备份`);
+    if (await fs.pathExists(backupPath)) {
+      await fs.remove(backupPath);
+    }
     await fs.ensureDir(backupPath);
     const createdFolders = [];
     const groups = [];
