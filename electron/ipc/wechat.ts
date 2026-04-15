@@ -28,6 +28,14 @@ export interface ArticleUploadResult {
   draftMediaId: string;
   coverUrl: string;
   publishId?: string;
+  publishError?: string;
+}
+
+function minifyHtml(html: string): string {
+  return html
+    .replace(/>\s+</g, '><')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export function registerWechatIpc() {
@@ -175,6 +183,8 @@ export function registerWechatIpc() {
           htmlContent = wechatService.buildArticleHtml(article.title, imageUrls);
         }
 
+        htmlContent = minifyHtml(htmlContent);
+
         const draftMediaId = await wechatService.createDraft(accessToken, {
           title: article.title,
           thumbMediaId: coverResult.mediaId,
@@ -199,7 +209,18 @@ export function registerWechatIpc() {
             message: `[${i + 1}/${articles.length}] 正在发布草稿...`,
           });
 
-          result.publishId = await wechatService.publishDraft(accessToken, draftMediaId);
+          try {
+            result.publishId = await wechatService.publishDraft(accessToken, draftMediaId);
+          } catch (publishErr) {
+            const publishMessage = publishErr instanceof Error ? publishErr.message : String(publishErr);
+            result.publishError = publishMessage;
+            sendProgress({
+              currentArticleIndex: i,
+              totalArticles: articles.length,
+              step: 'done',
+              message: `[${i + 1}/${articles.length}] 草稿已创建，但发布失败：${publishMessage}`,
+            });
+          }
         }
 
         results.push(result);

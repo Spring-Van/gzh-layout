@@ -44,6 +44,7 @@ export interface ArticleUploadResult {
   draftMediaId: string;
   coverUrl: string;
   publishId?: string;
+  publishError?: string;
 }
 
 export interface BatchUploadResult {

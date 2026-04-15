@@ -276,6 +276,13 @@
             <p class="text-xs text-slate-400 mt-2">
               共创建 {{ uploadResults.length }} 篇草稿
             </p>
+            <p
+              v-if="uploadResults.some((r: any) => r.publishError)"
+              class="text-xs text-amber-600 mt-1"
+            >
+              ⚠
+              部分文章自动发布失败（封面尺寸可能不符合发布要求），可在公众号后台手动发布
+            </p>
           </div>
         </div>
         <button
@@ -413,7 +420,12 @@ async function startBatchSync() {
   });
 
   if (result.success) {
-    success("同步完成");
+    const hasPublishError = result.results.some((r) => r.publishError);
+    if (hasPublishError) {
+      success("草稿同步完成，但部分文章自动发布失败（可在公众号后台手动发布）");
+    } else {
+      success("同步完成");
+    }
   } else {
     showError("同步失败，请检查配置后重试");
   }

@@ -1,291 +1,292 @@
 <template>
-  <section class="w-full h-full p-6 md:p-10 flex flex-col overflow-y-auto">
-    <div class="max-w-4xl mx-auto w-full">
-      <button
-        class="text-sm text-slate-500 flex items-center gap-1 mb-6 hover:text-slate-800 transition"
-        @click="$router.push('/')"
-      >
-        <svg
-          class="w-4 h-4"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
+  <section class="w-full h-full flex flex-col overflow-hidden">
+    <div class="flex-1 min-h-0 overflow-y-auto p-6 md:p-10">
+      <div class="max-w-4xl mx-auto w-full">
+        <h2 class="text-2xl font-bold mb-6 text-slate-800">
+          步骤 1：素材装载与自动化清洗配置
+        </h2>
+
+        <div
+          id="step-upload"
+          class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm mb-5 flex items-center justify-between"
         >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M10 19l-7-7m0 0l7-7m-7 7h18"
-          ></path>
-        </svg>
-        返回主页
-      </button>
-
-      <h2 class="text-2xl font-bold mb-8 text-slate-800">
-        步骤 1：素材装载与自动化清洗配置
-      </h2>
-
-      <!-- 文件夹选择 -->
-      <div
-        id="step-upload"
-        class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm mb-6 flex items-center justify-between"
-      >
-        <div class="flex items-center gap-4">
-          <div
-            class="w-12 h-12 bg-blue-50 text-primary rounded-lg flex items-center justify-center"
+          <div class="flex items-center gap-4">
+            <div
+              class="w-11 h-11 bg-blue-50 text-primary rounded-lg flex items-center justify-center"
+            >
+              <svg
+                class="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"
+                ></path>
+              </svg>
+            </div>
+            <div>
+              <h3 class="font-bold text-slate-800 text-sm">选择本地包</h3>
+              <p class="text-xs text-slate-500 block" id="path-display">
+                {{ selectedFolder || "尚未选择文件夹..." }}
+              </p>
+              <p
+                v-if="scannedImages > 0"
+                class="text-xs text-green-600 block mt-1"
+              >
+                ✓ 已扫描 {{ scannedImages }} 张图片
+              </p>
+            </div>
+          </div>
+          <button
+            class="px-5 py-2 bg-slate-100 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-200 transition"
+            @click="selectFolder"
           >
-            <svg
-              class="w-6 h-6"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"
-              ></path>
-            </svg>
-          </div>
-          <div>
-            <h3 class="font-bold text-slate-800 text-sm">选择本地包</h3>
-            <p class="text-xs text-slate-500 block" id="path-display">
-              {{ selectedFolder || "尚未选择文件夹..." }}
-            </p>
-            <p
-              v-if="scannedImages > 0"
-              class="text-xs text-green-600 block mt-1"
-            >
-              ✓ 已扫描 {{ scannedImages }} 张图片
-            </p>
-          </div>
+            浏览并选择
+          </button>
         </div>
-        <button
-          class="px-5 py-2 bg-slate-100 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-200 transition"
-          @click="selectFolder"
+
+        <div
+          id="step-config"
+          class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm mb-5 transition duration-300"
+          :class="[!selectedFolder ? 'opacity-50 pointer-events-none' : '']"
         >
-          浏览并选择
-        </button>
-      </div>
-
-      <!-- 核心参数配置面板 -->
-      <div
-        id="step-config"
-        class="bg-white border border-slate-200 rounded-xl p-8 shadow-sm mb-8 transition duration-300"
-        :class="[!selectedFolder ? 'opacity-50 pointer-events-none' : '']"
-      >
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-10">
-          <!-- 去重策略 -->
-          <div class="space-y-5">
-            <h3 class="font-bold text-slate-800 border-b pb-2">
-              数据清洗与追溯
-            </h3>
-            <label class="flex justify-between items-center cursor-pointer">
-              <div>
-                <span class="text-sm font-medium text-slate-700 block"
-                  >素材安全备份</span
-                >
-                <span class="text-[10px] text-slate-400"
-                  >处理前保留原始数据副本至 _backup</span
-                >
-              </div>
-              <input
-                type="checkbox"
-                v-model="config.backupEnabled"
-                class="w-4 h-4 text-primary rounded border-slate-300 focus:ring-primary"
-                checked
-              />
-            </label>
-            <div>
-              <span class="text-sm font-medium text-slate-700 block mb-2"
-                >排重过滤级</span
-              >
-              <select
-                v-model="config.dedupMode"
-                class="w-full text-sm border-slate-200 rounded-lg shadow-sm focus:border-primary focus:ring-primary text-slate-600 bg-slate-50 px-3 py-2 border outline-none"
-              >
-                <option value="hash">严格过滤 (完全一致的文件)</option>
-                <option value="phash">
-                  感知过滤 (智能识别相似度较高的素材)
-                </option>
-                <option value="none">不过滤 (保留所有)</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- 拆分策略 -->
-          <div class="space-y-5">
-            <h3 class="font-bold text-slate-800 border-b pb-2">矩阵拆分规则</h3>
-            <div>
-              <span class="text-sm font-medium text-slate-700 block mb-2"
-                >处理模式</span
-              >
-              <select
-                v-model="config.splitMode"
-                class="w-full text-sm border-slate-200 rounded-lg shadow-sm focus:border-primary focus:ring-primary text-slate-600 bg-slate-50 px-3 py-2 border outline-none"
-              >
-                <option value="count">
-                  定量切片 (按张数均匀拆分成多篇草稿)
-                </option>
-                <option value="folder">
-                  按目录结构拆分 (每个分类子文件夹一篇)
-                </option>
-              </select>
-            </div>
-            <div v-if="config.splitMode === 'count'">
-              <span class="text-sm font-medium text-slate-700 block mb-2"
-                >触发阈值（定量切片参数）</span
-              >
-              <div class="flex items-center gap-3 mb-3">
-                <input
-                  type="number"
-                  v-model.number="config.splitCount"
-                  min="1"
-                  max="50"
-                  class="w-24 text-center text-sm border-slate-200 rounded-lg shadow-sm focus:border-primary focus:ring-primary bg-slate-50 px-2 py-2 border outline-none"
-                />
-                <span class="text-sm text-slate-500">张图片 / 每篇文章</span>
-              </div>
-              <label class="flex items-center gap-2 cursor-pointer">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div class="space-y-4">
+              <h3 class="font-bold text-slate-800 border-b pb-2">
+                数据清洗与追溯
+              </h3>
+              <label class="flex justify-between items-center cursor-pointer">
+                <div>
+                  <span class="text-sm font-medium text-slate-700 block"
+                    >素材安全备份</span
+                  >
+                  <span class="text-[10px] text-slate-400"
+                    >处理前保留原始数据副本至 _backup</span
+                  >
+                </div>
                 <input
                   type="checkbox"
-                  v-model="config.createFolders"
+                  v-model="config.backupEnabled"
                   class="w-4 h-4 text-primary rounded border-slate-300 focus:ring-primary"
+                  checked
                 />
-                <span class="text-sm text-slate-700">拆分后创建独立文件夹</span>
               </label>
-              <div v-if="config.createFolders" class="mt-3">
+              <div>
                 <span class="text-sm font-medium text-slate-700 block mb-2"
-                  >文件夹命名日期</span
+                  >排重过滤级</span
                 >
-                <input
-                  type="date"
-                  v-model="config.folderDate"
-                  class="w-full text-sm border-slate-200 rounded-lg shadow-sm focus:border-primary focus:ring-primary bg-slate-50 px-3 py-2 border outline-none"
-                />
+                <select
+                  v-model="config.dedupMode"
+                  class="w-full text-sm border-slate-200 rounded-lg shadow-sm focus:border-primary focus:ring-primary text-slate-600 bg-slate-50 px-3 py-2 border outline-none"
+                >
+                  <option value="hash">严格过滤 (完全一致的文件)</option>
+                  <option value="phash">
+                    感知过滤 (智能识别相似度较高的素材)
+                  </option>
+                  <option value="none">不过滤 (保留所有)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="space-y-4">
+              <h3 class="font-bold text-slate-800 border-b pb-2">
+                矩阵拆分规则
+              </h3>
+              <div>
+                <span class="text-sm font-medium text-slate-700 block mb-2"
+                  >处理模式</span
+                >
+                <select
+                  v-model="config.splitMode"
+                  class="w-full text-sm border-slate-200 rounded-lg shadow-sm focus:border-primary focus:ring-primary text-slate-600 bg-slate-50 px-3 py-2 border outline-none"
+                >
+                  <option value="count">
+                    定量切片 (按张数均匀拆分成多篇草稿)
+                  </option>
+                  <option value="folder">
+                    按目录结构拆分 (每个分类子文件夹一篇)
+                  </option>
+                </select>
+              </div>
+              <div v-if="config.splitMode === 'count'">
+                <span class="text-sm font-medium text-slate-700 block mb-2"
+                  >触发阈值（定量切片参数）</span
+                >
+                <div class="flex items-center gap-3 mb-3">
+                  <input
+                    type="number"
+                    v-model.number="config.splitCount"
+                    min="1"
+                    max="50"
+                    class="w-24 text-center text-sm border-slate-200 rounded-lg shadow-sm focus:border-primary focus:ring-primary bg-slate-50 px-2 py-2 border outline-none"
+                  />
+                  <span class="text-sm text-slate-500">张图片 / 每篇文章</span>
+                </div>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    v-model="config.createFolders"
+                    class="w-4 h-4 text-primary rounded border-slate-300 focus:ring-primary"
+                  />
+                  <span class="text-sm text-slate-700"
+                    >拆分后创建独立文件夹</span
+                  >
+                </label>
+                <div v-if="config.createFolders" class="mt-3">
+                  <span class="text-sm font-medium text-slate-700 block mb-2"
+                    >文件夹命名日期</span
+                  >
+                  <input
+                    type="date"
+                    v-model="config.folderDate"
+                    class="w-full text-sm border-slate-200 rounded-lg shadow-sm focus:border-primary focus:ring-primary bg-slate-50 px-3 py-2 border outline-none"
+                  />
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <!-- 处理按钮 -->
-        <div
-          class="mt-8 pt-6 border-t border-slate-100 flex items-center justify-end gap-3"
-        >
-          <button
-            id="btn-process"
-            class="bg-primary text-white px-8 py-3 rounded-xl text-sm font-medium shadow-md hover:bg-primary-hover transition flex items-center gap-2"
-            :disabled="processing"
-            @click="executeProcessing"
+          <div
+            class="mt-6 pt-5 border-t border-slate-100 flex items-center justify-end gap-3"
           >
-            <svg
-              v-if="processing"
-              class="w-4 h-4 animate-spin"
-              fill="none"
-              viewBox="0 0 24 24"
+            <button
+              class="bg-slate-100 text-slate-600 font-medium py-3 px-6 rounded-xl hover:bg-slate-200 transition text-sm flex items-center gap-2"
+              @click="$router.push('/')"
             >
-              <circle
-                class="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
+              <svg
+                class="w-4 h-4"
+                fill="none"
                 stroke="currentColor"
-                stroke-width="4"
-              ></circle>
-              <path
-                class="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              ></path>
-            </svg>
-            <span>{{
-              processing ? "清洗拆分中..." : "执行自动化清洗并生成矩阵"
-            }}</span>
-            <svg
-              v-if="!processing"
-              class="w-4 h-4 relative top-px"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+                ></path>
+              </svg>
+              返回主页
+            </button>
+            <button
+              id="btn-process"
+              class="bg-primary text-white px-8 py-3 rounded-xl text-sm font-medium shadow-md hover:bg-primary-hover transition flex items-center gap-2"
+              :disabled="processing"
+              @click="executeProcessing"
             >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 5l7 7-7 7"
-              ></path>
-            </svg>
-          </button>
-
-          <button
-            v-if="processResult"
-            class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl text-sm font-medium shadow-md transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            :disabled="navigating"
-            @click="handleNavigateToTypeset"
-          >
-            <svg
-              v-if="navigating"
-              class="w-4 h-4 animate-spin"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                class="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
+              <svg
+                v-if="processing"
+                class="w-4 h-4 animate-spin"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  class="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="4"
+                ></circle>
+                <path
+                  class="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
+              </svg>
+              <span>{{
+                processing ? "清洗拆分中..." : "执行自动化清洗并生成矩阵"
+              }}</span>
+              <svg
+                v-if="!processing"
+                class="w-4 h-4 relative top-px"
+                fill="none"
                 stroke="currentColor"
-                stroke-width="4"
-              ></circle>
-              <path
-                class="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              ></path>
-            </svg>
-            <span>{{ navigating ? "排版中..." : "前往批量排版" }}</span>
-            <svg
-              v-if="!navigating"
-              class="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 5l7 7-7 7"
-              ></path>
-            </svg>
-          </button>
-        </div>
-      </div>
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 5l7 7-7 7"
+                ></path>
+              </svg>
+            </button>
 
-      <!-- 结果面板 -->
-      <div
-        id="step-result"
-        v-if="processResult"
-        class="bg-green-50 border border-green-200 p-5 rounded-xl flex items-center justify-between mb-6 shadow-sm"
-      >
-        <div>
-          <div class="flex items-center gap-2 mb-1">
-            <div
-              class="w-5 h-5 bg-green-500 text-white rounded-full flex items-center justify-center text-xs"
+            <button
+              v-if="processResult"
+              class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl text-sm font-medium shadow-md transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              :disabled="navigating"
+              @click="handleNavigateToTypeset"
             >
-              ✓
-            </div>
-            <h3 class="font-bold text-green-800 text-sm">清洗拆分完成</h3>
+              <svg
+                v-if="navigating"
+                class="w-4 h-4 animate-spin"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  class="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="4"
+                ></circle>
+                <path
+                  class="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
+              </svg>
+              <span>{{ navigating ? "排版中..." : "前往批量排版" }}</span>
+              <svg
+                v-if="!navigating"
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 5l7 7-7 7"
+                ></path>
+              </svg>
+            </button>
           </div>
-          <p class="text-xs text-green-600 pl-7">
-            共录入 {{ processResult.totalImages }} 张素材，拦截重复
-            {{ processResult.duplicateCount }} 张，根据参数拆分出
-            <span class="font-bold text-sm">{{
-              processResult.groupCount
-            }}</span>
-            篇文章组待定排版。
-          </p>
+        </div>
+
+        <div
+          id="step-result"
+          v-if="processResult"
+          class="bg-green-50 border border-green-200 p-5 rounded-xl flex items-center justify-between shadow-sm"
+        >
+          <div>
+            <div class="flex items-center gap-2 mb-1">
+              <div
+                class="w-5 h-5 bg-green-500 text-white rounded-full flex items-center justify-center text-xs"
+              >
+                ✓
+              </div>
+              <h3 class="font-bold text-green-800 text-sm">
+                🎉 清洗拆分完成！素材已就绪
+              </h3>
+            </div>
+            <p class="text-xs text-green-600 pl-7">
+              共录入 {{ processResult.totalImages }} 张素材，拦截重复
+              {{ processResult.duplicateCount }} 张，拆分出
+              <span class="font-bold text-sm">{{
+                processResult.groupCount
+              }}</span>
+              篇文章组，可前往排版。
+            </p>
+          </div>
         </div>
       </div>
     </div>
@@ -327,14 +328,12 @@ const templateStore = useTemplateStore();
 const router = useRouter();
 
 // 初始化封面生成器
-const {
-  getCoverTemplateImageCount,
-  initialGenerateAllArticleCovers,
-} = useCoverManager({
-  coverTemplates: coverTemplateStore.coverTemplates,
-  getImageUrl: (path) => `file://${path.replace(/\\/g, "/")}`,
-  addLog: (msg) => console.log("[封面生成]", msg),
-});
+const { getCoverTemplateImageCount, initialGenerateAllArticleCovers } =
+  useCoverManager({
+    coverTemplates: coverTemplateStore.coverTemplates,
+    getImageUrl: (path) => `file://${path.replace(/\\/g, "/")}`,
+    addLog: (msg) => console.log("[封面生成]", msg),
+  });
 
 const selectedFolder = ref<string | null>(null);
 const processing = ref(false);
