@@ -268,6 +268,7 @@ const selectedCoverIndex = ref(0);
 const selectedCoverRatio = ref<"235" | "11">("235");
 const isCropModeGlobal = ref(false);
 const targetCropRatio = ref<"235" | "11">("235");
+const coverVersion = ref(Date.now());
 
 const previewModes = [
   { label: "封面", value: "cover" },
@@ -334,8 +335,9 @@ const currentArticleCoverTemplateImageCount = computed(() => {
 
 const displayGeneratedCoverImage = computed(() => {
   if (currentArticle.value?.coverConfig.generatedCoverImagePath) {
-    return getImageUrl(
-      currentArticle.value.coverConfig.generatedCoverImagePath,
+    return (
+      getImageUrl(currentArticle.value.coverConfig.generatedCoverImagePath) +
+      `?v=${coverVersion.value}`
     );
   }
   return "";
@@ -343,8 +345,9 @@ const displayGeneratedCoverImage = computed(() => {
 
 const globalGeneratedCoverImageSrc = computed(() => {
   if (currentArticle.value?.coverConfig.generatedCoverImagePath) {
-    return getImageUrl(
-      currentArticle.value.coverConfig.generatedCoverImagePath,
+    return (
+      getImageUrl(currentArticle.value.coverConfig.generatedCoverImagePath) +
+      `?v=${coverVersion.value}`
     );
   }
   return "";
@@ -352,8 +355,9 @@ const globalGeneratedCoverImageSrc = computed(() => {
 
 const currentArticleGeneratedCoverImageSrc = computed(() => {
   if (currentArticle.value?.coverConfig.generatedCoverImagePath) {
-    return getImageUrl(
-      currentArticle.value.coverConfig.generatedCoverImagePath,
+    return (
+      getImageUrl(currentArticle.value.coverConfig.generatedCoverImagePath) +
+      `?v=${coverVersion.value}`
     );
   }
   return "";
@@ -410,6 +414,7 @@ async function toggleInheritGlobalCover() {
     batchStore.currentArticleIndex,
   );
   if (result) {
+    coverVersion.value = Date.now();
     addLog("封面继承切换成功");
   }
 }
@@ -424,6 +429,7 @@ async function handleConfirmCoverImageIndices(indices: number[]) {
   }
 
   await regenerateAllArticleCovers(templateId, indices);
+  coverVersion.value = Date.now();
 }
 
 async function handleCoverTemplateSelect(templateId: string) {
@@ -438,6 +444,7 @@ async function handleCoverTemplateSelect(templateId: string) {
   const defaultIndices = Array.from({ length: imageCount }, (_, i) => i + 1);
 
   await regenerateAllArticleCovers(templateId, defaultIndices);
+  coverVersion.value = Date.now();
 }
 
 async function handleArticleCoverTemplateSelect(templateId: string) {
@@ -463,6 +470,7 @@ async function handleArticleCoverTemplateSelect(templateId: string) {
       });
 
       await regenerateSingleArticleCover(batchStore.currentArticleIndex);
+      coverVersion.value = Date.now();
     } else if (imageCount > 0 && availableImages.length === 0) {
       alert(
         `封面模板需要 ${imageCount} 张图片，但当前文章没有图片素材。请先添加图片素材后再选择封面图片。`,
@@ -509,6 +517,7 @@ async function handleUpdateCoverImageIds(ids: string[]) {
     });
 
     await regenerateSingleArticleCover(batchStore.currentArticleIndex);
+    coverVersion.value = Date.now();
   }
 }
 
