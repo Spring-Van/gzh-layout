@@ -66,21 +66,35 @@
         />
       </div>
 
-      <div
-        v-if="localConfig.enabled"
-        class="bg-slate-50 rounded-lg p-3 border border-slate-200"
-      >
+      <div>
         <label class="text-xs font-medium text-slate-500 block mb-1"
-          >示例预览</label
+          >全局摘要</label
         >
-        <p class="text-sm text-slate-700 font-medium">{{ previewExample }}</p>
+        <textarea
+          v-model="localSubtitle"
+          rows="3"
+          class="w-full border border-slate-300 rounded-lg text-sm px-3 py-2 focus:border-primary focus:ring-1 focus:ring-primary outline-none"
+          placeholder="输入摘要，将应用到所有文章"
+        ></textarea>
+      </div>
+
+      <div
+        class="bg-blue-50 rounded-lg p-3 border border-blue-200"
+      >
+        <label class="text-xs font-medium text-blue-600 block mb-1"
+          >标题示例预览</label
+        >
+        <p class="text-sm text-blue-800 font-medium">{{ previewTitle }}</p>
+        <p v-if="previewSubtitle" class="text-xs text-blue-500 mt-1">{{ previewSubtitle }}</p>
+        <p class="text-xs text-blue-400 mt-1">
+          当前生效：全局规则
+        </p>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-/* eslint-disable vue/no-unused-properties, @typescript-eslint/no-unused-vars */
 import { computed } from "vue";
 import type { GlobalTitleConfig } from "../../types";
 
@@ -89,7 +103,6 @@ interface Props {
 }
 
 const props = defineProps<Props>();
-/* eslint-enable vue/no-unused-properties, @typescript-eslint/no-unused-vars */
 
 const emit = defineEmits<{
   "update:config": [config: GlobalTitleConfig];
@@ -100,7 +113,12 @@ const localConfig = computed({
   set: (val) => emit("update:config", val),
 });
 
-const previewExample = computed(() => {
+const localSubtitle = computed({
+  get: () => props.config.subtitle || "",
+  set: (val) => emit("update:config", { ...props.config, subtitle: val }),
+});
+
+const previewTitle = computed(() => {
   if (!localConfig.value.enabled) return "标题示例";
 
   const numbering =
@@ -113,5 +131,9 @@ const previewExample = computed(() => {
           : localConfig.value.customFormat.replace("{n}", "3");
 
   return `${localConfig.value.prefix}${localConfig.value.separator}${numbering}`.trim();
+});
+
+const previewSubtitle = computed(() => {
+  return localConfig.value.subtitle || "";
 });
 </script>

@@ -63,6 +63,8 @@
           :cover-image-indices="globalCoverImageIndices"
           :required-image-count="globalCoverTemplateImageCount"
           :total-image-count="currentArticleImageCount"
+          :pic-crop-235="globalPicCrop235"
+          :pic-crop-11="globalPicCrop11"
           @open-template-selector="$emit('open-cover-template-selector')"
           @open-template-manager="$emit('open-cover-template-manager')"
           @open-index-selector="$emit('open-index-selector')"
@@ -104,6 +106,8 @@
           :cover-template-name="currentArticleCoverTemplateName"
           :generated-cover-image="currentArticleGeneratedCoverImageSrc"
           :required-image-count="currentArticleCoverTemplateImageCount"
+          :pic-crop-235="currentArticlePicCrop235"
+          :pic-crop-11="currentArticlePicCrop11"
           @toggle-inherit="$emit('toggle:inheritCover')"
           @open-template-selector="
             $emit('open-article-cover-template-selector')
@@ -190,12 +194,16 @@ interface Props {
   globalGeneratedCoverImageSrc?: string;
   globalCoverImageIndices?: number[];
   globalCoverTemplateImageCount: number;
+  globalPicCrop235?: string;
+  globalPicCrop11?: string;
   currentArticle?: BatchArticle | null;
   currentArticleIndex: number;
   currentArticleCoverTemplateName: string;
   currentArticleGeneratedCoverImageSrc?: string;
   currentArticleCoverTemplateImageCount: number;
   currentArticleImageCount: number;
+  currentArticlePicCrop235?: string;
+  currentArticlePicCrop11?: string;
 }
 
 interface Emits {

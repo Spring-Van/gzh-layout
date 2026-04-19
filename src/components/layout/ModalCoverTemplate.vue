@@ -36,7 +36,7 @@
         <div class="w-64 border-r border-slate-200 bg-slate-50 flex flex-col">
           <div class="p-4 border-b border-slate-200">
             <button
-              @click="() => coverTemplateStore.openEditor()"
+              @click="handleNewTemplate"
               class="w-full bg-primary text-white text-sm font-medium py-2 rounded-lg hover:bg-primary-hover transition flex items-center justify-center gap-2"
             >
               <svg
@@ -172,6 +172,26 @@
           </div>
         </div>
       </div>
+
+      <!-- 底部 -->
+      <!-- <div
+        v-if="!coverTemplateStore.showEditor && !editingTemplate"
+        class="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 flex-shrink-0"
+      >
+        <button
+          class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-200 rounded"
+          @click="$emit('close')"
+        >
+          关闭
+        </button>
+        <button
+          v-if="selectedTemplateId"
+          class="px-4 py-2 text-sm bg-primary text-white rounded hover:bg-primary-hover transition"
+          @click="handleSelectTemplate"
+        >
+          选择此模板
+        </button>
+      </div> -->
     </div>
   </div>
 </template>
@@ -236,17 +256,33 @@ function formatDate(dateStr: string) {
 
 function selectTemplate(templateId: string) {
   selectedTemplateId.value = templateId;
-  const template = coverTemplateStore.coverTemplates.find(
-    (t) => t.id === templateId,
-  );
-  if (template) {
-    emit("select", template);
+  if (editingTemplate.value || coverTemplateStore.showEditor) {
+    const template = coverTemplateStore.coverTemplates.find(
+      (t) => t.id === templateId,
+    );
+    if (template) {
+      editingTemplate.value = { ...template };
+      coverTemplateStore.closeEditor();
+    }
+  } else {
+    const template = coverTemplateStore.coverTemplates.find(
+      (t) => t.id === templateId,
+    );
+    if (template) {
+      emit("select", template);
+    }
   }
 }
 
 function editTemplate(template: CoverTemplate) {
   editingTemplate.value = { ...template };
-  coverTemplateStore.showEditor = true;
+  coverTemplateStore.closeEditor();
+}
+
+function handleNewTemplate() {
+  editingTemplate.value = null;
+  selectedTemplateId.value = null;
+  coverTemplateStore.openEditor();
 }
 
 async function deleteTemplate(templateId: string) {
@@ -254,6 +290,9 @@ async function deleteTemplate(templateId: string) {
     await coverTemplateStore.deleteCoverTemplate(templateId);
     if (selectedTemplateId.value === templateId) {
       selectedTemplateId.value = null;
+    }
+    if (editingTemplate.value?.id === templateId) {
+      editingTemplate.value = null;
     }
   }
 }
@@ -264,13 +303,24 @@ async function handleSaveTemplate(template: CoverTemplate) {
   } else {
     await coverTemplateStore.addCoverTemplate(template);
   }
-  coverTemplateStore.closeEditor();
-  editingTemplate.value = null;
   selectedTemplateId.value = template.id;
+  editingTemplate.value = { ...template };
 }
 
 function handleCancelEdit() {
-  coverTemplateStore.closeEditor();
   editingTemplate.value = null;
+  coverTemplateStore.closeEditor();
+}
+
+function handleSelectTemplate() {
+  if (selectedTemplateId.value) {
+    const template = coverTemplateStore.coverTemplates.find(
+      (t) => t.id === selectedTemplateId.value,
+    );
+    if (template) {
+      emit("select", template);
+    }
+    emit("close");
+  }
 }
 </script>

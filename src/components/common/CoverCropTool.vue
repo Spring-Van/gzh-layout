@@ -37,20 +37,30 @@
       </div>
 
       <div class="flex-1 overflow-y-auto p-6">
-        <div class="flex gap-2 mb-4">
-          <button
-            v-for="ratio in ratioOptions"
-            :key="ratio.value"
-            class="px-4 py-2 text-sm font-medium rounded-lg transition-all"
-            :class="[
-              currentRatio === ratio.value
-                ? 'bg-primary text-white shadow-sm'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-            ]"
-            @click="switchRatio(ratio.value)"
+        <div class="flex justify-between items-center">
+          <div class="flex gap-2 mb-4">
+            <button
+              v-for="ratio in ratioOptions"
+              :key="ratio.value"
+              class="px-4 py-2 text-sm font-medium rounded-lg transition-all"
+              :class="[
+                currentRatio === ratio.value
+                  ? 'bg-primary text-white shadow-sm'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+              ]"
+              @click="switchRatio(ratio.value)"
+            >
+              {{ ratio.label }}
+            </button>
+          </div>
+
+          <div
+            class="mb-4 flex items-center justify-center bg-primary/5 rounded-lg px-3 py-2 border border-primary/10"
           >
-            {{ ratio.label }}
-          </button>
+            <span class="text-[10px] font-mono text-primary">
+              {{ formatCrop(currentCrop) }}
+            </span>
+          </div>
         </div>
 
         <div
@@ -63,6 +73,7 @@
         <div v-else class="relative bg-slate-100 rounded-xl overflow-hidden">
           <div class="w-full" style="height: 400px">
             <Cropper
+              ref="cropperRef"
               :key="cropperKey"
               :src="imageSrc"
               :stencil-props="{
@@ -72,17 +83,9 @@
               :default-position="defaultPositionFn"
               class="w-full h-full"
               @change="onCropChange"
+              @ready="onCropperReady"
             />
           </div>
-        </div>
-
-        <div class="mt-4 bg-slate-50 rounded-xl p-3 border border-slate-200">
-          <p class="text-xs font-medium text-slate-600 mb-2">当前裁剪坐标</p>
-          <p
-            class="text-[10px] font-mono text-slate-500 break-all leading-relaxed"
-          >
-            {{ formatCrop(currentCrop) }}
-          </p>
         </div>
       </div>
 
@@ -107,7 +110,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, nextTick } from "vue";
 import { Cropper } from "vue-advanced-cropper";
 import "vue-advanced-cropper/dist/style.css";
 
@@ -135,10 +138,16 @@ const emit = defineEmits<{
 
 const currentRatio = ref<"235" | "11">("235");
 const cropperKey = ref(0);
+const cropperRef = ref<InstanceType<typeof Cropper> | null>(null);
+const cachedImageSize = ref<{ width: number; height: number } | null>(null);
 
-// 归一化的默认值（仅作为 onCropChange 未触发前的占位）
 const DEFAULT_CROP_235: CropData = { left: 0, top: 0, width: 1, height: 1 };
-const DEFAULT_CROP_11: CropData = { left: 0, top: 0, width: 1, height: 1 };
+const DEFAULT_CROP_11: CropData = {
+  left: 0.287234,
+  top: 0,
+  width: 0.425532,
+  height: 1,
+};
 
 const crop235 = ref<CropData>({ ...DEFAULT_CROP_235 });
 const crop11 = ref<CropData>({ ...DEFAULT_CROP_11 });
@@ -162,36 +171,24 @@ const currentCrop = computed<CropData>(() => {
   return currentRatio.value === "235" ? crop235.value : crop11.value;
 });
 
-// 2.35:1 → 完整图片尺寸；1:1 → 以图片高度为边长的正方形
+// 根据已保存的归一化裁剪坐标恢复 stencil 尺寸和位置
 const defaultSizeFn = computed(() => {
   return ({ imageSize }: { imageSize: { width: number; height: number } }) => {
-    if (currentRatio.value === "235") {
-      return {
-        width: imageSize.width,
-        height: imageSize.height,
-      };
-    } else {
-      // 正方形边长 = 图片高度
-      return {
-        width: imageSize.height,
-        height: imageSize.height,
-      };
-    }
+    const crop = currentRatio.value === "235" ? crop235.value : crop11.value;
+    return {
+      width: crop.width * imageSize.width,
+      height: crop.height * imageSize.height,
+    };
   };
 });
 
-// 2.35:1 → 左上角对齐；1:1 → 水平居中，垂直顶部对齐
 const defaultPositionFn = computed(() => {
   return ({ imageSize }: { imageSize: { width: number; height: number } }) => {
-    if (currentRatio.value === "235") {
-      return { left: 0, top: 0 };
-    } else {
-      // 水平居中：left = (图片宽 - 正方形边长) / 2
-      return {
-        left: (imageSize.width - imageSize.height) / 2,
-        top: 0,
-      };
-    }
+    const crop = currentRatio.value === "235" ? crop235.value : crop11.value;
+    return {
+      left: crop.left * imageSize.width,
+      top: crop.top * imageSize.height,
+    };
   };
 });
 
@@ -220,24 +217,58 @@ function toFixed6(n: number): string {
   return Math.max(0, Math.min(1, n)).toFixed(6);
 }
 
+function normalizeCropData(
+  coords: { left: number; top: number; width: number; height: number },
+  imageSize: { width: number; height: number },
+): CropData {
+  return {
+    left: coords.left / imageSize.width,
+    top: coords.top / imageSize.height,
+    width: coords.width / imageSize.width,
+    height: coords.height / imageSize.height,
+  };
+}
+
 function onCropChange(event: any) {
-  if (event && event.coordinates && event.imageSize) {
-    const coords = event.coordinates;
-    const imageSize = event.imageSize;
+  if (!event?.coordinates) return;
 
-    const normalizedCrop: CropData = {
-      left: coords.left / imageSize.width,
-      top: coords.top / imageSize.height,
-      width: coords.width / imageSize.width,
-      height: coords.height / imageSize.height,
-    };
+  const coords = event.coordinates;
+  const imgSize = event.imageSize || cachedImageSize.value;
+  if (!imgSize) return;
 
-    if (currentRatio.value === "235") {
-      crop235.value = normalizedCrop;
-    } else {
-      crop11.value = normalizedCrop;
-    }
+  cachedImageSize.value = imgSize;
+
+  const normalizedCrop = normalizeCropData(coords, imgSize);
+
+  if (currentRatio.value === "235") {
+    crop235.value = normalizedCrop;
+  } else {
+    crop11.value = normalizedCrop;
   }
+}
+
+function onCropperReady() {
+  nextTick(() => {
+    if (!cropperRef.value) return;
+    try {
+      const result = cropperRef.value.getResult();
+      if (result?.coordinates && result?.image) {
+        const imgSize = {
+          width: result.image.width,
+          height: result.image.height,
+        };
+        cachedImageSize.value = imgSize;
+        const normalizedCrop = normalizeCropData(result.coordinates, imgSize);
+        if (currentRatio.value === "235") {
+          crop235.value = normalizedCrop;
+        } else {
+          crop11.value = normalizedCrop;
+        }
+      }
+    } catch {
+      // cropper not fully initialized yet
+    }
+  });
 }
 
 function switchRatio(ratio: "235" | "11") {
@@ -279,7 +310,7 @@ watch(
         ? parseCrop(props.initialCrop11)
         : { ...DEFAULT_CROP_11 };
       currentRatio.value = props.initialRatio || "235";
-      // 打开弹窗时重新挂载 Cropper
+      cachedImageSize.value = null;
       cropperKey.value++;
     }
   },

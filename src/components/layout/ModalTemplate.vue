@@ -39,7 +39,7 @@
         <div class="w-64 border-r border-slate-200 bg-slate-50 flex flex-col">
           <div class="p-4 border-b border-slate-200">
             <button
-              @click="templateStore.openEditor"
+              @click="handleNewTemplate"
               class="w-full bg-primary text-white text-sm font-medium py-2 rounded-lg hover:bg-primary-hover transition flex items-center justify-center gap-2"
             >
               <svg
@@ -149,7 +149,7 @@
                 class="flex items-center gap-2 text-sm text-slate-500 mb-6 font-medium"
               >
                 <span class="text-[#576b95]">{{
-                  selectedTemplate.description || "微信公众号配置名称"
+                  selectedTemplate.description || "模板描述"
                 }}</span>
               </div>
 
@@ -184,7 +184,8 @@
       </div>
 
       <!-- 底部 -->
-      <div
+      <!-- <div
+        v-if="!templateStore.showEditor && !editingTemplate"
         class="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 flex-shrink-0"
       >
         <button
@@ -200,7 +201,7 @@
         >
           选择此模板
         </button>
-      </div>
+      </div> -->
     </div>
   </div>
 </template>
@@ -263,10 +264,26 @@ function formatDate(dateString: string): string {
 
 function selectTemplate(templateId: string) {
   selectedTemplateId.value = templateId;
+  if (editingTemplate.value || templateStore.showEditor) {
+    const template = templateStore.customTemplates.find(
+      (t) => t.id === templateId,
+    );
+    if (template) {
+      editingTemplate.value = { ...template };
+      templateStore.closeEditor();
+    }
+  }
 }
 
 function editTemplate(template: CustomTemplate) {
   editingTemplate.value = { ...template };
+  templateStore.closeEditor();
+}
+
+function handleNewTemplate() {
+  editingTemplate.value = undefined;
+  selectedTemplateId.value = "";
+  templateStore.openEditor();
 }
 
 function handleSaveTemplate(template: CustomTemplate) {
@@ -278,7 +295,7 @@ function handleSaveTemplate(template: CustomTemplate) {
     success("模板保存成功");
   }
   selectedTemplateId.value = template.id;
-  editingTemplate.value = undefined;
+  editingTemplate.value = { ...template };
 }
 
 function handleCancelEdit() {

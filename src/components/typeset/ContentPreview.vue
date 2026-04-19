@@ -12,13 +12,6 @@
       <span class="text-[#576b95]">{{ accountName }}</span>
     </div>
 
-    <div
-      class="text-[15px] leading-relaxed text-slate-600 mb-8"
-      id="preview-summary"
-    >
-      {{ subtitle || "摘要加载中..." }}
-    </div>
-
     <div id="preview-article" class="space-y-6">
       <template v-if="templateId === 'flow'">
         <div v-for="img in images" :key="img.id" class="w-full mb-3">

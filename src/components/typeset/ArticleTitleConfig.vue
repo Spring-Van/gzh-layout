@@ -35,20 +35,23 @@
       </div>
 
       <div>
-        <label class="text-xs font-medium text-slate-500 block mb-1">本篇副标题/文案</label>
+        <label class="text-xs font-medium text-slate-500 block mb-1">本篇摘要</label>
         <textarea
           v-model="localSubtitle"
           rows="3"
           class="w-full border border-slate-300 rounded-lg text-sm px-3 py-2 focus:border-primary focus:ring-1 focus:ring-primary outline-none"
-          placeholder="输入副标题"
+          placeholder="输入本篇摘要"
         ></textarea>
       </div>
     </div>
 
-    <div class="bg-blue-50 rounded-lg p-3 border border-blue-200">
-      <label class="text-xs font-medium text-blue-600 block mb-1">最终标题预览</label>
+    <div
+      class="bg-blue-50 rounded-lg p-3 border border-blue-200"
+    >
+      <label class="text-xs font-medium text-blue-600 block mb-1">标题示例预览</label>
       <p class="text-sm text-blue-800 font-medium">{{ finalPreview }}</p>
-      <p class="text-xs text-blue-500 mt-1">
+      <p v-if="finalSubtitle" class="text-xs text-blue-500 mt-1">{{ finalSubtitle }}</p>
+      <p class="text-xs text-blue-400 mt-1">
         {{ localInherit ? '当前生效：来自全局' : '当前生效：已覆盖' }}
       </p>
     </div>
@@ -96,6 +99,13 @@ const finalPreview = computed(() => {
   }
 
   return localTitle.value || '未设置标题';
+});
+
+const finalSubtitle = computed(() => {
+  if (localInherit.value) {
+    return props.globalConfig.subtitle || '';
+  }
+  return localSubtitle.value;
 });
 
 function generateNumbering(index: number, rule: string, customFormat: string): string {

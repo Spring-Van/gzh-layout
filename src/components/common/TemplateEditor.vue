@@ -94,7 +94,7 @@
           class="flex items-center gap-2 text-sm text-slate-500 mb-6 font-medium"
         >
           <span class="text-[#576b95]">{{
-            templateDescription || "微信公众号配置名称"
+            templateDescription || "模板描述"
           }}</span>
         </div>
 
@@ -146,6 +146,10 @@ watch(
       templateName.value = newTemplate.name;
       templateDescription.value = newTemplate.description || "";
       templateHtml.value = newTemplate.html;
+    } else {
+      templateName.value = "";
+      templateDescription.value = "";
+      templateHtml.value = "";
     }
   },
   { immediate: true },

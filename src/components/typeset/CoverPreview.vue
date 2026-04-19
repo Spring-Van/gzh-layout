@@ -1,40 +1,22 @@
 <template>
   <div class="space-y-6">
-    <!-- 封面显示区域 -->
-    <div class="flex justify-center">
-      <div
-        v-if="ratio === '235'"
-        ref="coverImageRef"
-        class="aspect-[2.35/1] w-full rounded-2xl overflow-hidden bg-slate-100 relative"
-      >
+    <CoverImageSelector
+      :ratio="ratio"
+      @update:ratio="$emit('update:ratio', $event)"
+      @crop="$emit('crop', $event)"
+      @preview="showPreview = true"
+    >
+      <template #main-image>
         <template v-if="templateId && generatedCoverImage">
           <div
             class="w-full h-full"
-            :style="{
-              backgroundImage: `url(${generatedCoverImage})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-            }"
+            :style="
+              cropToBackgroundStyle(
+                generatedCoverImage,
+                ratio === '235' ? picCrop235 : picCrop11,
+              )
+            "
           ></div>
-          <button
-            @click="$emit('crop', ratio)"
-            class="absolute top-2 right-2 px-3 py-1.5 text-xs bg-black/60 text-white rounded-lg hover:bg-black/80 transition flex items-center gap-1"
-          >
-            <svg
-              class="w-3.5 h-3.5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-              ></path>
-            </svg>
-            裁剪
-          </button>
         </template>
         <template v-else-if="images && images.length > 0">
           <img
@@ -44,143 +26,47 @@
             class="w-full h-full object-cover"
           />
         </template>
-      </div>
+      </template>
 
-      <div
-        v-else
-        class="w-full rounded-2xl overflow-hidden bg-slate-100 relative flex justify-center"
-      >
-        <div class="aspect-[2.35/1] w-full relative">
-          <div class="absolute inset-0 flex justify-center items-center">
+      <template #thumb-235>
+        <div class="w-full h-full bg-slate-100">
+          <template v-if="templateId && generatedCoverImage">
             <div
-              class="aspect-square h-full rounded-2xl overflow-hidden bg-slate-100 relative"
-            >
-              <template v-if="templateId && generatedCoverImage">
-                <div
-                  class="w-full h-full"
-                  :style="{
-                    backgroundImage: `url(${generatedCoverImage})`,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
-                  }"
-                ></div>
-                <button
-                  @click="$emit('crop', ratio)"
-                  class="absolute top-2 right-2 px-3 py-1.5 text-xs bg-black/60 text-white rounded-lg hover:bg-black/80 transition flex items-center gap-1"
-                >
-                  <svg
-                    class="w-3.5 h-3.5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                    ></path>
-                  </svg>
-                  裁剪
-                </button>
-              </template>
-              <template v-else-if="images && images.length > 0">
-                <img
-                  :src="
-                    getImageUrl(
-                      images[selectedCoverIndex]?.path || images[0].path,
-                    )
-                  "
-                  class="w-full h-full object-cover"
-                />
-              </template>
-            </div>
-          </div>
+              class="w-full h-full"
+              :style="cropToBackgroundStyle(generatedCoverImage, picCrop235)"
+            ></div>
+          </template>
+          <template v-else-if="images && images.length > 0">
+            <img
+              :src="
+                getImageUrl(images[selectedCoverIndex]?.path || images[0].path)
+              "
+              class="w-full h-full object-cover"
+            />
+          </template>
         </div>
-      </div>
-    </div>
+      </template>
 
-    <!-- 比例缩略图列表 -->
-    <div class="flex justify-center">
-      <div class="flex gap-3 items-end">
-        <!-- 2.35:1 缩略图 -->
-        <div class="relative">
-          <div class="aspect-[2.35/1] w-16"></div>
-          <button
-            @click="$emit('update:ratio', '235')"
-            class="absolute inset-0 rounded-lg overflow-hidden border-2 transition-all hover:border-primary"
-            :class="[
-              ratio === '235'
-                ? 'border-primary ring-2 ring-primary/30 scale-105'
-                : 'border-slate-200 opacity-70 hover:opacity-100',
-            ]"
-          >
-            <div class="w-full h-full bg-slate-100">
-              <template v-if="templateId && generatedCoverImage">
-                <div
-                  class="w-full h-full"
-                  :style="{
-                    backgroundImage: `url(${generatedCoverImage})`,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
-                  }"
-                ></div>
-              </template>
-              <template v-else-if="images && images.length > 0">
-                <img
-                  :src="
-                    getImageUrl(
-                      images[selectedCoverIndex]?.path || images[0].path,
-                    )
-                  "
-                  class="w-full h-full object-cover"
-                />
-              </template>
-            </div>
-          </button>
+      <template #thumb-11>
+        <div class="w-full h-full bg-slate-100">
+          <template v-if="templateId && generatedCoverImage">
+            <div
+              class="w-full h-full"
+              :style="cropToBackgroundStyle(generatedCoverImage, picCrop11)"
+            ></div>
+          </template>
+          <template v-else-if="images && images.length > 0">
+            <img
+              :src="
+                getImageUrl(images[selectedCoverIndex]?.path || images[0].path)
+              "
+              class="w-full h-full object-cover"
+            />
+          </template>
         </div>
+      </template>
+    </CoverImageSelector>
 
-        <!-- 1:1 缩略图 -->
-        <div class="relative">
-          <div class="aspect-[2.35/1] w-16"></div>
-          <button
-            @click="$emit('update:ratio', '11')"
-            class="absolute bottom-0 left-1/2 -translate-x-1/2 rounded-lg overflow-hidden border-2 transition-all hover:border-primary"
-            :class="[
-              ratio === '11'
-                ? 'border-primary ring-2 ring-primary/30 scale-105'
-                : 'border-slate-200 opacity-70 hover:opacity-100',
-            ]"
-            style="aspect-ratio: 1 / 1; height: 100%"
-          >
-            <div class="w-full h-full bg-slate-100">
-              <template v-if="templateId && generatedCoverImage">
-                <div
-                  class="w-full h-full"
-                  :style="{
-                    backgroundImage: `url(${generatedCoverImage})`,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
-                  }"
-                ></div>
-              </template>
-              <template v-else-if="images && images.length > 0">
-                <img
-                  :src="
-                    getImageUrl(
-                      images[selectedCoverIndex]?.path || images[0].path,
-                    )
-                  "
-                  class="w-full h-full object-cover"
-                />
-              </template>
-            </div>
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 标题和摘要 -->
     <div class="mt-8">
       <h1 class="text-base font-bold text-slate-900 mb-1">
         {{ title || "标题加载中..." }}
@@ -189,10 +75,57 @@
         {{ subtitle || "摘要加载中..." }}
       </p>
     </div>
+
+    <div
+      v-if="showPreview && generatedCoverImage"
+      class="fixed inset-0 bg-slate-900/90 z-50 flex items-center justify-center p-8"
+      @click.self="showPreview = false"
+    >
+      <button
+        class="absolute top-4 right-4 text-white hover:text-slate-300 transition z-10"
+        @click="showPreview = false"
+      >
+        <svg
+          class="w-8 h-8"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M6 18L18 6M6 6l12 12"
+          ></path>
+        </svg>
+      </button>
+      <div
+        class="bg-white shadow-2xl rounded-xl overflow-auto max-w-[80vw] max-h-[80vh] flex items-center justify-center"
+      >
+        <template v-if="ratio === '11'">
+          <div
+            class="aspect-square w-[80vh] max-w-[80vw]"
+            :style="cropToBackgroundStyle(generatedCoverImage, picCrop11)"
+          ></div>
+        </template>
+        <template v-else>
+          <img
+            :src="generatedCoverImage"
+            class="max-w-full max-h-[80vh] object-contain"
+          />
+        </template>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref } from "vue";
+import CoverImageSelector from "./CoverImageSelector.vue";
+import { cropToBackgroundStyle } from "../../utils/cropStyle";
+
+const showPreview = ref(false);
+
 interface Props {
   ratio: "235" | "11";
   templateId?: string;
@@ -202,6 +135,8 @@ interface Props {
   title?: string;
   subtitle?: string;
   getImageUrl: (path: string) => string;
+  picCrop235?: string;
+  picCrop11?: string;
 }
 
 interface Emits {

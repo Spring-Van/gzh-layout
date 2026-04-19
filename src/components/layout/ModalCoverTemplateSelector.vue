@@ -181,9 +181,6 @@ const selectedTemplatePreview = computed(() => {
 
 function selectTemplate(templateId: string) {
   selectedTemplateId.value = templateId;
-  // 立即触发选择事件
-  emit("select", templateId);
-  emit("close");
 }
 
 function handleSelectTemplate() {

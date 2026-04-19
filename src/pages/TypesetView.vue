@@ -44,8 +44,10 @@
             :images="currentArticle?.images || []"
             :selected-cover-index="selectedCoverIndex"
             :title="batchStore.currentArticleFinalTitle"
-            :subtitle="currentArticle?.titleConfig.subtitle"
+            :subtitle="batchStore.currentArticleFinalSubtitle"
             :get-image-url="getImageUrl"
+            :pic-crop-235="currentArticle?.coverConfig.pic_crop_235_1"
+            :pic-crop-11="currentArticle?.coverConfig.pic_crop_1_1"
             @crop="openCoverCropTool"
           />
         </template>
@@ -53,7 +55,7 @@
         <template v-else>
           <ContentPreview
             :title="batchStore.currentArticleFinalTitle"
-            :subtitle="currentArticle?.titleConfig.subtitle"
+            :subtitle="batchStore.currentArticleFinalSubtitle"
             :account-name="wechatOfficialAccountName"
             :template-id="currentTemplateId"
             :images="currentArticle?.images || []"
@@ -77,6 +79,8 @@
         batchStore.globalConfig.cover.coverImageIndices
       "
       :global-cover-template-image-count="globalCoverTemplateImageCount"
+      :global-pic-crop-235="batchStore.globalConfig.cover.pic_crop_235_1"
+      :global-pic-crop-11="batchStore.globalConfig.cover.pic_crop_1_1"
       :current-article="currentArticle"
       :current-article-index="batchStore.currentArticleIndex"
       :current-article-cover-template-name="currentArticleCoverTemplateName"
@@ -87,6 +91,8 @@
         currentArticleCoverTemplateImageCount
       "
       :current-article-image-count="currentArticle?.images.length || 0"
+      :current-article-pic-crop-235="currentArticle?.coverConfig.pic_crop_235_1"
+      :current-article-pic-crop-11="currentArticle?.coverConfig.pic_crop_1_1"
       @update:config-mode="batchStore.setConfigMode"
       @update:config-tab="batchStore.setConfigTab"
       @update:global-title-config="batchStore.setGlobalTitleConfig"
@@ -222,6 +228,7 @@ import CoverPreview from "../components/typeset/CoverPreview.vue";
 import ContentPreview from "../components/typeset/ContentPreview.vue";
 import ConfigPanel from "../components/typeset/ConfigPanel.vue";
 import type { ImageFile } from "../types";
+import { expandTemplateWithImages } from "../composables/useTemplateRender";
 import DebugLogPanel from "../components/common/DebugLogPanel.vue";
 
 const projectStore = useProjectStore();
@@ -231,7 +238,7 @@ const batchStore = useBatchTypesetStore();
 const wechatAccountStore = useWechatAccountStore();
 
 const debugLogs = ref<string[]>([]);
-const showDebugLogs = ref(true);
+const showDebugLogs = ref(false);
 
 function clearDebugLogs() {
   debugLogs.value = [];
@@ -530,124 +537,11 @@ function getImageUrl(filePath: string): string {
 
 const processedTemplateHtml = computed(() => {
   if (!currentTemplate.value || !currentArticle.value) return "";
-  const templateHtml = currentTemplate.value.html;
-  const images = currentArticle.value.images;
-
-  if (images.length === 0) return templateHtml;
-
-  const imgTagRegex = /<img[^>]*>/gi;
-  const hasImgTags = imgTagRegex.test(templateHtml);
-
-  if (hasImgTags) {
-    let resultHtml = templateHtml;
-    let imageIdx = 0;
-
-    resultHtml = resultHtml.replace(imgTagRegex, (imgTag) => {
-      if (imageIdx < images.length) {
-        const imgUrl = getImageUrl(images[imageIdx].path);
-        imageIdx++;
-        return imgTag.replace(/src\s*=\s*(['"])[^'"]*\1/, `src="${imgUrl}"`);
-      }
-      return imgTag;
-    });
-
-    if (images.length > 0) {
-      const imgTagCount = (templateHtml.match(imgTagRegex) || []).length;
-      if (imgTagCount > 0) {
-        const fullBlocks = Math.floor(images.length / imgTagCount);
-        let finalHtml = "";
-        let currentImageIdx = 0;
-
-        for (let i = 0; i < fullBlocks; i++) {
-          let blockHtml = templateHtml;
-          let blockImageIdx = 0;
-
-          blockHtml = blockHtml.replace(imgTagRegex, (imgTag) => {
-            if (currentImageIdx + blockImageIdx < images.length) {
-              const imgUrl = getImageUrl(
-                images[currentImageIdx + blockImageIdx].path,
-              );
-              blockImageIdx++;
-              return imgTag.replace(
-                /src\s*=\s*(['"])[^'"]*\1/,
-                `src="${imgUrl}"`,
-              );
-            }
-            return imgTag;
-          });
-
-          finalHtml += blockHtml;
-          currentImageIdx += imgTagCount;
-        }
-
-        return finalHtml || resultHtml;
-      }
-    }
-
-    return resultHtml;
-  }
-
-  const placeholderMatch = templateHtml.match(
-    /https:\/\/toai\.art\/b\d+\.png/g,
+  return expandTemplateWithImages(
+    currentTemplate.value.html,
+    currentArticle.value.images,
+    getImageUrl,
   );
-  const placeholderCount = placeholderMatch ? placeholderMatch.length : 0;
-
-  if (placeholderCount === 0) return templateHtml;
-
-  let finalHtml = "";
-  let imageIdx = 0;
-  const fullBlocks = Math.floor(images.length / placeholderCount);
-  const remainingImages = images.length % placeholderCount;
-
-  for (let i = 0; i < fullBlocks; i++) {
-    let blockHtml = templateHtml;
-    blockHtml = blockHtml.replace(/https:\/\/toai\.art\/b\d+\.png/g, () => {
-      const imgUrl = getImageUrl(images[imageIdx].path);
-      imageIdx++;
-      return imgUrl;
-    });
-    finalHtml += blockHtml;
-  }
-
-  if (remainingImages > 0) {
-    const placeholderRegex = /https:\/\/toai\.art\/b\d+\.png/g;
-    const parts: string[] = [];
-    let lastIndex = 0;
-    let match;
-
-    placeholderRegex.lastIndex = 0;
-
-    while ((match = placeholderRegex.exec(templateHtml)) !== null) {
-      parts.push(templateHtml.slice(lastIndex, match.index));
-      parts.push(match[0]);
-      lastIndex = match.index + match[0].length;
-    }
-    parts.push(templateHtml.slice(lastIndex));
-
-    const keepCount = 2 * remainingImages + 1;
-    const keptParts = parts.slice(0, keepCount);
-
-    let finalBlockHtml = "";
-    let placeholderIdx = 0;
-
-    for (let i = 0; i < keptParts.length; i++) {
-      const part = keptParts[i];
-      if (part.match(placeholderRegex)) {
-        if (placeholderIdx < remainingImages && imageIdx < images.length) {
-          const imgUrl = getImageUrl(images[imageIdx].path);
-          imageIdx++;
-          placeholderIdx++;
-          finalBlockHtml += imgUrl;
-        }
-      } else {
-        finalBlockHtml += part;
-      }
-    }
-
-    finalHtml += finalBlockHtml;
-  }
-
-  return finalHtml;
 });
 </script>
 

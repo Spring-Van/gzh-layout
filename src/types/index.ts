@@ -13,6 +13,7 @@ export interface GlobalTitleConfig {
   numberingRule: NumberingRule;
   customFormat: string;
   separator: string;
+  subtitle?: string;
 }
 
 // 全局设置 - 封面配置
@@ -244,6 +245,7 @@ export interface ProjectConfig {
 export interface WechatAccount {
   id: string;
   appId: string;
+  appSecret?: string;
   nickname: string;
   headImg?: string;
   accessToken?: string;

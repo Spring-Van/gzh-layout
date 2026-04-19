@@ -11,6 +11,7 @@ import type {
   ArticleUploadResult,
 } from '../api/wechat';
 import type { BatchArticle, GlobalConfig } from '../types';
+import { expandTemplateWithImages } from './useTemplateRender';
 
 export interface WechatUploadOptions {
   appId: string;
@@ -21,124 +22,14 @@ export interface WechatUploadOptions {
 /**
  * 根据模板 HTML 和图片列表生成正文内容 HTML
  * 使用本地文件路径作为 src，上传后由 Electron 层替换为微信 URL
+ * 内部调用 expandTemplateWithImages 按行单元循环展开
  */
 export function buildContentHtmlFromTemplate(
   templateHtml: string,
   images: Array<{ id: string; path: string; name: string }>,
 ): string {
   if (images.length === 0) return templateHtml;
-
-  const imgTagRegex = /<img[^>]*>/gi;
-  const hasImgTags = imgTagRegex.test(templateHtml);
-
-  if (hasImgTags) {
-    let resultHtml = templateHtml;
-    let imageIdx = 0;
-
-    resultHtml = resultHtml.replace(imgTagRegex, (imgTag) => {
-      if (imageIdx < images.length) {
-        const imgPath = images[imageIdx].path;
-        imageIdx++;
-        return imgTag.replace(/src\s*=\s*(['"])[^'"]*\1/, `src="${imgPath}"`);
-      }
-      return imgTag;
-    });
-
-    if (images.length > 0) {
-      const imgTagCount = (templateHtml.match(imgTagRegex) || []).length;
-      if (imgTagCount > 0) {
-        const fullBlocks = Math.floor(images.length / imgTagCount);
-        let finalHtml = "";
-        let currentImageIdx = 0;
-
-        for (let i = 0; i < fullBlocks; i++) {
-          let blockHtml = templateHtml;
-          let blockImageIdx = 0;
-
-          blockHtml = blockHtml.replace(imgTagRegex, (imgTag) => {
-            if (currentImageIdx + blockImageIdx < images.length) {
-              const imgPath = images[currentImageIdx + blockImageIdx].path;
-              blockImageIdx++;
-              return imgTag.replace(
-                /src\s*=\s*(['"])[^'"]*\1/,
-                `src="${imgPath}"`,
-              );
-            }
-            return imgTag;
-          });
-
-          finalHtml += blockHtml;
-          currentImageIdx += imgTagCount;
-        }
-
-        return finalHtml || resultHtml;
-      }
-    }
-
-    return resultHtml;
-  }
-
-  const placeholderMatch = templateHtml.match(
-    /https:\/\/toai\.art\/b\d+\.png/g,
-  );
-  const placeholderCount = placeholderMatch ? placeholderMatch.length : 0;
-
-  if (placeholderCount === 0) return templateHtml;
-
-  let finalHtml = "";
-  let imageIdx = 0;
-  const fullBlocks = Math.floor(images.length / placeholderCount);
-  const remainingImages = images.length % placeholderCount;
-
-  for (let i = 0; i < fullBlocks; i++) {
-    let blockHtml = templateHtml;
-    blockHtml = blockHtml.replace(/https:\/\/toai\.art\/b\d+\.png/g, () => {
-      const imgPath = images[imageIdx].path;
-      imageIdx++;
-      return imgPath;
-    });
-    finalHtml += blockHtml;
-  }
-
-  if (remainingImages > 0) {
-    const placeholderRegex = /https:\/\/toai\.art\/b\d+\.png/g;
-    const parts: string[] = [];
-    let lastIndex = 0;
-    let match;
-
-    placeholderRegex.lastIndex = 0;
-
-    while ((match = placeholderRegex.exec(templateHtml)) !== null) {
-      parts.push(templateHtml.slice(lastIndex, match.index));
-      parts.push(match[0]);
-      lastIndex = match.index + match[0].length;
-    }
-    parts.push(templateHtml.slice(lastIndex));
-
-    const keepCount = 2 * remainingImages + 1;
-    const keptParts = parts.slice(0, keepCount);
-
-    let finalBlockHtml = "";
-    let placeholderIdx = 0;
-
-    for (let i = 0; i < keptParts.length; i++) {
-      const part = keptParts[i];
-      if (part.match(placeholderRegex)) {
-        if (placeholderIdx < remainingImages && imageIdx < images.length) {
-          const imgPath = images[imageIdx].path;
-          imageIdx++;
-          placeholderIdx++;
-          finalBlockHtml += imgPath;
-        }
-      } else {
-        finalBlockHtml += part;
-      }
-    }
-
-    finalHtml += finalBlockHtml;
-  }
-
-  return finalHtml;
+  return expandTemplateWithImages(templateHtml, images);
 }
 
 /**
@@ -220,6 +111,7 @@ export function useWechatUpload() {
   ): SyncArticleItem[] {
     return articles.map((article, index) => {
       const title = resolveArticleTitle(article, globalConfig, index);
+      const summary = resolveArticleSubtitle(article, globalConfig);
       const coverImage = resolveCoverImage(article);
       const contentImages = article.images.map(img => img.path);
       const contentHtml = options?.buildContentHtml?.(article, globalConfig, index) ?? undefined;
@@ -227,7 +119,7 @@ export function useWechatUpload() {
       return {
         id: article.id,
         title,
-        summary: article.titleConfig.subtitle || title,
+        summary: summary || title,
         coverImagePath: coverImage,
         contentImagePaths: contentImages,
         contentHtml,
@@ -246,6 +138,13 @@ export function useWechatUpload() {
       return `${titleConfig.prefix}${titleConfig.separator}${numbering}`;
     }
     return article.titleConfig.title;
+  }
+
+  function resolveArticleSubtitle(article: BatchArticle, globalConfig: GlobalConfig): string {
+    if (article.titleConfig.inheritGlobal) {
+      return globalConfig.title.subtitle || '';
+    }
+    return article.titleConfig.subtitle || '';
   }
 
   function generateNumbering(index: number, rule: string, customFormat: string): string {

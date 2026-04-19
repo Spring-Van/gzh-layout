@@ -1,10 +1,26 @@
 <template>
-  <div class="w-full h-full flex flex-col lg:flex-row overflow-hidden bg-background">
-    <div class="w-full lg:w-1/2 bg-white border-r border-slate-200 flex flex-col h-1/2 lg:h-full flex-shrink-0 z-10">
-      <div class="p-4 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0">
+  <div
+    class="w-full h-full flex flex-col lg:flex-row overflow-hidden bg-background"
+  >
+    <div
+      class="w-full lg:w-1/2 bg-white border-r border-slate-200 flex flex-col h-1/2 lg:h-full flex-shrink-0 z-10"
+    >
+      <div
+        class="p-4 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0"
+      >
         <span class="font-bold text-sm text-slate-800 flex items-center gap-2">
-          <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
+          <svg
+            class="w-4 h-4 text-primary"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+            ></path>
           </svg>
           {{ isEditing ? "编辑封面模板" : "封面模板编辑器" }}
         </span>
@@ -12,7 +28,9 @@
 
       <div class="flex-1 overflow-y-auto p-4">
         <div class="mb-4">
-          <label class="block text-sm font-medium text-slate-700 mb-2">模板名称</label>
+          <label class="block text-sm font-medium text-slate-700 mb-2"
+            >模板名称</label
+          >
           <input
             v-model="templateName"
             type="text"
@@ -22,7 +40,9 @@
         </div>
 
         <div class="mb-4">
-          <label class="block text-sm font-medium text-slate-700 mb-2">模板描述（可选）</label>
+          <label class="block text-sm font-medium text-slate-700 mb-2"
+            >模板描述（可选）</label
+          >
           <input
             v-model="templateDescription"
             type="text"
@@ -32,7 +52,9 @@
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-slate-700 mb-2">HTML 代码</label>
+          <label class="block text-sm font-medium text-slate-700 mb-2"
+            >HTML 代码</label
+          >
           <textarea
             v-model="templateHtml"
             rows="20"
@@ -59,11 +81,20 @@
       </div>
     </div>
 
-    <div class="flex-1 h-full flex items-center justify-center p-4 lg:p-8 relative overflow-hidden bg-slate-100/50">
-      <div class="w-full max-w-[600px] bg-white rounded-xl shadow-lg overflow-hidden">
-        <div class="aspect-[2.35/1] bg-white relative" v-html="processedHtml"></div>
+    <div
+      class="flex-1 h-full flex items-center justify-center p-4 lg:p-8 relative overflow-hidden bg-slate-100/50"
+    >
+      <div
+        class="w-full max-w-[600px] bg-white rounded-xl shadow-lg overflow-hidden"
+      >
+        <div
+          class="aspect-[2.35/1] bg-white relative"
+          v-html="processedHtml"
+        ></div>
         <div class="p-3 bg-slate-50 border-t border-slate-200">
-          <p class="text-xs text-slate-500 text-center">公众号封面预览 (2.35:1)</p>
+          <p class="text-xs text-slate-500 text-center">
+            公众号封面预览 (2.35:1)
+          </p>
         </div>
       </div>
     </div>
@@ -107,6 +138,10 @@ watch(
       templateName.value = newTemplate.name;
       templateDescription.value = newTemplate.description || "";
       templateHtml.value = newTemplate.html;
+    } else {
+      templateName.value = "";
+      templateDescription.value = "";
+      templateHtml.value = "";
     }
   },
   { immediate: true },

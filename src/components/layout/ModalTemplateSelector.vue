@@ -48,7 +48,7 @@
                 {{ template.name }}
               </p>
               <p class="text-xs text-slate-500 truncate mt-1">
-                {{ template.description || "无描述" }}
+                {{ template.description || "微信公众号配置名称" }}
               </p>
               <div class="mt-2">
                 <span class="text-[10px] text-slate-400">{{

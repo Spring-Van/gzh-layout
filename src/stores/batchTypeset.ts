@@ -32,6 +32,7 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
       numberingRule: 'vol',
       customFormat: '',
       separator: ' | ',
+      subtitle: '',
     },
     cover: {
       templateId: '',
@@ -85,6 +86,18 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
     }
 
     return article.titleConfig.title;
+  });
+
+  // 当前文章最终摘要（继承全局 + 单篇覆盖）
+  const currentArticleFinalSubtitle = computed(() => {
+    const article = currentArticle.value;
+    if (!article) return '';
+
+    if (article.titleConfig.inheritGlobal) {
+      return globalConfig.value.title.subtitle || '';
+    }
+
+    return article.titleConfig.subtitle || '';
   });
 
   // === Actions ===
@@ -350,6 +363,7 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
     currentArticle,
     currentArticleOverride,
     currentArticleFinalTitle,
+    currentArticleFinalSubtitle,
 
     // Actions
     setGlobalConfig,

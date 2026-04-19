@@ -49,6 +49,7 @@ export const useWechatAccountStore = defineStore('wechatAccount', () => {
       const account: WechatAccount = {
         id: existingAccount?.id || crypto.randomUUID(),
         appId,
+        appSecret,
         nickname: authResult.accountInfo.nickname || '未知公众号',
         headImg: authResult.accountInfo.headImg,
         accessToken: authResult.accessToken,

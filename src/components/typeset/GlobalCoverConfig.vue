@@ -6,7 +6,9 @@
     </div>
 
     <div>
-      <label class="block text-xs font-medium text-slate-500 mb-2">封面模板</label>
+      <label class="block text-xs font-medium text-slate-500 mb-2"
+        >封面模板</label
+      >
       <div
         class="border-2 border-slate-200 rounded-xl p-3 cursor-pointer hover:border-slate-300 hover:bg-slate-50 transition"
         @click="$emit('open-template-selector')"
@@ -74,38 +76,16 @@
     </div>
 
     <div v-if="generatedCoverImage">
-      <label class="block text-xs font-medium text-slate-500 mb-2">封面预览</label>
-      <div
-        class="aspect-[2.35/1] w-full rounded-2xl overflow-hidden bg-slate-100 relative"
+      <label class="block text-xs font-medium text-slate-500 mb-2"
+        >封面预览</label
       >
-        <div
-          class="w-full h-full"
-          :style="{
-            backgroundImage: `url(${generatedCoverImage})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-          }"
-        ></div>
-        <button
-          @click="$emit('crop', '235')"
-          class="absolute top-2 right-2 px-3 py-1.5 text-xs bg-black/60 text-white rounded-lg hover:bg-black/80 transition flex items-center gap-1"
-        >
-          <svg
-            class="w-3.5 h-3.5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2v12a2 2 0 002 2z"
-            ></path>
-          </svg>
-          裁剪
-        </button>
-      </div>
+      <CoverPreviewCard
+        v-model:ratio="previewRatio"
+        :generated-cover-image="generatedCoverImage"
+        :pic-crop-235="picCrop235"
+        :pic-crop-11="picCrop11"
+        @crop="$emit('crop', $event)"
+      />
     </div>
 
     <div v-if="templateId">
@@ -143,6 +123,11 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from "vue";
+import CoverPreviewCard from "./CoverPreviewCard.vue";
+
+const previewRatio = ref<"235" | "11">("235");
+
 interface Props {
   templateId?: string;
   templateName: string;
@@ -150,6 +135,8 @@ interface Props {
   coverImageIndices?: number[];
   requiredImageCount: number;
   totalImageCount: number;
+  picCrop235?: string;
+  picCrop11?: string;
 }
 
 interface Emits {
