@@ -15,12 +15,14 @@
     "lucide-vue-next": "^1.0.0",
     "nanoid": "^5.1.7",
     "pinia": "^3.0.4",
+    "sharp": "^0.34.5",
     "sql.js": "^1.14.1",
     "vue": "^3.4.21",
     "vue-advanced-cropper": "^2.8.9",
     "vue-router": "4"
   },
   "devDependencies": {
+    "@img/sharp-win32-x64": "^0.34.5",
     "@types/better-sqlite3": "^7.6.13",
     "@types/fs-extra": "^11.0.4",
     "@types/sharp": "^0.32.0",

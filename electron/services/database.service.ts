@@ -145,6 +145,10 @@ export class DatabaseService {
         return this.data.wechatAccounts.find(a => a.isActive) || null;
     }
 
+    getDefaultSyncWechatAccount(): WechatAccount | null {
+        return this.data.wechatAccounts.find(a => a.isDefaultSync) || null;
+    }
+
     saveWechatAccount(account: WechatAccount): void {
         const index = this.data.wechatAccounts.findIndex(a => a.id === account.id);
         if (index !== -1) {
@@ -158,6 +162,13 @@ export class DatabaseService {
     setActiveWechatAccount(accountId: string): void {
         this.data.wechatAccounts.forEach(a => {
             a.isActive = a.id === accountId;
+        });
+        this.saveToFile();
+    }
+
+    setDefaultSyncWechatAccount(accountId: string): void {
+        this.data.wechatAccounts.forEach(a => {
+            a.isDefaultSync = a.id === accountId;
         });
         this.saveToFile();
     }

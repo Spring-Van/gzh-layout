@@ -29,13 +29,31 @@ export const useTemplateStore = defineStore('template', () => {
   async function addTemplate(template: CustomTemplate) {
     customTemplates.value.push(template);
     await saveTemplateToDb(template);
+    if (template.isDefault) {
+      await clearOtherDefaults(template.id);
+    }
   }
 
   async function updateTemplate(template: CustomTemplate) {
+    const updatedTemplate = { ...template, updatedAt: new Date().toISOString() };
     const index = customTemplates.value.findIndex(t => t.id === template.id);
     if (index !== -1) {
-      customTemplates.value[index] = { ...template, updatedAt: new Date().toISOString() };
-      await saveTemplateToDb(customTemplates.value[index]);
+      customTemplates.value[index] = updatedTemplate;
+    } else {
+      customTemplates.value.push(updatedTemplate);
+    }
+    await saveTemplateToDb(updatedTemplate);
+    if (template.isDefault) {
+      await clearOtherDefaults(template.id);
+    }
+  }
+
+  async function clearOtherDefaults(currentTemplateId: string) {
+    for (const t of customTemplates.value) {
+      if (t.id !== currentTemplateId && t.isDefault) {
+        t.isDefault = false;
+        await saveTemplateToDb(t);
+      }
     }
   }
 

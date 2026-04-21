@@ -121,6 +121,7 @@ export interface CustomTemplate {
   name: string;
   description?: string;
   html: string;
+  isDefault?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -131,6 +132,7 @@ export interface CoverTemplate {
   name: string;
   description?: string;
   html: string;
+  isDefault?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -237,6 +239,7 @@ export interface ProjectConfig {
   syncStatus: SyncStatus;
   images: ImageFile[];
   groups: ImageGroup[];
+  webpConvertedMap?: Record<string, string>; // 原webp路径 -> 转换后png路径
   createdAt: string;
   updatedAt: string;
 }
@@ -251,6 +254,7 @@ export interface WechatAccount {
   accessToken?: string;
   tokenExpiresAt?: number;
   isActive: boolean;
+  isDefaultSync: boolean;
 }
 
 // 草稿记录

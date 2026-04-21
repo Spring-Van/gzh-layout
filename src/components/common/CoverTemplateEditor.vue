@@ -51,6 +51,31 @@
           />
         </div>
 
+        <div class="mb-4">
+          <div
+            class="flex items-center justify-between bg-slate-50 rounded-lg p-3 border border-slate-200"
+          >
+            <label class="text-sm font-medium text-slate-700"
+              >设为默认模板</label
+            >
+            <button
+              type="button"
+              :class="[
+                'w-11 h-6 rounded-full transition-colors relative',
+                isDefault ? 'bg-primary' : 'bg-slate-300',
+              ]"
+              @click="isDefault = !isDefault"
+            >
+              <span
+                :class="[
+                  'absolute top-1 w-4 h-4 bg-white rounded-full transition-transform',
+                  isDefault ? 'left-6' : 'left-1',
+                ]"
+              ></span>
+            </button>
+          </div>
+        </div>
+
         <div>
           <label class="block text-sm font-medium text-slate-700 mb-2"
             >HTML 代码</label
@@ -118,6 +143,7 @@ const emit = defineEmits<{
 const templateName = ref("");
 const templateDescription = ref("");
 const templateHtml = ref("");
+const isDefault = ref(false);
 
 const isEditing = computed(() => !!props.template?.id);
 
@@ -138,10 +164,12 @@ watch(
       templateName.value = newTemplate.name;
       templateDescription.value = newTemplate.description || "";
       templateHtml.value = newTemplate.html;
+      isDefault.value = newTemplate.isDefault || false;
     } else {
       templateName.value = "";
       templateDescription.value = "";
       templateHtml.value = "";
+      isDefault.value = false;
     }
   },
   { immediate: true },
@@ -156,6 +184,7 @@ function saveTemplate() {
     name: templateName.value,
     description: templateDescription.value,
     html: templateHtml.value,
+    isDefault: isDefault.value,
     createdAt: props.template?.createdAt || now,
     updatedAt: now,
   };

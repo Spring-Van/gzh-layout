@@ -156,12 +156,20 @@ export async function dbGetActiveWechatAccount() {
   return window.electronAPI.db.getActiveWechatAccount();
 }
 
+export async function dbGetDefaultSyncWechatAccount() {
+  return window.electronAPI.db.getDefaultSyncWechatAccount();
+}
+
 export async function dbSaveWechatAccount(account: any) {
   return window.electronAPI.db.saveWechatAccount(account);
 }
 
 export async function dbSetActiveWechatAccount(accountId: string) {
   return window.electronAPI.db.setActiveWechatAccount(accountId);
+}
+
+export async function dbSetDefaultSyncWechatAccount(accountId: string) {
+  return window.electronAPI.db.setDefaultSyncWechatAccount(accountId);
 }
 
 export async function dbDeleteWechatAccount(accountId: string) {

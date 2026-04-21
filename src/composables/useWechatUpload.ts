@@ -17,6 +17,7 @@ export interface WechatUploadOptions {
   appId: string;
   appSecret: string;
   publish?: boolean;
+  webpConvertedMap?: Record<string, string>; // webp原路径 -> 转换后png路径
 }
 
 /**
@@ -212,11 +213,27 @@ export function useWechatUpload() {
             coverImagePath = article.generatedCoverImagePath;
           }
 
+          // WebP 路径替换：如果封面图是 webp，使用转换后的路径
+          coverImagePath = resolveWebpPath(coverImagePath, options.webpConvertedMap);
+
+          // WebP 路径替换：正文图片路径
+          const resolvedContentImagePaths = article.contentImagePaths.map(
+            (p) => resolveWebpPath(p, options.webpConvertedMap)
+          );
+
+          // WebP 路径替换：HTML 内容中的本地路径
+          let resolvedContentHtml = article.contentHtml;
+          if (resolvedContentHtml && options.webpConvertedMap) {
+            for (const [originalPath, convertedPath] of Object.entries(options.webpConvertedMap)) {
+              resolvedContentHtml = resolvedContentHtml.split(originalPath).join(convertedPath);
+            }
+          }
+
           return {
             title: article.title,
             coverImagePath,
-            contentImagePaths: article.contentImagePaths,
-            contentHtml: article.contentHtml,
+            contentImagePaths: resolvedContentImagePaths,
+            contentHtml: resolvedContentHtml,
             digest: article.summary,
             picCrop2351: article.picCrop2351,
             picCrop11: article.picCrop11,
@@ -280,6 +297,14 @@ export function useWechatUpload() {
     currentProgress.value = null;
     uploadResults.value = [];
     wechatClearTokenCache();
+  }
+
+  /**
+   * 根据映射表将 WebP 路径替换为转换后的 PNG 路径
+   */
+  function resolveWebpPath(imagePath: string, webpConvertedMap?: Record<string, string>): string {
+    if (!imagePath || !webpConvertedMap) return imagePath;
+    return webpConvertedMap[imagePath] || imagePath;
   }
 
   return {

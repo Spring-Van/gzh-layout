@@ -216,6 +216,9 @@ class WechatService {
     const fileName = path.basename(imagePath);
     const ext = path.extname(fileName).toLowerCase();
     const mimeMap: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif' };
+    if (ext === '.webp') {
+      throw new Error(`微信不支持 WebP 格式，请先将 ${fileName} 转换为 PNG 或 JPG`);
+    }
     const mimeType = mimeMap[ext] || 'image/jpeg';
 
     const { body: multipartBody, contentType } = buildMultipartBody('media', fileName, buffer, mimeType);
@@ -243,6 +246,9 @@ class WechatService {
     const fileName = path.basename(imagePath);
     const ext = path.extname(fileName).toLowerCase();
     const mimeMap: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif' };
+    if (ext === '.webp') {
+      throw new Error(`微信不支持 WebP 格式，请先将 ${fileName} 转换为 PNG 或 JPG`);
+    }
     const mimeType = mimeMap[ext] || 'image/jpeg';
 
     const { body: multipartBody, contentType } = buildMultipartBody('media', fileName, buffer, mimeType);

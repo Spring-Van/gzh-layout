@@ -37,4 +37,8 @@ export function registerFileIpc() {
   ipcMain.handle('file:deleteCoverImage', async (_, filePath: string) => {
     return FileService.deleteCoverImage(filePath);
   });
+
+  ipcMain.handle('file:convertWebpImages', async (_, sourcePath: string, webpImages: Array<{ path: string; name: string }>, backupEnabled: boolean) => {
+    return FileService.convertWebpImages(sourcePath, webpImages, backupEnabled);
+  });
 }

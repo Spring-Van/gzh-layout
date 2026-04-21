@@ -4,8 +4,10 @@ import type { WechatAccount } from '../types';
 import {
   dbGetAllWechatAccounts,
   dbGetActiveWechatAccount,
+  dbGetDefaultSyncWechatAccount,
   dbSaveWechatAccount,
   dbSetActiveWechatAccount,
+  dbSetDefaultSyncWechatAccount,
   dbDeleteWechatAccount,
   wechatAuthenticate,
 } from '../api/wechat';
@@ -13,23 +15,27 @@ import {
 export const useWechatAccountStore = defineStore('wechatAccount', () => {
   const accounts = ref<WechatAccount[]>([]);
   const activeAccount = ref<WechatAccount | null>(null);
+  const defaultSyncAccount = ref<WechatAccount | null>(null);
   const isLoading = ref(false);
   const isAuthenticating = ref(false);
   const lastAuthError = ref<string | null>(null);
 
   const hasAccounts = computed(() => accounts.value.length > 0);
   const hasActiveAccount = computed(() => activeAccount.value !== null);
+  const hasDefaultSyncAccount = computed(() => defaultSyncAccount.value !== null);
 
   async function loadAccounts() {
     isLoading.value = true;
     lastAuthError.value = null;
     try {
-      const [allAccounts, active] = await Promise.all([
+      const [allAccounts, active, defaultSync] = await Promise.all([
         dbGetAllWechatAccounts(),
         dbGetActiveWechatAccount(),
+        dbGetDefaultSyncWechatAccount(),
       ]);
       accounts.value = allAccounts;
       activeAccount.value = active;
+      defaultSyncAccount.value = defaultSync;
     } catch (error) {
       console.error('加载微信账号失败:', error);
       lastAuthError.value = error instanceof Error ? error.message : '加载账号失败';
@@ -55,6 +61,7 @@ export const useWechatAccountStore = defineStore('wechatAccount', () => {
         accessToken: authResult.accessToken,
         tokenExpiresAt: Date.now() + authResult.expiresIn * 1000,
         isActive: true,
+        isDefaultSync: existingAccount?.isDefaultSync || false,
       };
 
       accounts.value.forEach(a => a.isActive = false);
@@ -98,8 +105,24 @@ export const useWechatAccountStore = defineStore('wechatAccount', () => {
         await setActiveAccount(accounts.value[0].id);
       }
     }
+    if (defaultSyncAccount.value?.id === accountId) {
+      defaultSyncAccount.value = null;
+      if (accounts.value.length > 0) {
+        await setDefaultSyncAccount(accounts.value[0].id);
+      }
+    }
 
     await dbDeleteWechatAccount(accountId);
+  }
+
+  async function setDefaultSyncAccount(accountId: string) {
+    const account = accounts.value.find(a => a.id === accountId);
+    if (!account) return;
+
+    accounts.value.forEach(a => a.isDefaultSync = a.id === accountId);
+    defaultSyncAccount.value = account;
+
+    await dbSetDefaultSyncWechatAccount(accountId);
   }
 
   function clearError() {
@@ -109,14 +132,17 @@ export const useWechatAccountStore = defineStore('wechatAccount', () => {
   return {
     accounts,
     activeAccount,
+    defaultSyncAccount,
     isLoading,
     isAuthenticating,
     lastAuthError,
     hasAccounts,
     hasActiveAccount,
+    hasDefaultSyncAccount,
     loadAccounts,
     authenticateAndSaveAccount,
     setActiveAccount,
+    setDefaultSyncAccount,
     deleteAccount,
     clearError,
   };

@@ -70,6 +70,10 @@ export function registerDatabaseIpc() {
     return dbService.getActiveWechatAccount();
   });
 
+  ipcMain.handle('db:getDefaultSyncWechatAccount', () => {
+    return dbService.getDefaultSyncWechatAccount();
+  });
+
   ipcMain.handle('db:saveWechatAccount', (_event, account) => {
     dbService.saveWechatAccount(account);
     return { success: true };
@@ -77,6 +81,11 @@ export function registerDatabaseIpc() {
 
   ipcMain.handle('db:setActiveWechatAccount', (_event, accountId: string) => {
     dbService.setActiveWechatAccount(accountId);
+    return { success: true };
+  });
+
+  ipcMain.handle('db:setDefaultSyncWechatAccount', (_event, accountId: string) => {
+    dbService.setDefaultSyncWechatAccount(accountId);
     return { success: true };
   });
 

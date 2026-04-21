@@ -27,13 +27,31 @@ export const useCoverTemplateStore = defineStore('coverTemplate', () => {
   async function addCoverTemplate(template: CoverTemplate) {
     userTemplates.value.push(template);
     await dbSaveCoverTemplate(template);
+    if (template.isDefault) {
+      await clearOtherDefaults(template.id);
+    }
   }
 
   async function updateCoverTemplate(template: CoverTemplate) {
+    const updatedTemplate = { ...template, updatedAt: new Date().toISOString() };
     const index = userTemplates.value.findIndex(t => t.id === template.id);
     if (index !== -1) {
-      userTemplates.value[index] = { ...template, updatedAt: new Date().toISOString() };
-      await dbSaveCoverTemplate(userTemplates.value[index]);
+      userTemplates.value[index] = updatedTemplate;
+    } else {
+      userTemplates.value.push(updatedTemplate);
+    }
+    await dbSaveCoverTemplate(updatedTemplate);
+    if (template.isDefault) {
+      await clearOtherDefaults(template.id);
+    }
+  }
+
+  async function clearOtherDefaults(currentTemplateId: string) {
+    for (const t of userTemplates.value) {
+      if (t.id !== currentTemplateId && t.isDefault) {
+        t.isDefault = false;
+        await dbSaveCoverTemplate(t);
+      }
     }
   }
 

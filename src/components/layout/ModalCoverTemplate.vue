@@ -57,7 +57,7 @@
           </div>
           <div class="flex-1 overflow-y-auto p-3 space-y-2">
             <div
-              v-for="template in userTemplates"
+              v-for="template in sortedTemplates"
               :key="template.id"
               class="p-3 border border-slate-200 rounded-lg cursor-pointer hover:border-primary transition"
               :class="{
@@ -65,9 +65,17 @@
               }"
               @click="selectTemplate(template.id)"
             >
-              <p class="text-sm font-medium text-slate-800 truncate">
-                {{ template.name }}
-              </p>
+              <div class="flex items-center gap-2">
+                <p class="text-sm font-medium text-slate-800 truncate flex-1">
+                  {{ template.name }}
+                </p>
+                <span
+                  v-if="template.isDefault"
+                  class="text-[10px] px-1.5 py-0.5 bg-primary text-white rounded font-medium"
+                >
+                  默认
+                </span>
+              </div>
               <p class="text-xs text-slate-500 truncate">
                 {{ template.description || "无描述" }}
               </p>
@@ -116,7 +124,7 @@
               </div>
             </div>
             <p
-              v-if="userTemplates.length === 0"
+              v-if="sortedTemplates.length === 0"
               class="text-sm text-slate-500 text-center py-4"
             >
               暂无封面模板
@@ -228,7 +236,13 @@ watch(
   { immediate: true },
 );
 
-const userTemplates = computed(() => coverTemplateStore.coverTemplates);
+const sortedTemplates = computed(() => {
+  return [...coverTemplateStore.coverTemplates].sort((a, b) => {
+    if (a.isDefault && !b.isDefault) return -1;
+    if (!a.isDefault && b.isDefault) return 1;
+    return 0;
+  });
+});
 
 const selectedTemplate = computed(() =>
   coverTemplateStore.coverTemplates.find(

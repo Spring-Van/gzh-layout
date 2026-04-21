@@ -125,3 +125,11 @@ export async function dbSaveCoverTemplate(template: CoverTemplate) {
 export async function dbDeleteCoverTemplate(templateId: string) {
   return window.electronAPI.db.deleteCoverTemplate(templateId);
 }
+
+export async function convertWebpImages(
+  sourcePath: string,
+  webpImages: Array<{ path: string; name: string }>,
+  backupEnabled: boolean
+): Promise<Record<string, string>> {
+  return window.electronAPI.convertWebpImages(sourcePath, webpImages, backupEnabled);
+}

@@ -3,6 +3,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import crypto from 'crypto';
 import { Buffer } from 'node:buffer';
+import sharp from 'sharp';
 
 export class FileService {
     static async selectFolder(): Promise<string | null> {
@@ -130,5 +131,43 @@ export class FileService {
         if (await fs.pathExists(filePath)) {
             await fs.remove(filePath);
         }
+    }
+
+    /**
+     * 将 WebP 图片转换为 PNG 格式
+     * 备份模式: 保存到 {原文件夹名-备份}/webp-converted
+     * 非备份模式: 保存到 {原文件夹名}/webp-converted
+     */
+    static async convertWebpImages(
+        sourcePath: string,
+        webpImages: Array<{ path: string; name: string }>,
+        backupEnabled: boolean
+    ): Promise<Record<string, string>> {
+        const folderName = path.basename(sourcePath);
+        const parentDir = path.dirname(sourcePath);
+
+        // 根据是否备份决定输出目录
+        const baseDir = backupEnabled
+            ? path.join(parentDir, `${folderName}-备份`)
+            : sourcePath;
+        const outputDir = path.join(baseDir, 'webp-converted');
+
+        await fs.ensureDir(outputDir);
+
+        const convertedMap: Record<string, string> = {};
+
+        for (const image of webpImages) {
+            const outputName = path.parse(image.name).name + '.png';
+            const outputPath = path.join(outputDir, outputName);
+
+            await sharp(image.path)
+                .png()
+                .toFile(outputPath);
+
+            // 原路径 -> 转换后路径
+            convertedMap[image.path] = outputPath;
+        }
+
+        return convertedMap;
     }
 }

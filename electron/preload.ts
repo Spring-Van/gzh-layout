@@ -31,6 +31,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveCoverImage: (coverFolder: string, base64Data: string, filename: string) => ipcRenderer.invoke('file:saveCoverImage', coverFolder, base64Data, filename),
   deleteCoverFolder: (coverFolder: string) => ipcRenderer.invoke('file:deleteCoverFolder', coverFolder),
   deleteCoverImage: (filePath: string) => ipcRenderer.invoke('file:deleteCoverImage', filePath),
+  convertWebpImages: (sourcePath: string, webpImages: Array<{ path: string; name: string }>, backupEnabled: boolean) =>
+    ipcRenderer.invoke('file:convertWebpImages', sourcePath, webpImages, backupEnabled),
   db: {
     init: () => ipcRenderer.invoke('db:init'),
     getAllProjects: () => ipcRenderer.invoke('db:getAllProjects'),
@@ -46,8 +48,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getAllWechatAccounts: () => ipcRenderer.invoke('db:getAllWechatAccounts'),
     getWechatAccount: (accountId: string) => ipcRenderer.invoke('db:getWechatAccount', accountId),
     getActiveWechatAccount: () => ipcRenderer.invoke('db:getActiveWechatAccount'),
+    getDefaultSyncWechatAccount: () => ipcRenderer.invoke('db:getDefaultSyncWechatAccount'),
     saveWechatAccount: (account: any) => ipcRenderer.invoke('db:saveWechatAccount', account),
     setActiveWechatAccount: (accountId: string) => ipcRenderer.invoke('db:setActiveWechatAccount', accountId),
+    setDefaultSyncWechatAccount: (accountId: string) => ipcRenderer.invoke('db:setDefaultSyncWechatAccount', accountId),
     deleteWechatAccount: (accountId: string) => ipcRenderer.invoke('db:deleteWechatAccount', accountId),
   },
   wechat: {

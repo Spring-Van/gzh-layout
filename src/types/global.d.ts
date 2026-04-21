@@ -97,6 +97,7 @@ declare global {
       saveCoverImage: (coverFolder: string, base64Data: string, filename: string) => Promise<string>;
       deleteCoverFolder: (coverFolder: string) => Promise<void>;
       deleteCoverImage: (filePath: string) => Promise<void>;
+      convertWebpImages: (sourcePath: string, webpImages: Array<{ path: string; name: string }>, backupEnabled: boolean) => Promise<Record<string, string>>;
       db: {
         init: () => Promise<{ success: boolean }>;
         getAllProjects: () => Promise<ProjectConfig[]>;

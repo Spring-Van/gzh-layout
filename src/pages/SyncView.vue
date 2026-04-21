@@ -54,23 +54,22 @@
         </div>
         <div class="p-5 space-y-4">
           <div
-            v-if="wechatAccountStore.hasActiveAccount"
+            v-if="wechatAccountStore.hasActiveAccount && selectedAccount"
             class="bg-green-50 border border-green-100 p-4 rounded-xl"
           >
             <div class="flex items-center gap-3">
               <div
                 class="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center text-white flex-shrink-0"
               >
-                {{
-                  wechatAccountStore.activeAccount?.nickname?.charAt(0) || "微"
-                }}
+                {{ selectedAccount?.nickname?.charAt(0) || "微" }}
               </div>
               <div class="flex-1 min-w-0">
                 <div class="font-bold text-green-800 truncate">
-                  {{ wechatAccountStore.activeAccount?.nickname }}
+                  {{ selectedAccount?.nickname }}
                 </div>
                 <div class="text-[10px] text-green-600 font-medium">
-                  {{ wechatAccountStore.activeAccount?.appId }}
+                  {{ selectedAccount?.appId }}
+                  {{ selectedAccount?.isDefaultSync ? " (默认同步)" : "" }}
                 </div>
               </div>
               <button
@@ -310,12 +309,14 @@ import {
 import { useBatchTypesetStore } from "../stores/batchTypeset";
 import { useWechatAccountStore } from "../stores/wechatAccount";
 import { useTemplateStore } from "../stores/template";
+import { useProjectStore } from "../stores/project";
 
 const router = useRouter();
 const { success, error: showError } = useToast();
 const batchStore = useBatchTypesetStore();
 const wechatAccountStore = useWechatAccountStore();
 const templateStore = useTemplateStore();
+const projectStore = useProjectStore();
 
 const {
   isUploading,
@@ -331,6 +332,18 @@ const {
 const shouldPublish = ref(false);
 const showConsole = ref(false);
 const consoleRef = ref<HTMLElement | null>(null);
+const selectedAccountId = ref<string>("");
+
+watch(
+  () => wechatAccountStore.accounts,
+  (newAccounts) => {
+    if (newAccounts.length > 0 && !selectedAccountId.value) {
+      const defaultSync = newAccounts.find((a) => a.isDefaultSync);
+      selectedAccountId.value = defaultSync?.id || newAccounts[0].id;
+    }
+  },
+  { immediate: true },
+);
 
 /**
  * 根据文章的排版配置生成正文内容 HTML
@@ -370,7 +383,17 @@ const syncArticles = computed<SyncArticleItem[]>(() => {
 });
 
 const canStartUpload = computed(() => {
-  return wechatAccountStore.hasActiveAccount && syncArticles.value.length > 0;
+  return (
+    wechatAccountStore.hasActiveAccount &&
+    syncArticles.value.length > 0 &&
+    selectedAccountId.value
+  );
+});
+
+const selectedAccount = computed(() => {
+  return wechatAccountStore.accounts.find(
+    (a) => a.id === selectedAccountId.value,
+  );
 });
 
 watch(
@@ -411,12 +434,18 @@ function generateFallbackArticles(): SyncArticleItem[] {
 }
 
 async function startBatchSync() {
-  if (!canStartUpload.value || !wechatAccountStore.activeAccount) return;
+  if (!canStartUpload.value) return;
+
+  const selectedAccount = wechatAccountStore.accounts.find(
+    (a) => a.id === selectedAccountId.value,
+  );
+  if (!selectedAccount) return;
 
   const result = await startBatchUpload(syncArticles.value, {
-    appId: wechatAccountStore.activeAccount.appId,
-    appSecret: "",
+    appId: selectedAccount.appId,
+    appSecret: selectedAccount.appSecret || "",
     publish: shouldPublish.value,
+    webpConvertedMap: projectStore.currentProject?.webpConvertedMap,
   });
 
   if (result.success) {

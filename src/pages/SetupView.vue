@@ -335,6 +335,15 @@
       @close="showDuplicateModal = false"
       @confirm="handleDuplicateConfirm"
     />
+
+    <WebpConvertModal
+      :visible="showWebpModal"
+      :webp-images="webpImages"
+      :backup-enabled="config.backupEnabled"
+      :source-folder="projectStore.currentProject?.sourceFolder || ''"
+      @close="showWebpModal = false"
+      @convert="handleWebpConvert"
+    />
   </section>
 </template>
 
@@ -353,9 +362,11 @@ import {
   splitIntoFolders,
   findDuplicateImages,
   backupFolder,
+  convertWebpImages,
 } from "../api/native";
 import type { DedupMode, SplitRule, ImageFile } from "../types";
 import DuplicateImageModal from "../components/common/DuplicateImageModal.vue";
+import WebpConvertModal from "../components/common/WebpConvertModal.vue";
 
 const { success, error } = useToast();
 
@@ -390,6 +401,11 @@ const duplicatePairs = ref<
   Array<{ original: ImageFile; duplicate: ImageFile }>
 >([]);
 let pendingWorkingImages: ImageFile[] = [];
+
+// WebP 转换相关状态
+const showWebpModal = ref(false);
+const webpImages = ref<ImageFile[]>([]);
+let pendingWebpWorkingImages: ImageFile[] = [];
 
 function getTodayDate(): string {
   const today = new Date();
@@ -510,6 +526,46 @@ async function handleDuplicateConfirm(imagesToRemove: string[]) {
   }
 }
 
+async function handleWebpConvert() {
+  showWebpModal.value = false;
+  processing.value = true;
+
+  try {
+    const project = projectStore.currentProject!;
+    const workingImages = pendingWebpWorkingImages;
+
+    // 调用 Electron 后端进行 WebP -> PNG 转换
+    const webpList = webpImages.value.map((img) => ({
+      path: img.path,
+      name: img.name,
+    }));
+    const convertedMap = await convertWebpImages(
+      project.sourceFolder,
+      webpList,
+      config.value.backupEnabled
+    );
+
+    // 保存映射关系到项目配置
+    project.webpConvertedMap = {
+      ...(project.webpConvertedMap || {}),
+      ...convertedMap,
+    };
+    await projectStore.saveProject();
+
+    success(`已将 ${webpList.length} 张 WebP 图片转换为 PNG`);
+
+    finishProcessing(
+      workingImages,
+      project.images.length,
+      0
+    );
+  } catch (e) {
+    console.error("WebP 转换失败:", e);
+    error("WebP 转换失败，请重试");
+    processing.value = false;
+  }
+}
+
 async function completeProcessing(
   workingImages: ImageFile[],
   totalImages: number,
@@ -536,6 +592,25 @@ async function completeProcessing(
     }
   }
 
+  // 备份/拆分完成后检测 WebP（避免备份覆盖转换结果）
+  const detectedWebpImages = workingImages.filter(
+    (img) => img.format === "webp"
+  );
+  if (detectedWebpImages.length > 0) {
+    webpImages.value = detectedWebpImages;
+    showWebpModal.value = true;
+    pendingWebpWorkingImages = workingImages;
+    return; // 不重置 processing，等转换完成后继续
+  }
+
+  finishProcessing(workingImages, totalImages, duplicateCount);
+}
+
+function finishProcessing(
+  workingImages: ImageFile[],
+  totalImages: number,
+  duplicateCount: number,
+) {
   const validImages = totalImages - duplicateCount;
   const groupCount = Math.ceil(validImages / config.value.splitCount);
 

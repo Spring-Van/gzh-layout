@@ -12,24 +12,32 @@
         class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50"
       >
         <h3 class="font-bold text-slate-800">微信公众号接口网关绑定</h3>
-        <button
-          class="text-slate-400 hover:text-slate-600"
-          @click="$emit('close')"
-        >
-          <svg
-            class="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        <div class="flex gap-2">
+          <button
+            class="px-3 py-1.5 text-xs text-slate-600 border border-slate-300 rounded hover:bg-slate-100 transition"
+            @click="showAddForm = !showAddForm"
           >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M6 18L18 6M6 6l12 12"
-            ></path>
-          </svg>
-        </button>
+            {{ showAddForm ? "收起" : "+ 添加账号" }}
+          </button>
+          <button
+            class="text-slate-400 hover:text-slate-600 p-1"
+            @click="$emit('close')"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              ></path>
+            </svg>
+          </button>
+        </div>
       </div>
       <div class="p-6 space-y-5">
         <div
@@ -75,44 +83,43 @@
           </div>
         </div>
 
-        <div
-          v-if="accountStore.hasAccounts && accountStore.accounts.length > 1"
-          class="space-y-2"
-        >
+        <div v-if="accountStore.hasAccounts" class="space-y-2">
           <label class="block text-xs font-medium text-slate-500"
-            >已绑定账号</label
+            >已绑定账号 ({{ accountStore.accounts.length }})</label
           >
           <div
-            class="space-y-2 max-h-32 overflow-y-auto border border-slate-200 rounded-lg p-2"
+            class="space-y-2 max-h-48 overflow-y-auto border border-slate-200 rounded-lg p-2"
           >
             <div
               v-for="account in accountStore.accounts"
               :key="account.id"
-              class="flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all"
+              class="flex items-center justify-between p-2.5 rounded-lg transition-all"
               :class="[
                 account.isActive
                   ? 'bg-blue-50 border border-blue-200'
-                  : 'hover:bg-slate-50',
+                  : 'bg-white border border-transparent hover:bg-slate-50',
               ]"
-              @click="switchAccount(account.id)"
             >
-              <div class="flex items-center gap-2">
+              <div
+                class="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
+                @click="switchAccount(account.id)"
+              >
                 <div
-                  class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                  class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
                   :class="account.isActive ? 'bg-blue-500' : 'bg-slate-400'"
                 >
                   {{ account.nickname?.charAt(0) || "微" }}
                 </div>
-                <div>
-                  <div class="text-sm font-medium text-slate-700">
+                <div class="min-w-0">
+                  <div class="text-sm font-medium text-slate-700 truncate">
                     {{ account.nickname }}
                   </div>
-                  <div class="text-[10px] text-slate-400">
+                  <div class="text-[10px] text-slate-400 truncate">
                     {{ account.appId }}
                   </div>
                 </div>
               </div>
-              <div class="flex items-center gap-1">
+              <div class="flex items-center gap-1.5 flex-shrink-0">
                 <span
                   v-if="account.isActive"
                   class="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded"
@@ -120,7 +127,23 @@
                   当前
                 </span>
                 <button
-                  class="text-red-400 hover:text-red-600 p-1"
+                  v-if="account.isDefaultSync"
+                  class="text-[10px] px-1.5 py-0.5 bg-green-100 text-green-600 rounded hover:bg-green-200 transition"
+                  @click.stop="setDefaultSync(account.id)"
+                  title="取消默认同步"
+                >
+                  默认同步
+                </button>
+                <button
+                  v-else
+                  class="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded hover:bg-green-50 hover:text-green-600 transition"
+                  @click.stop="setDefaultSync(account.id)"
+                  title="设为默认同步"
+                >
+                  设为默认
+                </button>
+                <button
+                  class="text-slate-400 hover:text-red-600 p-1 transition"
                   @click.stop="deleteAccount(account.id)"
                 >
                   <svg
@@ -142,7 +165,7 @@
           </div>
         </div>
 
-        <div class="pt-2 border-t border-slate-100">
+        <div v-if="showAddForm" class="pt-2 border-t border-slate-100">
           <div class="mb-4">
             <label class="block text-xs font-medium text-slate-500 mb-1.5"
               >AppID</label
@@ -234,46 +257,39 @@
               </div>
             </div>
           </div>
-        </div>
-      </div>
-      <div class="px-6 py-4 bg-slate-50 border-t border-slate-100 flex gap-3">
-        <button
-          class="flex-1 px-4 py-2 text-sm text-slate-600 border border-slate-300 rounded hover:bg-slate-100 transition"
-          @click="$emit('close')"
-        >
-          关闭
-        </button>
-        <button
-          class="flex-1 px-4 py-2 text-sm bg-primary text-white rounded hover:bg-primary-hover transition flex items-center justify-center gap-2"
-          :disabled="
-            accountStore.isAuthenticating || !form.appId || !form.appSecret
-          "
-          @click="handleAuthenticate"
-        >
-          <svg
-            v-if="accountStore.isAuthenticating"
-            class="w-4 h-4 animate-spin"
-            fill="none"
-            viewBox="0 0 24 24"
+
+          <button
+            class="w-full px-4 py-2 text-sm bg-primary text-white rounded hover:bg-primary-hover transition flex items-center justify-center gap-2"
+            :disabled="
+              accountStore.isAuthenticating || !form.appId || !form.appSecret
+            "
+            @click="handleAuthenticate"
           >
-            <circle
-              class="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              stroke-width="4"
-            ></circle>
-            <path
-              class="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            ></path>
-          </svg>
-          <span>{{
-            accountStore.isAuthenticating ? "鉴权中..." : "请求鉴权"
-          }}</span>
-        </button>
+            <svg
+              v-if="accountStore.isAuthenticating"
+              class="w-4 h-4 animate-spin"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                class="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="4"
+              ></circle>
+              <path
+                class="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              ></path>
+            </svg>
+            <span>{{
+              accountStore.isAuthenticating ? "鉴权中..." : "请求鉴权并添加"
+            }}</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -300,6 +316,7 @@ const form = ref({
 });
 
 const showAppSecret = ref(false);
+const showAddForm = ref(false);
 
 const tokenExpiresInText = computed(() => {
   if (!accountStore.activeAccount?.tokenExpiresAt) return "未知";
@@ -345,6 +362,11 @@ async function handleAuthenticate() {
 async function switchAccount(accountId: string) {
   await accountStore.setActiveAccount(accountId);
   success("账号已切换");
+}
+
+async function setDefaultSync(accountId: string) {
+  await accountStore.setDefaultSyncAccount(accountId);
+  success("默认同步账号已设置");
 }
 
 async function deleteAccount(accountId: string) {
