@@ -40,36 +40,36 @@
         >
           <span class="text-sm font-bold text-slate-700">公众号配置</span>
           <span
-            v-if="wechatAccountStore.hasActiveAccount"
+            v-if="selectedAccount"
             class="text-xs text-green-600 bg-green-50 border border-green-200 rounded px-2 py-0.5"
           >
-            已绑定: {{ wechatAccountStore.activeAccount?.nickname }}
+            已选择: {{ selectedAccount.nickname }}
           </span>
           <span
             v-else
             class="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-0.5"
           >
-            未绑定
+            未选择
           </span>
         </div>
         <div class="p-5 space-y-4">
           <div
-            v-if="wechatAccountStore.hasActiveAccount && selectedAccount"
+            v-if="selectedAccount"
             class="bg-green-50 border border-green-100 p-4 rounded-xl"
           >
             <div class="flex items-center gap-3">
               <div
                 class="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center text-white flex-shrink-0"
               >
-                {{ selectedAccount?.nickname?.charAt(0) || "微" }}
+                {{ selectedAccount.nickname.charAt(0) || "微" }}
               </div>
               <div class="flex-1 min-w-0">
                 <div class="font-bold text-green-800 truncate">
-                  {{ selectedAccount?.nickname }}
+                  {{ selectedAccount.nickname }}
                 </div>
                 <div class="text-[10px] text-green-600 font-medium">
-                  {{ selectedAccount?.appId }}
-                  {{ selectedAccount?.isDefaultSync ? " (默认同步)" : "" }}
+                  {{ selectedAccount.appId }}
+                  {{ selectedAccount.isDefaultSync ? " (默认同步)" : "" }}
                 </div>
               </div>
               <button
@@ -92,8 +92,10 @@
                 !
               </div>
               <div class="flex-1 min-w-0">
-                <div class="font-bold text-amber-800">暂未绑定公众号</div>
-                <div class="text-[10px] text-amber-600">请先完成账号鉴权</div>
+                <div class="font-bold text-amber-800">暂未选择公众号</div>
+                <div class="text-[10px] text-amber-600">
+                  请先完成账号鉴权并选择同步账号
+                </div>
               </div>
               <button
                 class="text-xs px-3 py-1.5 bg-primary text-white rounded-lg hover:bg-primary-hover transition"
@@ -342,7 +344,16 @@ watch(
       selectedAccountId.value = defaultSync?.id || newAccounts[0].id;
     }
   },
-  { immediate: true },
+  { immediate: true, deep: true },
+);
+
+watch(
+  () => wechatAccountStore.activeAccount,
+  (active) => {
+    if (active) {
+      selectedAccountId.value = active.id;
+    }
+  },
 );
 
 /**
@@ -383,11 +394,7 @@ const syncArticles = computed<SyncArticleItem[]>(() => {
 });
 
 const canStartUpload = computed(() => {
-  return (
-    wechatAccountStore.hasActiveAccount &&
-    syncArticles.value.length > 0 &&
-    selectedAccountId.value
-  );
+  return !!selectedAccount.value && syncArticles.value.length > 0;
 });
 
 const selectedAccount = computed(() => {

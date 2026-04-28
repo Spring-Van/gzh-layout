@@ -356,22 +356,26 @@ async function handleAuthenticate() {
   );
   if (result) {
     success("鉴权成功！");
+    // emit("close");
   }
 }
 
 async function switchAccount(accountId: string) {
   await accountStore.setActiveAccount(accountId);
   success("账号已切换");
+  emit("close");
 }
 
 async function setDefaultSync(accountId: string) {
   await accountStore.setDefaultSyncAccount(accountId);
   success("默认同步账号已设置");
+  // emit("close");
 }
 
 async function deleteAccount(accountId: string) {
   if (!confirm("确定要删除这个账号吗？")) return;
   await accountStore.deleteAccount(accountId);
   success("账号已删除");
+  // emit("close");
 }
 </script>
