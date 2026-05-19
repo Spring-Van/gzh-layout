@@ -126,7 +126,7 @@ interface Props {
 }
 
 const props = defineProps<Props>();
-const emit = defineEmits<{
+defineEmits<{
   (e: "close"): void;
   (e: "convert"): void;
 }>();

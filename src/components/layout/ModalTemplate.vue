@@ -227,7 +227,7 @@ interface Props {
 }
 
 const props = defineProps<Props>();
-const emit = defineEmits<{
+defineEmits<{
   (e: "close"): void;
   (e: "select", templateId: string): void;
 }>();
@@ -329,13 +329,6 @@ function deleteTemplate(templateId: string) {
       editingTemplate.value = undefined;
     }
     success("模板已删除");
-  }
-}
-
-function handleSelectTemplate() {
-  if (selectedTemplateId.value) {
-    emit("select", selectedTemplateId.value);
-    emit("close");
   }
 }
 </script>

@@ -113,8 +113,10 @@ declare global {
         getAllWechatAccounts: () => Promise<WechatAccount[]>;
         getWechatAccount: (accountId: string) => Promise<WechatAccount | null>;
         getActiveWechatAccount: () => Promise<WechatAccount | null>;
+        getDefaultSyncWechatAccount: () => Promise<WechatAccount | null>;
         saveWechatAccount: (account: WechatAccount) => Promise<{ success: boolean }>;
         setActiveWechatAccount: (accountId: string) => Promise<{ success: boolean }>;
+        setDefaultSyncWechatAccount: (accountId: string) => Promise<{ success: boolean }>;
         deleteWechatAccount: (accountId: string) => Promise<{ success: boolean }>;
       };
       wechat: {

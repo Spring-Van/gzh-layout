@@ -1,4 +1,5 @@
 import fs from 'fs-extra';
+import type { FileHandle } from 'fs/promises';
 import path from 'path';
 import { nanoid } from 'nanoid';
 import sharp from 'sharp';
@@ -29,7 +30,7 @@ export class ImageService {
    */
   static async isWebpByMagicNumber(filePath: string): Promise<boolean> {
     try {
-      const fd = await fs.open(filePath, 'r');
+      const fd = (await fs.open(filePath, 'r')) as unknown as FileHandle;
       const header = Buffer.alloc(12);
       await fd.read(header, 0, 12, 0);
       await fd.close();

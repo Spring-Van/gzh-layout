@@ -326,15 +326,5 @@ function handleCancelEdit() {
   coverTemplateStore.closeEditor();
 }
 
-function handleSelectTemplate() {
-  if (selectedTemplateId.value) {
-    const template = coverTemplateStore.coverTemplates.find(
-      (t) => t.id === selectedTemplateId.value,
-    );
-    if (template) {
-      emit("select", template);
-    }
-    emit("close");
-  }
-}
+
 </script>
