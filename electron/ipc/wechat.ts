@@ -12,6 +12,7 @@ export interface UploadArticleParams {
   contentHtml?: string;
   author?: string;
   digest?: string;
+  contentSourceUrl?: string;
   picCrop2351?: string;
   picCrop11?: string;
 }
@@ -191,6 +192,7 @@ export function registerWechatIpc() {
           author: article.author,
           digest: article.digest,
           content: htmlContent,
+          contentSourceUrl: article.contentSourceUrl,
           picCrop2351: article.picCrop2351,
           picCrop11: article.picCrop11,
         });

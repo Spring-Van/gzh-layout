@@ -60,6 +60,7 @@
             :template-id="currentTemplateId"
             :images="currentArticle?.images || []"
             :processed-html="processedTemplateHtml"
+            :source-url="currentArticle?.titleConfig.sourceUrl"
             :get-image-url="getImageUrl"
           />
         </template>

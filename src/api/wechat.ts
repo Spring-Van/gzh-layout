@@ -28,6 +28,7 @@ export interface UploadArticleParams {
   contentHtml?: string;
   author?: string;
   digest?: string;
+  contentSourceUrl?: string;
   picCrop2351?: string;
   picCrop11?: string;
 }

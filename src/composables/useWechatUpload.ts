@@ -73,6 +73,7 @@ export interface SyncArticleItem {
   coverImagePath: string;
   contentImagePaths: string[];
   contentHtml?: string;
+  contentSourceUrl?: string;
   picCrop2351?: string;
   picCrop11?: string;
   generatedCoverImage?: string;
@@ -124,6 +125,7 @@ export function useWechatUpload() {
         coverImagePath: coverImage,
         contentImagePaths: contentImages,
         contentHtml,
+        contentSourceUrl: article.titleConfig.sourceUrl,
         picCrop2351: article.coverConfig.pic_crop_235_1 || globalConfig.cover.pic_crop_235_1,
         picCrop11: article.coverConfig.pic_crop_1_1 || globalConfig.cover.pic_crop_1_1,
         generatedCoverImage: article.coverConfig.generatedCoverImage,
@@ -235,6 +237,7 @@ export function useWechatUpload() {
             contentImagePaths: resolvedContentImagePaths,
             contentHtml: resolvedContentHtml,
             digest: article.summary,
+            contentSourceUrl: article.contentSourceUrl,
             picCrop2351: article.picCrop2351,
             picCrop11: article.picCrop11,
           };

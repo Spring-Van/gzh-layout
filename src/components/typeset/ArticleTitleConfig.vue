@@ -24,6 +24,13 @@
     </div>
 
     <div v-if="!localInherit" class="space-y-3">
+      <button
+        class="w-full text-xs text-primary border border-primary/30 bg-primary/5 rounded-lg py-2 hover:bg-primary/10 transition"
+        @click="bringGlobalValues"
+      >
+        从全局带入标题和摘要
+      </button>
+
       <div>
         <label class="text-xs font-medium text-slate-500 block mb-1">本篇标题</label>
         <input
@@ -43,6 +50,19 @@
           placeholder="输入本篇摘要"
         ></textarea>
       </div>
+
+      <div>
+        <label class="text-xs font-medium text-slate-500 block mb-1">原文地址</label>
+        <input
+          type="url"
+          v-model="localSourceUrl"
+          class="w-full border rounded-lg text-sm px-3 py-2 focus:ring-1 focus:ring-primary outline-none"
+          :class="urlError ? 'border-red-300 focus:border-red-500' : 'border-slate-300 focus:border-primary'"
+          placeholder="输入图文消息的原文地址"
+        />
+        <p v-if="urlError" class="text-[10px] text-red-500 mt-1">{{ urlError }}</p>
+        <p v-else class="text-[10px] text-slate-400 mt-1">填写后文章左下角将显示"阅读原文"链接</p>
+      </div>
     </div>
 
     <div
@@ -59,7 +79,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import type { ArticleTitleConfig, GlobalTitleConfig } from '../../types';
 
 interface Props {
@@ -73,6 +93,8 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   'update:config': [config: Partial<ArticleTitleConfig>];
 }>();
+
+const urlError = ref('');
 
 const localInherit = computed({
   get: () => props.config.inheritGlobal,
@@ -89,11 +111,31 @@ const localSubtitle = computed({
   set: (val) => emit('update:config', { subtitle: val }),
 });
 
-const finalPreview = computed(() => {
-  if (localInherit.value) {
-    const config = props.globalConfig;
-    if (!config.enabled) return localTitle.value || '未设置标题';
+const localSourceUrl = computed({
+  get: () => props.config.sourceUrl || '',
+  set: (val) => {
+    urlError.value = '';
+    if (val && !isValidUrl(val)) {
+      urlError.value = '请输入有效的 URL 地址';
+    }
+    emit('update:config', { sourceUrl: val });
+  },
+});
 
+function isValidUrl(url: string): boolean {
+  try {
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const finalPreview = computed(() => {
+  const config = props.globalConfig;
+
+  if (localInherit.value) {
+    if (!config.enabled) return localTitle.value || '未设置标题';
     const numbering = generateNumbering(props.articleIndex + 1, config.numberingRule, config.customFormat);
     return `${config.prefix}${config.separator}${numbering}`.trim();
   }
@@ -107,6 +149,21 @@ const finalSubtitle = computed(() => {
   }
   return localSubtitle.value;
 });
+
+function bringGlobalValues() {
+  const config = props.globalConfig;
+  if (config.enabled) {
+    const numbering = generateNumbering(props.articleIndex + 1, config.numberingRule, config.customFormat);
+    emit('update:config', {
+      title: `${config.prefix}${config.separator}${numbering}`.trim(),
+      subtitle: config.subtitle || '',
+    });
+  } else {
+    emit('update:config', {
+      subtitle: config.subtitle || '',
+    });
+  }
+}
 
 function generateNumbering(index: number, rule: string, customFormat: string): string {
   switch (rule) {

@@ -59,6 +59,7 @@ export interface ArticleTitleConfig {
   subtitle?: string;
   prefix?: string;
   numbering?: string;
+  sourceUrl?: string;
 }
 
 // 文章 - 封面配置

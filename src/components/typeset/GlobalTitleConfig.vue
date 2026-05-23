@@ -6,13 +6,22 @@
     </div>
 
     <div class="space-y-3">
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between bg-slate-50 rounded-lg p-3 border border-slate-200">
         <label class="text-xs font-medium text-slate-600">启用公共前缀</label>
-        <input
-          type="checkbox"
-          v-model="localConfig.enabled"
-          class="w-4 h-4 text-primary"
-        />
+        <button
+          :class="[
+            'w-11 h-6 rounded-full transition-colors relative',
+            localConfig.enabled ? 'bg-primary' : 'bg-slate-300',
+          ]"
+          @click="localConfig = { ...localConfig, enabled: !localConfig.enabled }"
+        >
+          <span
+            :class="[
+              'absolute top-1 w-4 h-4 bg-white rounded-full transition-transform',
+              localConfig.enabled ? 'left-6' : 'left-1',
+            ]"
+          ></span>
+        </button>
       </div>
 
       <div v-if="localConfig.enabled">

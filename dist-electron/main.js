@@ -810,6 +810,7 @@ function registerWechatIpc() {
           author: article.author,
           digest: article.digest,
           content: htmlContent,
+          contentSourceUrl: article.contentSourceUrl,
           picCrop2351: article.picCrop2351,
           picCrop11: article.picCrop11
         });

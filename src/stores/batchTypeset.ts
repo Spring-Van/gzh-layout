@@ -32,7 +32,7 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
       numberingRule: 'vol',
       customFormat: '',
       separator: ' | ',
-      subtitle: '',
+      subtitle: '拿图吱一声',
     },
     cover: {
       templateId: '',

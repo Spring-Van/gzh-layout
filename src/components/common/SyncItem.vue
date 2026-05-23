@@ -10,23 +10,47 @@
     ]"
   >
     <div
-      class="w-5 h-5 rounded-full border-[3px] flex-shrink-0 flex items-center justify-center text-white text-[10px] font-bold"
+      class="w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center text-white text-[10px] font-bold"
       :class="[
         status === 'pending'
-          ? 'border-slate-200'
+          ? 'border-[3px] border-slate-200'
           : status === 'processing'
-            ? 'border-primary border-t-transparent animate-spin'
+            ? 'border-[3px] border-primary border-t-transparent animate-spin'
             : status === 'success'
               ? 'bg-green-500'
               : 'bg-red-500',
       ]"
     >
-      {{ status === "success" ? "✓" : status === "failed" ? "✕" : "" }}
+      <svg
+        v-if="status === 'success'"
+        class="w-3 h-3"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="3"
+          d="M5 13l4 4L19 7"
+        />
+      </svg>
+      <span v-else-if="status === 'failed'">✕</span>
     </div>
 
     <div
-      class="w-12 h-12 rounded border border-slate-200 flex-shrink-0 flex items-center justify-center text-[10px] font-medium text-slate-500"
-      :class="coverStyle"
+      v-if="coverImageSrc"
+      class="w-12 h-12 rounded overflow-hidden flex-shrink-0 border border-slate-200"
+    >
+      <img
+        :src="coverImageSrc"
+        :alt="title"
+        class="w-full h-full object-cover"
+      />
+    </div>
+    <div
+      v-else
+      class="w-12 h-12 rounded border border-slate-200 flex-shrink-0 flex items-center justify-center text-[10px] font-medium text-slate-400 bg-slate-100"
     >
       封面
     </div>
@@ -52,7 +76,7 @@
 interface Props {
   title: string;
   summary: string;
-  coverStyle: string;
+  coverImageSrc?: string;
   fileCount: number;
   status: "pending" | "processing" | "success" | "failed";
 }

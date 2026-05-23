@@ -106,18 +106,10 @@
             </div>
           </div>
 
-          <div class="flex items-center gap-2">
-            <input
-              id="publish-checkbox"
-              v-model="shouldPublish"
-              type="checkbox"
-              class="w-4 h-4 text-primary border-slate-300 rounded focus:ring-primary"
-              :disabled="isUploading"
-            />
-            <label for="publish-checkbox" class="text-xs text-slate-600"
-              >同步后自动发布（否则仅创建草稿）</label
-            >
-          </div>
+          <input
+            v-model="shouldPublish"
+            type="hidden"
+          />
         </div>
       </div>
 
@@ -140,7 +132,7 @@
             :key="article.id"
             :title="article.title"
             :summary="article.summary"
-            cover-style="bg-gradient-to-br from-slate-200 to-slate-300 text-slate-400"
+            :cover-image-src="getCoverImageSrc(article)"
             :file-count="article.contentImagePaths.length"
             :status="articleStatuses[index] || 'pending'"
           />
@@ -381,6 +373,23 @@ function buildArticleContentHtml(
   }
 
   return buildContentHtmlFromTemplate(customTemplate.html, article.images);
+}
+
+function getImageUrl(filePath: string): string {
+  const normalizedPath = filePath.replace(/\\/g, "/");
+  return normalizedPath.match(/^[a-zA-Z]:/)
+    ? `file:///${normalizedPath}`
+    : `file://${normalizedPath}`;
+}
+
+function getCoverImageSrc(article: SyncArticleItem): string {
+  if (article.generatedCoverImagePath) {
+    return getImageUrl(article.generatedCoverImagePath);
+  }
+  if (article.coverImagePath) {
+    return getImageUrl(article.coverImagePath);
+  }
+  return "";
 }
 
 const syncArticles = computed<SyncArticleItem[]>(() => {
