@@ -1,13 +1,19 @@
 <template>
   <header class="h-16 bg-white border-b border-border-color flex items-center justify-between px-6 flex-shrink-0 z-20 shadow-sm">
     <!-- Logo & Title -->
-    <div class="flex items-center gap-3 cursor-pointer" @click="$emit('go-to-step', 'home')">
-      <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded flex items-center justify-center text-white font-bold shadow">
+    <div class="flex items-center gap-3 cursor-pointer" @click="$router.push('/')">
+      <div class="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded flex items-center justify-center text-white font-bold shadow">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
         </svg>
       </div>
-      <span class="font-bold text-slate-800 hidden md:block tracking-wide">矩阵排版引擎</span>
+      <span class="font-bold text-slate-800 hidden md:block tracking-wide">图文助手</span>
+      <div class="hidden md:flex items-center gap-1 text-slate-400">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+        </svg>
+        <span class="text-sm text-slate-600">公众号矩阵</span>
+      </div>
     </div>
 
     <!-- 中间向导步骤 -->
@@ -21,7 +27,7 @@
         >
           <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs"
             :class="[
-              index === currentStepIndex ? 'bg-blue-50 text-primary border border-blue-200' :
+              index === currentStepIndex ? 'bg-green-50 text-primary border border-green-200' :
               index < currentStepIndex ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'
             ]"
           >

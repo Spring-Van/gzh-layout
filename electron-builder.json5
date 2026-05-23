@@ -3,7 +3,7 @@
   $schema: "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   appId: "com.yourcompany.gzh-layout",
   asar: true,
-  productName: "公众号排版助手",
+  productName: "图文助手",
   directories: {
     output: "release/${version}",
   },

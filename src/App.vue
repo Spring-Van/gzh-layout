@@ -48,6 +48,8 @@ const currentStep = computed(() => {
   return "home";
 });
 
+const isHomePage = computed(() => route.path === "/");
+
 const showTemplateModal = ref(false);
 const showCoverTemplateModal = ref(false);
 const showAccountModal = ref(false);
@@ -66,6 +68,7 @@ function openModal(type: string) {
 <template>
   <div id="app" class="h-screen flex flex-col overflow-hidden">
     <AppHeader
+      v-if="!isHomePage"
       :current-step="currentStep"
       @go-to-step="
         (step: string) => $router.push(`/${step === 'home' ? '' : step}`)
@@ -76,6 +79,32 @@ function openModal(type: string) {
     <main class="flex-1 overflow-hidden relative">
       <router-view @open-modal="openModal" />
     </main>
+
+    <!-- 底部返回首页导航 -->
+    <footer
+      v-if="!isHomePage"
+      class="h-12 bg-white border-t border-slate-200 flex items-center justify-center flex-shrink-0"
+    >
+      <button
+        class="flex items-center gap-2 text-sm text-slate-500 hover:text-primary transition"
+        @click="$router.push('/')"
+      >
+        <svg
+          class="w-4 h-4"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+          />
+        </svg>
+        返回工具箱首页
+      </button>
+    </footer>
 
     <ModalTemplate
       :visible="showTemplateModal"
