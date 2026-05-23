@@ -698,14 +698,14 @@ async function handleNavigateToTypeset() {
       if (config.value.backupEnabled) {
         const folderName = project.sourceFolder.split(/[\\/]/).pop() || "";
         const lastSlashIndex = project.sourceFolder.lastIndexOf(
-          /[\\/]/.exec(project.sourceFolder)?.[0] || "\\",
+          /[\\/]/.exec(project.sourceFolder)?.[0] || "/",
         );
         const parentDir =
           lastSlashIndex > 0
             ? project.sourceFolder.substring(0, lastSlashIndex)
             : "";
         coverBasePath = parentDir
-          ? `${parentDir}\\${folderName}-备份`
+          ? `${parentDir}/${folderName}-备份`
           : `${folderName}-备份`;
         console.log(
           "[排版跳转] 使用备份文件夹作为封面基础路径:",
