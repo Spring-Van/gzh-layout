@@ -118,9 +118,10 @@
           </div>
         </div>
 
-        <!-- 图片提取工具（即将推出） -->
+        <!-- 图片提取工具 -->
         <div
-          class="group relative bg-white rounded-2xl border border-slate-200 overflow-hidden opacity-60 cursor-not-allowed"
+          class="group relative bg-white rounded-2xl border border-slate-200 overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl hover:shadow-emerald-500/10 hover:border-emerald-300 hover:-translate-y-1"
+          @click="$router.push('/extract')"
         >
           <!-- 顶部渐变装饰条 -->
           <div
@@ -131,7 +132,7 @@
             <div class="flex items-start gap-5">
               <!-- 图标 -->
               <div
-                class="w-14 h-14 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-500/20"
+                class="w-14 h-14 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-500/20 group-hover:scale-110 transition-transform duration-300"
               >
                 <svg
                   class="w-7 h-7 text-white"
@@ -153,13 +154,13 @@
                 <div class="flex items-center gap-2 mb-2">
                   <h3 class="text-xl font-bold text-slate-800">图片提取</h3>
                   <span
-                    class="px-2 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-600 rounded-full"
+                    class="px-2 py-0.5 text-[10px] font-medium bg-emerald-50 text-emerald-600 rounded-full"
                   >
-                    即将推出
+                    可用
                   </span>
                 </div>
                 <p class="text-sm text-slate-500 leading-relaxed mb-4">
-                  从文档、网页或其他来源批量提取图片素材
+                  从微信公众号、小红书、抖音等平台链接批量提取原图
                 </p>
 
                 <!-- 功能标签 -->
@@ -172,14 +173,19 @@
                   <span
                     class="px-2.5 py-1 text-[11px] font-medium bg-slate-100 text-slate-600 rounded-md"
                   >
-                    格式转换
+                    原图下载
+                  </span>
+                  <span
+                    class="px-2.5 py-1 text-[11px] font-medium bg-slate-100 text-slate-600 rounded-md"
+                  >
+                    多平台支持
                   </span>
                 </div>
               </div>
 
-              <!-- 锁定图标 -->
+              <!-- 箭头 -->
               <svg
-                class="w-5 h-5 text-slate-300 flex-shrink-0 mt-2"
+                class="w-5 h-5 text-slate-300 group-hover:text-emerald-500 group-hover:translate-x-1 transition-all duration-300 flex-shrink-0 mt-2"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -188,7 +194,7 @@
                   stroke-linecap="round"
                   stroke-linejoin="round"
                   stroke-width="2"
-                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                  d="M9 5l7 7-7 7"
                 />
               </svg>
             </div>

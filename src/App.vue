@@ -49,6 +49,7 @@ const currentStep = computed(() => {
 });
 
 const isHomePage = computed(() => route.path === "/");
+const isExtractPage = computed(() => route.path === "/extract");
 
 const showTemplateModal = ref(false);
 const showCoverTemplateModal = ref(false);
@@ -68,7 +69,7 @@ function openModal(type: string) {
 <template>
   <div id="app" class="h-screen flex flex-col overflow-hidden">
     <AppHeader
-      v-if="!isHomePage"
+      v-if="!isHomePage && !isExtractPage"
       :current-step="currentStep"
       @go-to-step="
         (step: string) => $router.push(`/${step === 'home' ? '' : step}`)
@@ -82,7 +83,7 @@ function openModal(type: string) {
 
     <!-- 底部返回首页导航 -->
     <footer
-      v-if="!isHomePage"
+      v-if="!isHomePage && !isExtractPage"
       class="h-12 bg-white border-t border-slate-200 flex items-center justify-center flex-shrink-0"
     >
       <button

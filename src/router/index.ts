@@ -22,6 +22,11 @@ const routes: RouteRecordRaw[] = [
     name: 'Sync',
     component: () => import('../pages/SyncView.vue'),
   },
+  {
+    path: '/extract',
+    name: 'Extract',
+    component: () => import('../pages/ExtractView.vue'),
+  },
 ];
 
 const router = createRouter({

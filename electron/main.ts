@@ -5,7 +5,13 @@ import { registerFileIpc } from './ipc/file'
 import { registerImageIpc } from './ipc/image'
 import { registerDatabaseIpc } from './ipc/database'
 import { registerWechatIpc } from './ipc/wechat'
+import { registerExtractIpc } from './ipc/extract'
 import { dbService } from './services/database.service'
+
+// 禁用 GPU 加速，避免 GPU 进程崩溃
+app.disableHardwareAcceleration()
+app.commandLine.appendSwitch('disable-gpu')
+app.commandLine.appendSwitch('disable-software-rasterizer')
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -61,4 +67,5 @@ app.whenReady().then(async () => {
   registerImageIpc()
   registerDatabaseIpc()
   registerWechatIpc()
+  registerExtractIpc()
 })

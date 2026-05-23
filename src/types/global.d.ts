@@ -136,6 +136,42 @@ declare global {
         batchUpload: (params: BatchUploadParams) => Promise<BatchUploadResult>;
         onUploadProgress: (callback: (progress: UploadProgress) => void) => () => void;
       };
+      extract: {
+        parseUrl: (url: string) => Promise<ExtractTask>;
+        parseUrls: (urls: string[]) => Promise<ExtractTask[]>;
+        downloadImages: (images: ExtractedImage[], savePath: string) => Promise<ExtractedImage[]>;
+        detectPlatform: (url: string) => Promise<string>;
+        proxyImage: (url: string) => Promise<string>;
+        onDownloadProgress: (callback: (progress: DownloadProgress) => void) => () => void;
+        onLog: (callback: (message: string) => void) => () => void;
+      };
     };
   }
+}
+
+interface ExtractedImage {
+  id: string;
+  url: string;
+  originalUrl: string;
+  filename: string;
+  platform: string;
+  downloaded: boolean;
+  localPath?: string;
+  error?: string;
+}
+
+interface ExtractTask {
+  id: string;
+  url: string;
+  platform: string;
+  status: 'pending' | 'parsing' | 'downloading' | 'completed' | 'failed';
+  images: ExtractedImage[];
+  error?: string;
+  logs?: string[];
+}
+
+interface DownloadProgress {
+  current: number;
+  total: number;
+  image: ExtractedImage;
 }

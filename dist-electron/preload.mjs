@@ -71,5 +71,22 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
       electron.ipcRenderer.on("wechat:uploadProgress", listener);
       return () => electron.ipcRenderer.off("wechat:uploadProgress", listener);
     }
+  },
+  extract: {
+    parseUrl: (url) => electron.ipcRenderer.invoke("extract:parseUrl", url),
+    parseUrls: (urls) => electron.ipcRenderer.invoke("extract:parseUrls", urls),
+    downloadImages: (images, savePath) => electron.ipcRenderer.invoke("extract:downloadImages", images, savePath),
+    detectPlatform: (url) => electron.ipcRenderer.invoke("extract:detectPlatform", url),
+    proxyImage: (url) => electron.ipcRenderer.invoke("extract:proxyImage", url),
+    onDownloadProgress: (callback) => {
+      const listener = (_event, progress) => callback(progress);
+      electron.ipcRenderer.on("extract:downloadProgress", listener);
+      return () => electron.ipcRenderer.off("extract:downloadProgress", listener);
+    },
+    onLog: (callback) => {
+      const listener = (_event, message) => callback(message);
+      electron.ipcRenderer.on("extract:log", listener);
+      return () => electron.ipcRenderer.off("extract:log", listener);
+    }
   }
 });

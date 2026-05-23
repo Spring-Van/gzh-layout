@@ -75,4 +75,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.off('wechat:uploadProgress', listener);
     },
   },
+  extract: {
+    parseUrl: (url: string) => ipcRenderer.invoke('extract:parseUrl', url),
+    parseUrls: (urls: string[]) => ipcRenderer.invoke('extract:parseUrls', urls),
+    downloadImages: (images: any[], savePath: string) => ipcRenderer.invoke('extract:downloadImages', images, savePath),
+    detectPlatform: (url: string) => ipcRenderer.invoke('extract:detectPlatform', url),
+    proxyImage: (url: string) => ipcRenderer.invoke('extract:proxyImage', url),
+    onDownloadProgress: (callback: (progress: any) => void) => {
+      const listener = (_event: any, progress: any) => callback(progress);
+      ipcRenderer.on('extract:downloadProgress', listener);
+      return () => ipcRenderer.off('extract:downloadProgress', listener);
+    },
+    onLog: (callback: (message: string) => void) => {
+      const listener = (_event: any, message: string) => callback(message);
+      ipcRenderer.on('extract:log', listener);
+      return () => ipcRenderer.off('extract:log', listener);
+    },
+  },
 })
