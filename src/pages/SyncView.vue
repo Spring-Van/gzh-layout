@@ -120,8 +120,14 @@
           class="bg-slate-50/80 px-5 py-3 border-b border-slate-200 flex items-center justify-between"
         >
           <span class="text-sm font-bold text-slate-700"
-            >就绪队列 ({{ syncArticles.length }} 篇)</span
+            >就绪队列 ({{ selectedArticleIds.size }}/{{ syncArticles.length }} 篇)</span
           >
+          <button
+            class="text-xs text-green-600 hover:text-green-700 transition"
+            @click="toggleSelectAll"
+          >
+            {{ isAllSelected ? "取消全选" : "全选" }}
+          </button>
         </div>
 
         <div
@@ -135,6 +141,8 @@
             :cover-image-src="getCoverImageSrc(article)"
             :file-count="article.contentImagePaths.length"
             :status="articleStatuses[index] || 'pending'"
+            :selected="selectedArticleIds.has(article.id)"
+            @toggle="toggleArticleSelection(article.id)"
           />
         </div>
       </div>
@@ -194,7 +202,7 @@
         class="flex justify-end gap-4"
       >
         <button
-          class="bg-primary text-white font-bold px-8 py-3.5 rounded-xl shadow-md hover:bg-primary-hover transition flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          class="bg-green-500 text-white font-bold px-8 py-3.5 rounded-xl shadow-md hover:bg-green-600 transition flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           :disabled="isUploading || !canStartUpload"
           @click="startBatchSync"
         >
@@ -232,7 +240,7 @@
               d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
             ></path>
           </svg>
-          <span>{{ isUploading ? "同步中..." : "一键自动同步草稿箱" }}</span>
+          <span>{{ isUploading ? "同步中..." : `同步选中的 ${selectedSyncArticles.length} 篇文章` }}</span>
         </button>
       </div>
 
@@ -327,6 +335,7 @@ const shouldPublish = ref(false);
 const showConsole = ref(false);
 const consoleRef = ref<HTMLElement | null>(null);
 const selectedAccountId = ref<string>("");
+const selectedArticleIds = ref<Set<string>>(new Set());
 
 watch(
   () => wechatAccountStore.accounts,
@@ -402,8 +411,43 @@ const syncArticles = computed<SyncArticleItem[]>(() => {
   });
 });
 
+watch(syncArticles, (articles) => {
+  if (selectedArticleIds.value.size === 0) {
+    selectedArticleIds.value = new Set(articles.map((a) => a.id));
+  }
+}, { immediate: true });
+
+const isAllSelected = computed(() => {
+  return (
+    syncArticles.value.length > 0 &&
+    selectedArticleIds.value.size === syncArticles.value.length
+  );
+});
+
+function toggleSelectAll() {
+  if (isAllSelected.value) {
+    selectedArticleIds.value = new Set();
+  } else {
+    selectedArticleIds.value = new Set(syncArticles.value.map((a) => a.id));
+  }
+}
+
+function toggleArticleSelection(articleId: string) {
+  const newSet = new Set(selectedArticleIds.value);
+  if (newSet.has(articleId)) {
+    newSet.delete(articleId);
+  } else {
+    newSet.add(articleId);
+  }
+  selectedArticleIds.value = newSet;
+}
+
+const selectedSyncArticles = computed(() => {
+  return syncArticles.value.filter((a) => selectedArticleIds.value.has(a.id));
+});
+
 const canStartUpload = computed(() => {
-  return !!selectedAccount.value && syncArticles.value.length > 0;
+  return !!selectedAccount.value && selectedSyncArticles.value.length > 0;
 });
 
 const selectedAccount = computed(() => {
@@ -457,7 +501,7 @@ async function startBatchSync() {
   );
   if (!selectedAccount) return;
 
-  const result = await startBatchUpload(syncArticles.value, {
+  const result = await startBatchUpload(selectedSyncArticles.value, {
     appId: selectedAccount.appId,
     appSecret: selectedAccount.appSecret || "",
     publish: shouldPublish.value,
