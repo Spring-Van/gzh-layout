@@ -38,11 +38,37 @@ export interface GlobalLayoutConfig {
   imageStructure: 'flow' | 'card' | 'grid';
 }
 
+// 样式插入位置
+export type StyleInsertPosition = 'header' | 'footer' | 'between';
+
+// 样式插入配置
+export interface StyleInsertConfig {
+  enabled: boolean;
+  position: StyleInsertPosition;
+  templateIds: string[];
+}
+
+// 全局样式插入配置
+export interface GlobalStyleInsertConfig {
+  header: StyleInsertConfig;
+  footer: StyleInsertConfig;
+  between: StyleInsertConfig;
+}
+
+// 文章样式插入配置
+export interface ArticleStyleInsertConfig {
+  inheritGlobal: boolean;
+  header: StyleInsertConfig;
+  footer: StyleInsertConfig;
+  between: StyleInsertConfig;
+}
+
 // 全局设置
 export interface GlobalConfig {
   title: GlobalTitleConfig;
   cover: GlobalCoverConfig;
   layout: GlobalLayoutConfig;
+  styleInsert: GlobalStyleInsertConfig;
 }
 
 // 文章覆盖标记
@@ -87,12 +113,15 @@ export interface BatchArticle {
   titleConfig: ArticleTitleConfig;
   coverConfig: ArticleCoverConfig;
   layoutConfig: ArticleLayoutConfig;
+  styleInsertConfig: ArticleStyleInsertConfig;
   images: {
     id: string;
     path: string;
     name: string;
   }[];
   override: ArticleOverride;
+  contentBlocks?: ContentBlock[];
+  containerStyle?: Record<string, string>;
 }
 
 // 右栏模式
@@ -197,6 +226,31 @@ export interface Project {
   statusText: string;
   stats: ProjectStats;
   sourceFolder?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 内容块类型
+export type ContentBlockType = 'image' | 'text' | 'html' | 'empty';
+
+// 内容块
+export interface ContentBlock {
+  id: string;
+  type: ContentBlockType;
+  content: string;
+  html?: string;
+  imagePath?: string;
+  imageName?: string;
+  align?: 'left' | 'center' | 'right';
+}
+
+// 样式模板
+export interface StyleTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  html: string;
+  preview?: string;
   createdAt: string;
   updatedAt: string;
 }

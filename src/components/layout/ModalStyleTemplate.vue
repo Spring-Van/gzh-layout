@@ -7,10 +7,11 @@
     <div
       class="bg-white w-full h-full overflow-hidden flex flex-col"
     >
+      <!-- 头部 -->
       <div
         class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 flex-shrink-0"
       >
-        <h3 class="font-bold text-slate-800">封面模板全局配置</h3>
+        <h3 class="font-bold text-slate-800">样式模板</h3>
         <button
           class="text-slate-400 hover:text-slate-600"
           @click="$emit('close')"
@@ -31,7 +32,9 @@
         </button>
       </div>
 
+      <!-- 内容区域 -->
       <div class="flex-1 overflow-hidden flex">
+        <!-- 左侧：样式列表 -->
         <div class="w-64 border-r border-slate-200 bg-slate-50 flex flex-col">
           <div class="p-4 border-b border-slate-200">
             <button
@@ -51,12 +54,12 @@
                   d="M12 4v16m8-8H4"
                 ></path>
               </svg>
-              新建模板
+              新建样式
             </button>
           </div>
           <div class="flex-1 overflow-y-auto p-3 space-y-2">
             <div
-              v-for="template in sortedTemplates"
+              v-for="template in allTemplates"
               :key="template.id"
               class="p-3 border border-slate-200 rounded-lg cursor-pointer hover:border-primary transition"
               :class="{
@@ -68,14 +71,8 @@
                 <p class="text-sm font-medium text-slate-800 truncate flex-1">
                   {{ template.name }}
                 </p>
-                <span
-                  v-if="template.isDefault"
-                  class="text-[10px] px-1.5 py-0.5 bg-primary text-white rounded font-medium"
-                >
-                  默认
-                </span>
               </div>
-              <p class="text-xs text-slate-500 truncate">
+              <p class="text-xs text-slate-500 truncate mt-1">
                 {{ template.description || "无描述" }}
               </p>
               <div class="flex justify-between items-center mt-2">
@@ -84,7 +81,7 @@
                 }}</span>
                 <div class="flex gap-1">
                   <button
-                    @click.stop="() => editTemplate(template)"
+                    @click.stop="editTemplate(template)"
                     class="text-slate-400 hover:text-primary transition"
                   >
                     <svg
@@ -123,42 +120,47 @@
               </div>
             </div>
             <p
-              v-if="sortedTemplates.length === 0"
+              v-if="allTemplates.length === 0"
               class="text-sm text-slate-500 text-center py-4"
             >
-              暂无封面模板
+              暂无样式模板
             </p>
           </div>
         </div>
 
+        <!-- 右侧：编辑器或预览 -->
         <div class="flex-1 overflow-hidden">
-          <CoverTemplateEditor
-            v-if="coverTemplateStore.showEditor || editingTemplate"
-            :template="editingTemplate || undefined"
-            @save="handleSaveTemplate"
+          <!-- 编辑模式：左右两栏（表单 + 预览） -->
+          <StyleEditor
+            v-if="isEditing"
+            :name="formData.name"
+            :description="formData.description"
+            :html="formData.html"
+            @update:name="formData.name = $event"
+            @update:description="formData.description = $event"
+            @update:html="formData.html = $event"
+            @save="handleSave"
             @cancel="handleCancelEdit"
+            :is-editing="!!editingId"
           />
+
+          <!-- 预览模式 -->
           <div
             v-else-if="selectedTemplate"
             class="w-full h-full flex items-center justify-center p-4 lg:p-8 relative overflow-hidden bg-slate-100/50"
           >
-            <div
-              class="w-full max-w-[600px] bg-white rounded-xl shadow-lg overflow-hidden"
-            >
-              <div
-                class="aspect-[2.35/1] bg-white relative"
-                v-html="selectedTemplatePreview"
-              ></div>
-              <div class="p-4 bg-white border-t border-slate-200">
-                <h3 class="text-lg font-bold text-slate-900">
-                  {{ selectedTemplate.name }}
-                </h3>
-                <p class="text-sm text-slate-500 mt-1">
-                  {{ selectedTemplate.description || "无描述" }}
-                </p>
+            <div class="w-full max-w-lg bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+              <div class="px-6 py-4 border-b border-slate-100">
+                <h3 class="font-bold text-slate-800">{{ selectedTemplate.name }}</h3>
+                <p v-if="selectedTemplate.description" class="text-xs text-slate-500 mt-1">{{ selectedTemplate.description }}</p>
+              </div>
+              <div class="p-6 flex items-center justify-center min-h-[200px] bg-slate-50/50">
+                <div v-html="selectedTemplate.html"></div>
               </div>
             </div>
           </div>
+
+          <!-- 空状态 -->
           <div v-else class="w-full h-full flex items-center justify-center">
             <div class="text-center">
               <svg
@@ -171,163 +173,143 @@
                   stroke-linecap="round"
                   stroke-linejoin="round"
                   stroke-width="2"
-                  d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"
                 ></path>
               </svg>
-              <p class="text-slate-400 text-sm">选择一个模板开始预览</p>
+              <p class="text-slate-500 text-sm">点击新建样式开始创建</p>
+              <p class="text-slate-400 text-xs mt-1">
+                或从左侧选择一个样式进行预览
+              </p>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- 底部 -->
-      <!-- <div
-        v-if="!coverTemplateStore.showEditor && !editingTemplate"
-        class="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 flex-shrink-0"
-      >
-        <button
-          class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-200 rounded"
-          @click="$emit('close')"
-        >
-          关闭
-        </button>
-        <button
-          v-if="selectedTemplateId"
-          class="px-4 py-2 text-sm bg-primary text-white rounded hover:bg-primary-hover transition"
-          @click="handleSelectTemplate"
-        >
-          选择此模板
-        </button>
-      </div> -->
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-/* eslint-disable vue/no-unused-properties */
-import { ref, computed, watch } from "vue";
-import { useCoverTemplateStore } from "../../stores/coverTemplate";
-import CoverTemplateEditor from "../common/CoverTemplateEditor.vue";
-import type { CoverTemplate } from "../../types";
+import { ref, reactive, computed, watch } from "vue";
+import { useToast } from "../../hooks/useToast";
+import { useStyleTemplateStore } from "../../stores/styleTemplate";
+import StyleEditor from "../common/StyleEditor.vue";
+import type { StyleTemplate } from "../../types";
 
 interface Props {
   visible: boolean;
 }
 
 const props = defineProps<Props>();
-/* eslint-enable vue/no-unused-properties */
-const emit = defineEmits<{
+defineEmits<{
   (e: "close"): void;
-  (e: "select", template: CoverTemplate): void;
 }>();
 
-const coverTemplateStore = useCoverTemplateStore();
-const selectedTemplateId = ref<string | null>(null);
-const editingTemplate = ref<CoverTemplate | null>(null);
+const { success } = useToast();
+const styleTemplateStore = useStyleTemplateStore();
+
+const selectedTemplateId = ref<string>("");
+const isEditing = ref(false);
+const editingId = ref<string | null>(null);
+
+const formData = reactive({
+  name: "",
+  description: "",
+  html: "",
+});
+
+const allTemplates = computed(() => styleTemplateStore.allTemplates);
 
 watch(
   () => props.visible,
   (newVal) => {
-    if (newVal) {
-      if (coverTemplateStore.coverTemplates.length === 0) {
-        coverTemplateStore.openEditor();
-      } else {
-        selectedTemplateId.value = sortedTemplates.value[0]?.id || null;
-      }
+    if (newVal && allTemplates.value.length > 0) {
+      selectedTemplateId.value = allTemplates.value[0].id;
     }
   },
   { immediate: true },
 );
 
-const sortedTemplates = computed(() => {
-  return [...coverTemplateStore.coverTemplates].sort((a, b) => {
-    if (a.isDefault && !b.isDefault) return -1;
-    if (!a.isDefault && b.isDefault) return 1;
-    return 0;
-  });
-});
-
-const selectedTemplate = computed(() =>
-  coverTemplateStore.coverTemplates.find(
+const selectedTemplate = computed(() => {
+  if (!selectedTemplateId.value) return undefined;
+  return allTemplates.value.find(
     (t) => t.id === selectedTemplateId.value,
-  ),
-);
-
-const selectedTemplatePreview = computed(() => {
-  if (!selectedTemplate.value) return "";
-  let html = selectedTemplate.value.html.replace(/`/g, "");
-  html = html.replace(
-    /https:\/\/toai\.art\/b1\.png/g,
-    "https://via.placeholder.com/400x300",
   );
-  return html;
 });
 
-function formatDate(dateStr: string) {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString("zh-CN", {
-    month: "short",
-    day: "numeric",
-  });
+function formatDate(dateString: string): string {
+  const date = new Date(dateString);
+  return date.toLocaleDateString("zh-CN");
 }
 
 function selectTemplate(templateId: string) {
   selectedTemplateId.value = templateId;
-  if (editingTemplate.value || coverTemplateStore.showEditor) {
-    const template = coverTemplateStore.coverTemplates.find(
-      (t) => t.id === templateId,
-    );
+  if (isEditing.value) {
+    const template = allTemplates.value.find((t) => t.id === templateId);
     if (template) {
-      editingTemplate.value = { ...template };
-      coverTemplateStore.closeEditor();
-    }
-  } else {
-    const template = coverTemplateStore.coverTemplates.find(
-      (t) => t.id === templateId,
-    );
-    if (template) {
-      emit("select", template);
+      editingId.value = template.id;
+      formData.name = template.name;
+      formData.description = template.description || "";
+      formData.html = template.html;
     }
   }
 }
 
-function editTemplate(template: CoverTemplate) {
-  editingTemplate.value = { ...template };
-  coverTemplateStore.closeEditor();
+function editTemplate(template: StyleTemplate) {
+  editingId.value = template.id;
+  formData.name = template.name;
+  formData.description = template.description || "";
+  formData.html = template.html;
+  isEditing.value = true;
 }
 
 function handleNewTemplate() {
-  editingTemplate.value = null;
-  selectedTemplateId.value = null;
-  coverTemplateStore.openEditor();
-}
-
-async function deleteTemplate(templateId: string) {
-  if (confirm("确定要删除这个模板吗？")) {
-    await coverTemplateStore.deleteCoverTemplate(templateId);
-    if (selectedTemplateId.value === templateId) {
-      selectedTemplateId.value = null;
-    }
-    if (editingTemplate.value?.id === templateId) {
-      editingTemplate.value = null;
-    }
-  }
-}
-
-async function handleSaveTemplate(template: CoverTemplate) {
-  if (editingTemplate.value) {
-    await coverTemplateStore.updateCoverTemplate(template);
-  } else {
-    await coverTemplateStore.addCoverTemplate(template);
-  }
-  selectedTemplateId.value = template.id;
-  editingTemplate.value = { ...template };
+  editingId.value = null;
+  selectedTemplateId.value = "";
+  formData.name = "";
+  formData.description = "";
+  formData.html = "";
+  isEditing.value = true;
 }
 
 function handleCancelEdit() {
-  editingTemplate.value = null;
-  coverTemplateStore.closeEditor();
+  isEditing.value = false;
+  editingId.value = null;
 }
 
+async function handleSave() {
+  if (!formData.name.trim() || !formData.html.trim()) return;
 
+  if (editingId.value) {
+    await styleTemplateStore.updateCustomTemplate(editingId.value, {
+      name: formData.name.trim(),
+      description: formData.description.trim(),
+      html: formData.html.trim(),
+    });
+    success("样式更新成功");
+  } else {
+    const newTemplate = await styleTemplateStore.addCustomTemplate({
+      name: formData.name.trim(),
+      description: formData.description.trim(),
+      html: formData.html.trim(),
+    });
+    selectedTemplateId.value = newTemplate.id;
+    success("样式保存成功");
+  }
+  isEditing.value = false;
+  editingId.value = null;
+}
+
+async function deleteTemplate(templateId: string) {
+  if (confirm("确定要删除此样式吗？")) {
+    await styleTemplateStore.removeCustomTemplate(templateId);
+    if (selectedTemplateId.value === templateId) {
+      selectedTemplateId.value = "";
+    }
+    if (editingId.value === templateId) {
+      isEditing.value = false;
+      editingId.value = null;
+    }
+    success("样式已删除");
+  }
+}
 </script>

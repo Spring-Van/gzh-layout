@@ -27,6 +27,11 @@ const routes: RouteRecordRaw[] = [
     name: 'Extract',
     component: () => import('../pages/ExtractView.vue'),
   },
+  {
+    path: '/style-templates',
+    name: 'StyleTemplates',
+    component: () => import('../pages/StyleTemplateView.vue'),
+  },
 ];
 
 const router = createRouter({

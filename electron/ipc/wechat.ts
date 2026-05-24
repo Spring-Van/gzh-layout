@@ -179,6 +179,12 @@ export function registerWechatIpc() {
             const originalPath = contentResults[j].originalPath;
             const wechatUrl = contentResults[j].url;
             htmlContent = htmlContent.split(originalPath).join(wechatUrl);
+            const normalizedPath = originalPath.replace(/\\/g, '/');
+            const encodedPath = encodeURIComponent(normalizedPath).replace(/%2F/g, '/');
+            htmlContent = htmlContent.split(`file://${normalizedPath}`).join(wechatUrl);
+            htmlContent = htmlContent.split(`file:///${normalizedPath.replace(/^\//, '')}`).join(wechatUrl);
+            htmlContent = htmlContent.split(`file://${encodedPath}`).join(wechatUrl);
+            htmlContent = htmlContent.split(`file:///${encodedPath.replace(/^\//, '')}`).join(wechatUrl);
           }
         } else {
           htmlContent = wechatService.buildArticleHtml(article.title, imageUrls);

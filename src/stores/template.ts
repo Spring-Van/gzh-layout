@@ -9,16 +9,19 @@ export const useTemplateStore = defineStore('template', () => {
   const currentTemplateId = ref<string>('flow');
   const showEditor = ref(false);
   const isLoading = ref(false);
+  const isLoaded = ref(false);
 
   // 计算属性
   const hasCustomTemplates = computed(() => customTemplates.value.length > 0);
 
   // Actions
   async function loadTemplates() {
+    if (isLoaded.value) return;
     isLoading.value = true;
     try {
       const templates = await dbGetAllTemplates();
       customTemplates.value = templates;
+      isLoaded.value = true;
     } catch (error) {
       console.error('加载模板失败:', error);
     } finally {
@@ -96,6 +99,7 @@ export const useTemplateStore = defineStore('template', () => {
     currentTemplateId,
     showEditor,
     isLoading,
+    isLoaded,
 
     // Computed
     hasCustomTemplates,

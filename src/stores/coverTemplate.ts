@@ -6,6 +6,7 @@ import { dbGetAllCoverTemplates, dbSaveCoverTemplate, dbDeleteCoverTemplate } fr
 export const useCoverTemplateStore = defineStore('coverTemplate', () => {
   const userTemplates = ref<CoverTemplate[]>([]);
   const isLoading = ref(false);
+  const isLoaded = ref(false);
   const showEditor = ref(false);
   const editingTemplate = ref<CoverTemplate | null>(null);
 
@@ -13,10 +14,12 @@ export const useCoverTemplateStore = defineStore('coverTemplate', () => {
   const hasCoverTemplates = computed(() => coverTemplates.value.length > 0);
 
   async function loadCoverTemplates() {
+    if (isLoaded.value) return;
     isLoading.value = true;
     try {
       const templates = await dbGetAllCoverTemplates();
       userTemplates.value = templates;
+      isLoaded.value = true;
     } catch (error) {
       console.error('加载封面模板失败:', error);
     } finally {
@@ -90,6 +93,7 @@ export const useCoverTemplateStore = defineStore('coverTemplate', () => {
   return {
     coverTemplates,
     isLoading,
+    isLoaded,
     showEditor,
     editingTemplate,
     hasCoverTemplates,

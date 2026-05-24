@@ -1,12 +1,11 @@
 <template>
   <div
-    class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center transition-opacity"
-    :class="[visible ? 'opacity-100' : 'opacity-0 pointer-events-none']"
+    v-if="visible"
+    class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center"
     @click.self="$emit('close')"
   >
     <div
       class="bg-white w-full h-full overflow-hidden flex flex-col"
-      :class="[visible ? 'scale-100' : 'scale-95']"
     >
       <!-- 头部 -->
       <div
@@ -240,8 +239,12 @@ const editingTemplate = ref<CustomTemplate | undefined>(undefined);
 watch(
   () => props.visible,
   (newVal) => {
-    if (newVal && templateStore.customTemplates.length === 0) {
-      templateStore.openEditor();
+    if (newVal) {
+      if (templateStore.customTemplates.length === 0) {
+        templateStore.openEditor();
+      } else {
+        selectedTemplateId.value = sortedTemplates.value[0]?.id || "";
+      }
     }
   },
   { immediate: true },

@@ -1,7 +1,5 @@
 <template>
-  <div
-    class="w-full lg:w-80 bg-white border-l border-slate-200 h-1/2 lg:h-full overflow-y-auto flex-shrink-0 flex flex-col shadow-[-4px_0_15px_-3px_rgba(0,0,0,0.02)] z-10"
-  >
+  <div class="w-full lg:w-80 bg-white border-l border-slate-200 h-1/2 lg:h-full overflow-y-scroll flex-shrink-0 flex flex-col shadow-[-4px_0_15px_-3px_rgba(0,0,0,0.02)] z-10">
     <div class="p-4 border-b border-slate-100 sticky top-0 bg-white z-20">
       <div class="flex bg-slate-100 rounded-lg p-0.5">
         <button
@@ -76,17 +74,15 @@
       <template v-else-if="configMode === 'global' && configTab === 'layout'">
         <GlobalLayoutConfigComponent
           :config="globalLayoutConfig"
+          :style-insert-config="globalStyleInsertConfig"
           @update:config="handleGlobalLayoutUpdate"
+          @update:style-insert-config="handleGlobalStyleInsertUpdate"
           @open-template-manager="$emit('open-template-manager')"
         />
       </template>
 
       <!-- 当前文章 - 标题 -->
-      <template
-        v-else-if="
-          configMode === 'article' && configTab === 'title' && currentArticle
-        "
-      >
+      <template v-else-if="configMode === 'article' && configTab === 'title' && currentArticle">
         <ArticleTitleConfigComponent
           :config="currentArticle.titleConfig"
           :global-config="globalTitleConfig"
@@ -96,11 +92,7 @@
       </template>
 
       <!-- 当前文章 - 封面 -->
-      <template
-        v-else-if="
-          configMode === 'article' && configTab === 'cover' && currentArticle
-        "
-      >
+      <template v-else-if="configMode === 'article' && configTab === 'cover' && currentArticle">
         <ArticleCoverConfig
           :article="currentArticle"
           :cover-template-name="currentArticleCoverTemplateName"
@@ -109,9 +101,7 @@
           :pic-crop-235="currentArticlePicCrop235"
           :pic-crop-11="currentArticlePicCrop11"
           @toggle-inherit="$emit('toggle:inheritCover')"
-          @open-template-selector="
-            $emit('open-article-cover-template-selector')
-          "
+          @open-template-selector="$emit('open-article-cover-template-selector')"
           @open-template-manager="$emit('open-cover-template-manager')"
           @open-image-selector="$emit('open-image-selector')"
           @crop="$emit('crop', 'article', $event)"
@@ -119,15 +109,13 @@
       </template>
 
       <!-- 当前文章 - 排版 -->
-      <template
-        v-else-if="
-          configMode === 'article' && configTab === 'layout' && currentArticle
-        "
-      >
+      <template v-else-if="configMode === 'article' && configTab === 'layout' && currentArticle">
         <ArticleLayoutConfigComponent
           :config="currentArticle.layoutConfig"
+          :style-insert-config="currentArticle.styleInsertConfig"
           :images="currentArticle.images"
           @update:config="handleArticleLayoutUpdate"
+          @update:style-insert-config="handleArticleStyleInsertUpdate"
           @open-image-manager="$emit('open-image-manager')"
           @open-template-manager="$emit('open-template-manager')"
         />
@@ -147,18 +135,8 @@
           @click="$emit('publish')"
         >
           确认发布
-          <svg
-            class="w-4 h-4 relative top-px"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M14 5l7 7m0 0l-7 7m7-7H3"
-            ></path>
+          <svg class="w-4 h-4 relative top-px" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
           </svg>
         </button>
       </div>
@@ -171,8 +149,10 @@ import type {
   BatchArticle,
   GlobalTitleConfig,
   GlobalLayoutConfig,
+  GlobalStyleInsertConfig,
   ArticleTitleConfig,
   ArticleLayoutConfig,
+  ArticleStyleInsertConfig,
 } from "../../types";
 import GlobalTitleConfigComponent from "./GlobalTitleConfig.vue";
 import GlobalLayoutConfigComponent from "./GlobalLayoutConfig.vue";
@@ -189,6 +169,7 @@ interface Props {
   configTab: ConfigTab;
   globalTitleConfig: GlobalTitleConfig;
   globalLayoutConfig: GlobalLayoutConfig;
+  globalStyleInsertConfig: GlobalStyleInsertConfig;
   globalCoverTemplateId?: string;
   globalCoverTemplateName: string;
   globalGeneratedCoverImageSrc?: string;
@@ -211,8 +192,10 @@ interface Emits {
   (e: "update:configTab", value: ConfigTab): void;
   (e: "update:globalTitleConfig", config: GlobalTitleConfig): void;
   (e: "update:globalLayoutConfig", config: GlobalLayoutConfig): void;
+  (e: "update:globalStyleInsertConfig", config: GlobalStyleInsertConfig): void;
   (e: "update:articleTitleConfig", config: Partial<ArticleTitleConfig>): void;
   (e: "update:articleLayoutConfig", config: Partial<ArticleLayoutConfig>): void;
+  (e: "update:articleStyleInsertConfig", config: Partial<ArticleStyleInsertConfig>): void;
   (e: "toggle:inheritCover"): void;
   (e: "open-template-manager"): void;
   (e: "open-cover-template-manager"): void;
@@ -243,11 +226,19 @@ function handleGlobalLayoutUpdate(config: GlobalLayoutConfig) {
   emit("update:globalLayoutConfig", config);
 }
 
+function handleGlobalStyleInsertUpdate(config: GlobalStyleInsertConfig) {
+  emit("update:globalStyleInsertConfig", config);
+}
+
 function handleArticleTitleUpdate(config: Partial<ArticleTitleConfig>) {
   emit("update:articleTitleConfig", config);
 }
 
 function handleArticleLayoutUpdate(config: Partial<ArticleLayoutConfig>) {
   emit("update:articleLayoutConfig", config);
+}
+
+function handleArticleStyleInsertUpdate(config: Partial<ArticleStyleInsertConfig>) {
+  emit("update:articleStyleInsertConfig", config);
 }
 </script>

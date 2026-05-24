@@ -62,6 +62,11 @@
             :processed-html="processedTemplateHtml"
             :source-url="currentArticle?.titleConfig.sourceUrl"
             :get-image-url="getImageUrl"
+            :article-id="currentArticle?.id"
+            :stored-content-blocks="currentArticle?.contentBlocks"
+            :stored-container-style="currentArticle?.containerStyle"
+            @open-style-manager="showStyleTemplateModal = true"
+            @update:content-blocks="handleContentBlocksUpdate"
           />
         </template>
       </PhoneMockup>
@@ -82,6 +87,7 @@
       :global-cover-template-image-count="globalCoverTemplateImageCount"
       :global-pic-crop-235="batchStore.globalConfig.cover.pic_crop_235_1"
       :global-pic-crop-11="batchStore.globalConfig.cover.pic_crop_1_1"
+      :global-style-insert-config="batchStore.globalConfig.styleInsert"
       :current-article="currentArticle"
       :current-article-index="batchStore.currentArticleIndex"
       :current-article-cover-template-name="currentArticleCoverTemplateName"
@@ -98,9 +104,13 @@
       @update:config-tab="batchStore.setConfigTab"
       @update:global-title-config="batchStore.setGlobalTitleConfig"
       @update:global-layout-config="batchStore.setGlobalLayoutConfig"
+      @update:global-style-insert-config="batchStore.setGlobalStyleInsertConfig"
       @update:article-title-config="batchStore.updateCurrentArticleTitleConfig"
       @update:article-layout-config="
         batchStore.updateCurrentArticleLayoutConfig
+      "
+      @update:article-style-insert-config="
+        batchStore.updateCurrentArticleStyleInsertConfig
       "
       @toggle:inherit-cover="toggleInheritGlobalCover"
       @open-template-manager="showTemplateModal = true"
@@ -205,6 +215,12 @@
       @close="showDebugLogs = false"
       @clear="clearDebugLogs"
     />
+
+    <!-- 样式模板管理弹窗 -->
+    <ModalStyleTemplate
+      :visible="showStyleTemplateModal"
+      @close="showStyleTemplateModal = false"
+    />
   </section>
 </template>
 
@@ -215,6 +231,7 @@ import { useTemplateStore } from "../stores/template";
 import { useCoverTemplateStore } from "../stores/coverTemplate";
 import { useBatchTypesetStore } from "../stores/batchTypeset";
 import { useWechatAccountStore } from "../stores/wechatAccount";
+import { useStyleTemplateStore } from "../stores/styleTemplate";
 import { useCoverManager } from "../composables/useCoverManager";
 import PhoneMockup from "../components/common/PhoneMockup.vue";
 import ModalTemplate from "../components/layout/ModalTemplate.vue";
@@ -224,11 +241,12 @@ import CoverImageSelectorDrawer from "../components/common/CoverImageSelectorDra
 import CoverImageIndexSelectorDrawer from "../components/common/CoverImageIndexSelectorDrawer.vue";
 import CoverCropTool from "../components/common/CoverCropTool.vue";
 import ImageManagerDrawer from "../components/typeset/ImageManagerDrawer.vue";
+import ModalStyleTemplate from "../components/layout/ModalStyleTemplate.vue";
 import ArticleQueue from "../components/typeset/ArticleQueue.vue";
 import CoverPreview from "../components/typeset/CoverPreview.vue";
 import ContentPreview from "../components/typeset/ContentPreview.vue";
 import ConfigPanel from "../components/typeset/ConfigPanel.vue";
-import type { ImageFile } from "../types";
+import type { ImageFile, ContentBlock } from "../types";
 import { expandTemplateWithImages } from "../composables/useTemplateRender";
 import DebugLogPanel from "../components/common/DebugLogPanel.vue";
 
@@ -237,6 +255,7 @@ const templateStore = useTemplateStore();
 const coverTemplateStore = useCoverTemplateStore();
 const batchStore = useBatchTypesetStore();
 const wechatAccountStore = useWechatAccountStore();
+const styleTemplateStore = useStyleTemplateStore();
 
 const debugLogs = ref<string[]>([]);
 const showDebugLogs = ref(false);
@@ -272,6 +291,7 @@ const showCoverImageSelector = ref(false);
 const showCoverImageIndexSelector = ref(false);
 const showCoverCropTool = ref(false);
 const showImageManagerDrawer = ref(false);
+const showStyleTemplateModal = ref(false);
 const selectedCoverIndex = ref(0);
 const selectedCoverRatio = ref<"235" | "11">("235");
 const isCropModeGlobal = ref(false);
@@ -376,6 +396,7 @@ onMounted(() => {
   templateStore.loadTemplates();
   coverTemplateStore.loadCoverTemplates();
   wechatAccountStore.loadAccounts();
+  styleTemplateStore.loadCustomTemplates();
 });
 
 function generateArticlesFromProject() {
@@ -409,6 +430,16 @@ function generateArticlesFromProject() {
 
   batchStore.initArticles(articleData);
   batchStore.updateArticlesCoverImagesByIndices();
+
+  batchStore.setGlobalStyleInsertConfig({
+    header: { enabled: false, position: 'header', templateIds: [] },
+    footer: { enabled: false, position: 'footer', templateIds: [] },
+    between: { enabled: false, position: 'between', templateIds: [] },
+  });
+
+  articleData.forEach((article) => {
+    batchStore.initContentBlocks(article.id);
+  });
 }
 
 function handleUpdateArticleImages(images: any[]) {
@@ -536,13 +567,99 @@ function getImageUrl(filePath: string): string {
     : `file://${normalizedPath}`;
 }
 
+function handleContentBlocksUpdate(blocks: ContentBlock[], containerStyle: Record<string, string>) {
+  if (!currentArticle.value) return;
+  batchStore.updateArticleContentBlocks(currentArticle.value.id, blocks, containerStyle);
+}
+
+const currentStyleInsertConfig = computed(() => {
+  if (!currentArticle.value) return null;
+  if (currentArticle.value.styleInsertConfig.inheritGlobal) {
+    return batchStore.globalConfig.styleInsert;
+  }
+  return currentArticle.value.styleInsertConfig;
+});
+
+function getStyleTemplatesHtml(position: 'header' | 'footer' | 'between'): string {
+  const config = currentStyleInsertConfig.value;
+  if (!config || !config[position].enabled || config[position].templateIds.length === 0) {
+    return '';
+  }
+  return config[position].templateIds
+    .map(id => styleTemplateStore.getTemplateById(id)?.html || '')
+    .filter(html => html)
+    .join('');
+}
+
 const processedTemplateHtml = computed(() => {
   if (!currentTemplate.value || !currentArticle.value) return "";
-  return expandTemplateWithImages(
+  
+  const baseHtml = expandTemplateWithImages(
     currentTemplate.value.html,
     currentArticle.value.images,
     getImageUrl,
   );
+  
+  const headerHtml = getStyleTemplatesHtml('header');
+  const footerHtml = getStyleTemplatesHtml('footer');
+  const betweenHtml = getStyleTemplatesHtml('between');
+  
+  if (!headerHtml && !footerHtml && !betweenHtml) {
+    return baseHtml;
+  }
+  
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(baseHtml, 'text/html');
+  const container = doc.body.firstElementChild as HTMLElement;
+  
+  if (!container) {
+    return headerHtml + baseHtml + footerHtml;
+  }
+  
+  const allChildren = Array.from(container.children);
+  const imageRows: Element[] = [];
+  const nonImageRows: Element[] = [];
+  
+  allChildren.forEach(child => {
+    if (child.querySelector('img')) {
+      imageRows.push(child);
+    } else {
+      nonImageRows.push(child);
+    }
+  });
+  
+  while (container.firstChild) {
+    container.removeChild(container.firstChild);
+  }
+  
+  if (headerHtml) {
+    const headerDiv = doc.createElement('div');
+    headerDiv.innerHTML = headerHtml;
+    Array.from(headerDiv.children).forEach(child => {
+      container.appendChild(child.cloneNode(true));
+    });
+  }
+  
+  imageRows.forEach((row, index) => {
+    container.appendChild(row.cloneNode(true));
+    if (betweenHtml && index < imageRows.length - 1) {
+      const betweenDiv = doc.createElement('div');
+      betweenDiv.innerHTML = betweenHtml;
+      Array.from(betweenDiv.children).forEach(child => {
+        container.appendChild(child.cloneNode(true));
+      });
+    }
+  });
+  
+  if (footerHtml) {
+    const footerDiv = doc.createElement('div');
+    footerDiv.innerHTML = footerHtml;
+    Array.from(footerDiv.children).forEach(child => {
+      container.appendChild(child.cloneNode(true));
+    });
+  }
+  
+  return container.outerHTML;
 });
 </script>
 

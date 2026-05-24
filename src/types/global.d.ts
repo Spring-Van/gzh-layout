@@ -1,4 +1,4 @@
-import type { ImageFile, ProjectConfig, CustomTemplate, CoverTemplate, WechatAccount } from './index';
+import type { ImageFile, ProjectConfig, CustomTemplate, CoverTemplate, StyleTemplate, WechatAccount } from './index';
 
 export { };
 
@@ -110,6 +110,9 @@ declare global {
         getAllCoverTemplates: () => Promise<CoverTemplate[]>;
         saveCoverTemplate: (template: CoverTemplate) => Promise<{ success: boolean }>;
         deleteCoverTemplate: (templateId: string) => Promise<{ success: boolean }>;
+        getAllStyleTemplates: () => Promise<StyleTemplate[]>;
+        saveStyleTemplate: (template: StyleTemplate) => Promise<{ success: boolean }>;
+        deleteStyleTemplate: (templateId: string) => Promise<{ success: boolean }>;
         getAllWechatAccounts: () => Promise<WechatAccount[]>;
         getWechatAccount: (accountId: string) => Promise<WechatAccount | null>;
         getActiveWechatAccount: () => Promise<WechatAccount | null>;

@@ -359,11 +359,16 @@ watch(
 
 /**
  * 根据文章的排版配置生成正文内容 HTML
+ * 优先从 contentBlocks 构建（用户编辑后的内容），否则回退到模板 HTML
  */
 function buildArticleContentHtml(
   article: (typeof batchStore.articles)[number],
   globalConfig: typeof batchStore.globalConfig,
 ): string {
+  if (article.contentBlocks && article.contentBlocks.length > 0) {
+    return buildHtmlFromContentBlocks(article, globalConfig);
+  }
+
   const layoutConfig = article.layoutConfig;
   const templateId =
     !layoutConfig.inheritGlobal && layoutConfig.templateId
@@ -382,6 +387,41 @@ function buildArticleContentHtml(
   }
 
   return buildContentHtmlFromTemplate(customTemplate.html, article.images);
+}
+
+/**
+ * 从 contentBlocks 构建正文 HTML
+ */
+function buildHtmlFromContentBlocks(
+  article: (typeof batchStore.articles)[number],
+  _globalConfig: typeof batchStore.globalConfig,
+): string {
+  const blocks = article.contentBlocks!;
+  const parts: string[] = [];
+
+  for (const block of blocks) {
+    if (block.type === 'image') {
+      parts.push(`<p><img src="${block.imagePath}" style="max-width:100%;display:block;margin:0 auto;"/></p>`);
+    } else if (block.type === 'html') {
+      parts.push(block.html || '');
+    } else if (block.type === 'empty') {
+      const align = block.align || 'left';
+      parts.push(`<p style="text-align:${align}">${block.content || '<br/>'}</p>`);
+    } else if (block.type === 'text') {
+      parts.push(`<p>${block.content || ''}</p>`);
+    }
+  }
+
+  let html = parts.join('\n');
+
+  if (article.containerStyle && Object.keys(article.containerStyle).length > 0) {
+    const styleStr = Object.entries(article.containerStyle)
+      .map(([k, v]) => `${k.replace(/[A-Z]/g, m => '-' + m.toLowerCase())}:${v}`)
+      .join(';');
+    html = `<section style="${styleStr}">${html}</section>`;
+  }
+
+  return html;
 }
 
 function getImageUrl(filePath: string): string {

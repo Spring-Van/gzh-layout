@@ -1,4 +1,4 @@
-import type { ImageFile, ProjectConfig, CustomTemplate, CoverTemplate } from '../types';
+import type { ImageFile, ProjectConfig, CustomTemplate, CoverTemplate, StyleTemplate } from '../types';
 
 export async function selectFolder(): Promise<string | null> {
   return window.electronAPI.selectFolder();
@@ -124,6 +124,18 @@ export async function dbSaveCoverTemplate(template: CoverTemplate) {
 
 export async function dbDeleteCoverTemplate(templateId: string) {
   return window.electronAPI.db.deleteCoverTemplate(templateId);
+}
+
+export async function dbGetAllStyleTemplates(): Promise<StyleTemplate[]> {
+  return window.electronAPI.db.getAllStyleTemplates();
+}
+
+export async function dbSaveStyleTemplate(template: StyleTemplate) {
+  return window.electronAPI.db.saveStyleTemplate(template);
+}
+
+export async function dbDeleteStyleTemplate(templateId: string) {
+  return window.electronAPI.db.deleteStyleTemplate(templateId);
 }
 
 export async function convertWebpImages(

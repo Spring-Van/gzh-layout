@@ -57,6 +57,21 @@ export function registerDatabaseIpc() {
     return { success: true };
   });
 
+  // Style Templates
+  ipcMain.handle('db:getAllStyleTemplates', () => {
+    return dbService.getAllStyleTemplates();
+  });
+
+  ipcMain.handle('db:saveStyleTemplate', (_event, template) => {
+    dbService.saveStyleTemplate(template);
+    return { success: true };
+  });
+
+  ipcMain.handle('db:deleteStyleTemplate', (_event, templateId: string) => {
+    dbService.deleteStyleTemplate(templateId);
+    return { success: true };
+  });
+
   // Wechat Accounts
   ipcMain.handle('db:getAllWechatAccounts', () => {
     return dbService.getAllWechatAccounts();

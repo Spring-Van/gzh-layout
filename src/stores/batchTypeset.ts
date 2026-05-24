@@ -6,13 +6,16 @@ import type {
   GlobalTitleConfig,
   GlobalCoverConfig,
   GlobalLayoutConfig,
+  GlobalStyleInsertConfig,
   ArticleTitleConfig,
   ArticleCoverConfig,
   ArticleLayoutConfig,
+  ArticleStyleInsertConfig,
   ConfigMode,
   ConfigTab,
   PreviewMode,
   NumberingRule,
+  ContentBlock,
 } from '../types';
 import { useTemplateStore } from './template';
 import { useCoverTemplateStore } from './coverTemplate';
@@ -48,6 +51,23 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
       imageSortRule: 'original',
       imageFillMode: 'cover',
       imageStructure: 'flow',
+    },
+    styleInsert: {
+      header: {
+        enabled: false,
+        position: 'header',
+        templateIds: [],
+      },
+      footer: {
+        enabled: false,
+        position: 'footer',
+        templateIds: [],
+      },
+      between: {
+        enabled: false,
+        position: 'between',
+        templateIds: [],
+      },
     },
   });
 
@@ -149,6 +169,13 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
   }
 
   /**
+   * 设置全局样式插入配置
+   */
+  function setGlobalStyleInsertConfig(config: Partial<GlobalStyleInsertConfig>) {
+    globalConfig.value.styleInsert = { ...globalConfig.value.styleInsert, ...config };
+  }
+
+  /**
    * 初始化文章列表
    */
   function initArticles(articleData: Array<{
@@ -192,6 +219,24 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
         layoutConfig: {
           inheritGlobal: true,
           templateId: firstLayoutTemplateId,
+        },
+        styleInsertConfig: {
+          inheritGlobal: true,
+          header: {
+            enabled: false,
+            position: 'header',
+            templateIds: [],
+          },
+          footer: {
+            enabled: false,
+            position: 'footer',
+            templateIds: [],
+          },
+          between: {
+            enabled: false,
+            position: 'between',
+            templateIds: [],
+          },
         },
         images: data.images,
         override: {
@@ -290,6 +335,22 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
   }
 
   /**
+   * 更新当前文章样式插入配置
+   */
+  function updateCurrentArticleStyleInsertConfig(config: Partial<ArticleStyleInsertConfig>) {
+    const article = currentArticle.value;
+    if (!article) return;
+
+    article.styleInsertConfig = { ...article.styleInsertConfig, ...config };
+
+    if (!config.inheritGlobal) {
+      article.override.layout = true;
+    } else if (config.inheritGlobal) {
+      article.override.layout = false;
+    }
+  }
+
+  /**
    * 更新当前文章图片
    */
   function updateCurrentArticleImages(images: any[]) {
@@ -350,6 +411,68 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
     });
   }
 
+  /**
+   * 初始化文章内容块（从图片生成）
+   */
+  function initContentBlocks(articleId: string) {
+    const article = articles.value.find((a) => a.id === articleId);
+    if (!article) return;
+    article.contentBlocks = [];
+    article.containerStyle = {};
+  }
+
+  /**
+   * 更新文章内容块
+   */
+  function updateArticleContentBlocks(articleId: string, blocks: ContentBlock[], style?: Record<string, string>) {
+    const article = articles.value.find((a) => a.id === articleId);
+    if (!article) return;
+    article.contentBlocks = blocks;
+    if (style !== undefined) {
+      article.containerStyle = style;
+    }
+  }
+
+  /**
+   * 更新文章容器样式
+   */
+  function updateArticleContainerStyle(articleId: string, style: Record<string, string>) {
+    const article = articles.value.find((a) => a.id === articleId);
+    if (!article) return;
+    article.containerStyle = style;
+  }
+
+  /**
+   * 在当前文章指定位置插入内容块
+   */
+  function insertContentBlockAt(index: number, block: ContentBlock) {
+    const article = currentArticle.value;
+    if (!article || !article.contentBlocks) return;
+    article.contentBlocks.splice(index, 0, block);
+  }
+
+  /**
+   * 删除当前文章指定位置的内容块
+   */
+  function removeContentBlockAt(index: number) {
+    const article = currentArticle.value;
+    if (!article || !article.contentBlocks) return;
+    article.contentBlocks.splice(index, 1);
+  }
+
+  /**
+   * 移动当前文章内容块
+   */
+  function moveContentBlock(fromIndex: number, toIndex: number) {
+    const article = currentArticle.value;
+    if (!article || !article.contentBlocks) return;
+    const blocks = article.contentBlocks;
+    if (fromIndex < 0 || fromIndex >= blocks.length) return;
+    if (toIndex < 0 || toIndex >= blocks.length) return;
+    const [moved] = blocks.splice(fromIndex, 1);
+    blocks.splice(toIndex, 0, moved);
+  }
+
   return {
     // State
     globalConfig,
@@ -370,12 +493,14 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
     setGlobalTitleConfig,
     setGlobalCoverConfig,
     setGlobalLayoutConfig,
+    setGlobalStyleInsertConfig,
     initArticles,
     selectArticle,
     updateCurrentArticleTitleConfig,
     updateCurrentArticleCoverConfig,
     updateArticleCoverConfigByIndex,
     updateCurrentArticleLayoutConfig,
+    updateCurrentArticleStyleInsertConfig,
     updateCurrentArticleImages,
     setConfigMode,
     setConfigTab,
@@ -383,5 +508,11 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
     applyBatchTitles,
     generateNumbering,
     updateArticlesCoverImagesByIndices,
+    initContentBlocks,
+    updateArticleContentBlocks,
+    updateArticleContainerStyle,
+    insertContentBlockAt,
+    removeContentBlockAt,
+    moveContentBlock,
   };
 });

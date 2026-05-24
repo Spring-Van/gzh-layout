@@ -5,11 +5,13 @@ import { useRoute } from "vue-router";
 import AppHeader from "./components/layout/AppHeader.vue";
 import ModalTemplate from "./components/layout/ModalTemplate.vue";
 import ModalCoverTemplate from "./components/layout/ModalCoverTemplate.vue";
+import ModalStyleTemplate from "./components/layout/ModalStyleTemplate.vue";
 import ModalAccount from "./components/layout/ModalAccount.vue";
 import Toast from "./components/common/Toast.vue";
 import { useToastProvider } from "./hooks/useToast";
 import { useTemplateStore } from "./stores/template";
 import { useCoverTemplateStore } from "./stores/coverTemplate";
+import { useStyleTemplateStore } from "./stores/styleTemplate";
 import { useProjectStore } from "./stores/project";
 import { useWechatAccountStore } from "./stores/wechatAccount";
 
@@ -18,6 +20,7 @@ const toastRef = ref<InstanceType<typeof Toast> | null>(null);
 const setToastInstance = useToastProvider();
 const templateStore = useTemplateStore();
 const coverTemplateStore = useCoverTemplateStore();
+const styleTemplateStore = useStyleTemplateStore();
 const projectStore = useProjectStore();
 const wechatAccountStore = useWechatAccountStore();
 
@@ -34,6 +37,7 @@ onMounted(async () => {
   await Promise.all([
     templateStore.loadTemplates(),
     coverTemplateStore.loadCoverTemplates(),
+    styleTemplateStore.loadCustomTemplates(),
     projectStore.loadProjectList(),
     wechatAccountStore.loadAccounts(),
   ]);
@@ -53,6 +57,7 @@ const isExtractPage = computed(() => route.path === "/extract");
 
 const showTemplateModal = ref(false);
 const showCoverTemplateModal = ref(false);
+const showStyleTemplateModal = ref(false);
 const showAccountModal = ref(false);
 
 function openModal(type: string) {
@@ -60,6 +65,8 @@ function openModal(type: string) {
     showTemplateModal.value = true;
   } else if (type === "coverTemplate") {
     showCoverTemplateModal.value = true;
+  } else if (type === "styleTemplate") {
+    showStyleTemplateModal.value = true;
   } else if (type === "account") {
     showAccountModal.value = true;
   }
@@ -115,6 +122,11 @@ function openModal(type: string) {
     <ModalCoverTemplate
       :visible="showCoverTemplateModal"
       @close="showCoverTemplateModal = false"
+    />
+
+    <ModalStyleTemplate
+      :visible="showStyleTemplateModal"
+      @close="showStyleTemplateModal = false"
     />
 
     <ModalAccount

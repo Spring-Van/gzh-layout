@@ -66,6 +66,52 @@ export function buildBuiltinTemplateHtml(
     .join("\n");
 }
 
+/**
+ * 从 HTML 中提取本地图片路径（排除 http/https/data: 协议的 URL）
+ * 支持 file:/// URL、绝对路径、相对路径
+ * 同时提取 <img src> 和 CSS background-image 中的路径
+ */
+export function extractLocalImagePaths(html: string): string[] {
+  const paths: string[] = [];
+
+  function addLocalPath(src: string) {
+    if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) {
+      return;
+    }
+    let cleanPath = src.trim();
+    if (cleanPath.startsWith('url(') && cleanPath.endsWith(')')) {
+      cleanPath = cleanPath.slice(4, -1).trim();
+      if ((cleanPath.startsWith('"') && cleanPath.endsWith('"')) ||
+          (cleanPath.startsWith("'") && cleanPath.endsWith("'"))) {
+        cleanPath = cleanPath.slice(1, -1);
+      }
+    }
+    if (cleanPath.startsWith('file:///')) {
+      cleanPath = decodeURIComponent(cleanPath.slice(7));
+    } else if (cleanPath.startsWith('file://')) {
+      cleanPath = decodeURIComponent(cleanPath.slice(6));
+    } else {
+      cleanPath = decodeURIComponent(cleanPath);
+    }
+    if (cleanPath && !paths.includes(cleanPath)) {
+      paths.push(cleanPath);
+    }
+  }
+
+  const imgRegex = /<img[^>]*src=["']([^"']+)["']/g;
+  let match;
+  while ((match = imgRegex.exec(html)) !== null) {
+    addLocalPath(match[1]);
+  }
+
+  const bgRegex = /background(-image)?\s*:\s*[^;]*url\(\s*["']?([^"')]+)["']?\s*\)/gi;
+  while ((match = bgRegex.exec(html)) !== null) {
+    addLocalPath(match[2]);
+  }
+
+  return paths;
+}
+
 export interface SyncArticleItem {
   id: string;
   title: string;
@@ -118,12 +164,20 @@ export function useWechatUpload() {
       const contentImages = article.images.map(img => img.path);
       const contentHtml = options?.buildContentHtml?.(article, globalConfig, index) ?? undefined;
 
+      const styleImagePaths = contentHtml ? extractLocalImagePaths(contentHtml) : [];
+      const allContentImagePaths = [...contentImages];
+      for (const p of styleImagePaths) {
+        if (!allContentImagePaths.includes(p)) {
+          allContentImagePaths.push(p);
+        }
+      }
+
       return {
         id: article.id,
         title,
         summary: summary || title,
         coverImagePath: coverImage,
-        contentImagePaths: contentImages,
+        contentImagePaths: allContentImagePaths,
         contentHtml,
         contentSourceUrl: article.titleConfig.sourceUrl,
         picCrop2351: article.coverConfig.pic_crop_235_1 || globalConfig.cover.pic_crop_235_1,

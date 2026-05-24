@@ -1,12 +1,11 @@
 <template>
   <div
-    class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center transition-opacity"
-    :class="[visible ? 'opacity-100' : 'opacity-0 pointer-events-none']"
+    v-if="visible"
+    class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center"
     @click.self="$emit('close')"
   >
     <div
-      class="bg-white w-full max-w-lg rounded-2xl shadow-xl overflow-hidden transform transition-transform"
-      :class="[visible ? 'scale-100' : 'scale-95']"
+      class="bg-white w-full max-w-lg rounded-2xl shadow-xl overflow-hidden"
     >
       <div
         class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50"

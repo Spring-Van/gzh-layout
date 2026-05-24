@@ -1,12 +1,13 @@
 import fs from 'fs';
 import path from 'path';
 import { app } from 'electron';
-import type { ProjectConfig, CustomTemplate, CoverTemplate, WechatAccount, DraftRecord } from '../../src/types';
+import type { ProjectConfig, CustomTemplate, CoverTemplate, WechatAccount, DraftRecord, StyleTemplate } from '../../src/types';
 
 interface DatabaseData {
     projects: ProjectConfig[];
     templates: CustomTemplate[];
     coverTemplates: CoverTemplate[];
+    styleTemplates: StyleTemplate[];
     wechatAccounts: WechatAccount[];
     draftRecords: DraftRecord[];
 }
@@ -30,6 +31,7 @@ export class DatabaseService {
                     projects: data.projects || [],
                     templates: data.templates || [],
                     coverTemplates: data.coverTemplates || [],
+                    styleTemplates: data.styleTemplates || [],
                     wechatAccounts: data.wechatAccounts || [],
                     draftRecords: data.draftRecords || [],
                 };
@@ -41,6 +43,7 @@ export class DatabaseService {
             projects: [],
             templates: [],
             coverTemplates: [],
+            styleTemplates: [],
             wechatAccounts: [],
             draftRecords: [],
         };
@@ -128,6 +131,29 @@ export class DatabaseService {
 
     deleteCoverTemplate(templateId: string): void {
         this.data.coverTemplates = this.data.coverTemplates.filter(t => t.id !== templateId);
+        this.saveToFile();
+    }
+
+    // ========== Style Templates ==========
+
+    getAllStyleTemplates(): StyleTemplate[] {
+        return [...this.data.styleTemplates].sort((a, b) =>
+            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        );
+    }
+
+    saveStyleTemplate(template: StyleTemplate): void {
+        const index = this.data.styleTemplates.findIndex(t => t.id === template.id);
+        if (index !== -1) {
+            this.data.styleTemplates[index] = template;
+        } else {
+            this.data.styleTemplates.push(template);
+        }
+        this.saveToFile();
+    }
+
+    deleteStyleTemplate(templateId: string): void {
+        this.data.styleTemplates = this.data.styleTemplates.filter(t => t.id !== templateId);
         this.saveToFile();
     }
 
