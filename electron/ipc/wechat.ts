@@ -178,13 +178,15 @@ export function registerWechatIpc() {
           for (let j = 0; j < contentResults.length; j++) {
             const originalPath = contentResults[j].originalPath;
             const wechatUrl = contentResults[j].url;
-            htmlContent = htmlContent.split(originalPath).join(wechatUrl);
             const normalizedPath = originalPath.replace(/\\/g, '/');
             const encodedPath = encodeURIComponent(normalizedPath).replace(/%2F/g, '/');
-            htmlContent = htmlContent.split(`file://${normalizedPath}`).join(wechatUrl);
-            htmlContent = htmlContent.split(`file:///${normalizedPath.replace(/^\//, '')}`).join(wechatUrl);
-            htmlContent = htmlContent.split(`file://${encodedPath}`).join(wechatUrl);
+            // 先替换 file:// 变体（长匹配优先），避免 raw path 子串误匹配破坏 file:// URL
             htmlContent = htmlContent.split(`file:///${encodedPath.replace(/^\//, '')}`).join(wechatUrl);
+            htmlContent = htmlContent.split(`file://${encodedPath}`).join(wechatUrl);
+            htmlContent = htmlContent.split(`file:///${normalizedPath.replace(/^\//, '')}`).join(wechatUrl);
+            htmlContent = htmlContent.split(`file://${normalizedPath}`).join(wechatUrl);
+            // 最后替换裸路径（此时 file:// 变体已全部处理完，不会被误匹配）
+            htmlContent = htmlContent.split(originalPath).join(wechatUrl);
           }
         } else {
           htmlContent = wechatService.buildArticleHtml(article.title, imageUrls);

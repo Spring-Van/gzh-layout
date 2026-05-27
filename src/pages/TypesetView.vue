@@ -204,7 +204,6 @@
           ? batchStore.globalConfig.cover.pic_crop_1_1
           : currentArticle?.coverConfig.pic_crop_1_1
       "
-      :initial-ratio="targetCropRatio"
       @close="showCoverCropTool = false"
       @confirm="handleCoverCropConfirm"
     />

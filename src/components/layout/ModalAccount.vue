@@ -13,6 +13,7 @@
         <h3 class="font-bold text-slate-800">微信公众号接口网关绑定</h3>
         <div class="flex gap-2">
           <button
+            v-if="!editingAccount"
             class="px-3 py-1.5 text-xs text-slate-600 border border-slate-300 rounded hover:bg-slate-100 transition"
             @click="showAddForm = !showAddForm"
           >
@@ -142,6 +143,25 @@
                   设为默认
                 </button>
                 <button
+                  class="text-slate-400 hover:text-primary p-1 transition"
+                  @click.stop="editAccount(account)"
+                  title="编辑账号"
+                >
+                  <svg
+                    class="w-3.5 h-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                    ></path>
+                  </svg>
+                </button>
+                <button
                   class="text-slate-400 hover:text-red-600 p-1 transition"
                   @click.stop="deleteAccount(account.id)"
                 >
@@ -164,7 +184,7 @@
           </div>
         </div>
 
-        <div v-if="showAddForm" class="pt-2 border-t border-slate-100">
+        <div v-if="showAddForm || editingAccount" class="pt-2 border-t border-slate-100">
           <div class="mb-4">
             <label class="block text-xs font-medium text-slate-500 mb-1.5"
               >AppID</label
@@ -285,8 +305,19 @@
               ></path>
             </svg>
             <span>{{
-              accountStore.isAuthenticating ? "鉴权中..." : "请求鉴权并添加"
+              accountStore.isAuthenticating
+                ? "鉴权中..."
+                : editingAccount
+                  ? "请求鉴权并更新"
+                  : "请求鉴权并添加"
             }}</span>
+          </button>
+          <button
+            v-if="editingAccount"
+            class="w-full px-4 py-2 text-sm text-slate-600 border border-slate-300 rounded hover:bg-slate-100 transition mt-2"
+            @click="cancelEdit"
+          >
+            取消编辑
           </button>
         </div>
       </div>
@@ -309,6 +340,8 @@ const emit = defineEmits(["close"]);
 const accountStore = useWechatAccountStore();
 const { success } = useToast();
 
+import type { WechatAccount } from "../../types";
+
 const form = ref({
   appId: "",
   appSecret: "",
@@ -316,6 +349,7 @@ const form = ref({
 
 const showAppSecret = ref(false);
 const showAddForm = ref(false);
+const editingAccount = ref<WechatAccount | null>(null);
 
 const tokenExpiresInText = computed(() => {
   if (!accountStore.activeAccount?.tokenExpiresAt) return "未知";
@@ -336,11 +370,12 @@ watch(
   async (newVal) => {
     if (newVal) {
       await accountStore.loadAccounts();
-      if (accountStore.activeAccount) {
+      if (accountStore.activeAccount && !editingAccount.value) {
         form.value.appId = accountStore.activeAccount.appId;
         form.value.appSecret = accountStore.activeAccount.appSecret || "";
       }
       showAppSecret.value = false;
+      editingAccount.value = null;
       accountStore.clearError();
     }
   },
@@ -349,14 +384,42 @@ watch(
 async function handleAuthenticate() {
   if (!form.value.appId || !form.value.appSecret) return;
 
-  const result = await accountStore.authenticateAndSaveAccount(
-    form.value.appId,
-    form.value.appSecret,
-  );
-  if (result) {
-    success("鉴权成功！");
-    // emit("close");
+  if (editingAccount.value) {
+    const result = await accountStore.updateAccount(
+      editingAccount.value.id,
+      form.value.appId,
+      form.value.appSecret,
+    );
+    if (result) {
+      success("账号更新成功！");
+      editingAccount.value = null;
+      showAddForm.value = false;
+    }
+  } else {
+    const result = await accountStore.authenticateAndSaveAccount(
+      form.value.appId,
+      form.value.appSecret,
+    );
+    if (result) {
+      success("鉴权成功！");
+    }
   }
+}
+
+function editAccount(account: WechatAccount) {
+  editingAccount.value = account;
+  form.value.appId = account.appId;
+  form.value.appSecret = account.appSecret || "";
+  showAddForm.value = false;
+  showAppSecret.value = false;
+  accountStore.clearError();
+}
+
+function cancelEdit() {
+  editingAccount.value = null;
+  form.value.appId = "";
+  form.value.appSecret = "";
+  accountStore.clearError();
 }
 
 async function switchAccount(accountId: string) {

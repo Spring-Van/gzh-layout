@@ -115,6 +115,53 @@ export const useWechatAccountStore = defineStore('wechatAccount', () => {
     await dbDeleteWechatAccount(accountId);
   }
 
+  async function updateAccount(accountId: string, appId: string, appSecret: string): Promise<WechatAccount | null> {
+    isAuthenticating.value = true;
+    lastAuthError.value = null;
+
+    try {
+      const existingAccount = accounts.value.find(a => a.id === accountId);
+      if (!existingAccount) {
+        throw new Error('账号不存在');
+      }
+
+      const authResult = await wechatAuthenticate(appId, appSecret);
+
+      const updatedAccount: WechatAccount = {
+        ...existingAccount,
+        appId,
+        appSecret,
+        nickname: authResult.accountInfo.nickname || existingAccount.nickname,
+        headImg: authResult.accountInfo.headImg,
+        accessToken: authResult.accessToken,
+        tokenExpiresAt: Date.now() + authResult.expiresIn * 1000,
+      };
+
+      const index = accounts.value.findIndex(a => a.id === accountId);
+      if (index !== -1) {
+        accounts.value[index] = updatedAccount;
+      }
+
+      if (activeAccount.value?.id === accountId) {
+        activeAccount.value = updatedAccount;
+      }
+      if (defaultSyncAccount.value?.id === accountId) {
+        defaultSyncAccount.value = updatedAccount;
+      }
+
+      await dbSaveWechatAccount(updatedAccount);
+
+      return updatedAccount;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '更新失败';
+      lastAuthError.value = message;
+      console.error('更新微信账号失败:', error);
+      return null;
+    } finally {
+      isAuthenticating.value = false;
+    }
+  }
+
   async function setDefaultSyncAccount(accountId: string) {
     const account = accounts.value.find(a => a.id === accountId);
     if (!account) return;
@@ -141,6 +188,7 @@ export const useWechatAccountStore = defineStore('wechatAccount', () => {
     hasDefaultSyncAccount,
     loadAccounts,
     authenticateAndSaveAccount,
+    updateAccount,
     setActiveAccount,
     setDefaultSyncAccount,
     deleteAccount,
