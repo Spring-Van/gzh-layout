@@ -194,6 +194,7 @@ let urlAlphabet = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzr
 const POOL_SIZE_MULTIPLIER = 128;
 let pool$1, poolOffset;
 function fillPool(bytes) {
+  if (bytes < 0 || bytes > 1024) throw new RangeError("Wrong ID size");
   if (!pool$1 || pool$1.length < bytes) {
     pool$1 = Buffer.allocUnsafe(bytes * POOL_SIZE_MULTIPLIER);
     webcrypto.getRandomValues(pool$1);

@@ -26,30 +26,25 @@
           :key="template.id"
           class="border-2 rounded-xl p-3 cursor-pointer transition"
           :class="[
-            selectedIds.includes(template.id)
+            selectedId === template.id
               ? 'border-primary bg-primary/5'
               : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
           ]"
-          @click="toggleTemplate(template.id)"
+          @click="selectTemplate(template.id)"
         >
           <div class="flex items-center gap-3">
             <div
-              class="w-5 h-5 rounded border flex items-center justify-center flex-shrink-0"
+              class="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0"
               :class="[
-                selectedIds.includes(template.id)
-                  ? 'bg-primary border-primary'
+                selectedId === template.id
+                  ? 'border-primary'
                   : 'border-slate-300'
               ]"
             >
-              <svg
-                v-if="selectedIds.includes(template.id)"
-                class="w-3.5 h-3.5 text-white"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-              </svg>
+              <div
+                v-if="selectedId === template.id"
+                class="w-2.5 h-2.5 rounded-full bg-primary"
+              ></div>
             </div>
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-slate-700">{{ template.name }}</p>
@@ -70,7 +65,7 @@
           class="w-full bg-primary text-white font-medium py-3 rounded-xl hover:bg-primary/90 transition text-sm"
           @click="handleConfirm"
         >
-          确认选择 ({{ selectedIds.length }} 个样式)
+          确认选择
         </button>
       </div>
     </div>
@@ -92,17 +87,17 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   close: [];
-  confirm: [selectedIds: string[]];
+  confirm: [selectedId: string | null];
 }>();
 
 const styleTemplateStore = useStyleTemplateStore();
-const selectedIds = ref<string[]>([...props.initialSelectedIds]);
+const selectedId = ref<string | null>(props.initialSelectedIds[0] || null);
 
 watch(
   () => props.visible,
   (newVal) => {
     if (newVal) {
-      selectedIds.value = [...props.initialSelectedIds];
+      selectedId.value = props.initialSelectedIds[0] || null;
       styleTemplateStore.loadCustomTemplates();
     }
   }
@@ -110,17 +105,13 @@ watch(
 
 const templates = styleTemplateStore.allTemplates;
 
-function toggleTemplate(id: string) {
-  const index = selectedIds.value.indexOf(id);
-  if (index === -1) {
-    selectedIds.value.push(id);
-  } else {
-    selectedIds.value.splice(index, 1);
-  }
+function selectTemplate(id: string) {
+  // 单选：点击已选中的则取消选中，否则选中新的
+  selectedId.value = selectedId.value === id ? null : id;
 }
 
 function handleConfirm() {
-  emit('confirm', [...selectedIds.value]);
+  emit('confirm', selectedId.value);
   emit('close');
 }
 </script>

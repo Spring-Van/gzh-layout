@@ -95,11 +95,13 @@
             </template>
             <template v-else-if="block.type === 'html'">
               <div
-                v-html="block.html || block.content"
                 class="editable-html"
                 contenteditable="true"
                 :data-block-index="index"
-                @input="updateHtmlBlock(index, $event)"
+                :data-block-id="block.id"
+                v-html="block.html || ''"
+                @focus="handleHtmlBlockFocus(index)"
+                @blur="handleHtmlBlockBlur(index, $event)"
                 @compositionstart="onCompositionStart"
                 @compositionend="onCompositionEnd"
               ></div>
@@ -278,7 +280,7 @@
 
             <div class="flex-1 overflow-y-auto p-4 space-y-3" ref="templateListRef">
               <div
-                v-for="template in visibleStyleTemplates"
+                v-for="template in styleTemplates"
                 :key="template.id"
                 :data-template-id="template.id"
                 class="border border-slate-200 rounded-xl cursor-pointer hover:border-emerald-400 hover:bg-emerald-50/50 transition-colors group overflow-hidden"
@@ -299,9 +301,6 @@
                     <div v-else class="h-20 flex items-center justify-center text-slate-300 text-xs">预览加载中...</div>
                   </div>
                 </div>
-              </div>
-              <div v-if="visibleTemplateCount < styleTemplates.length" class="text-center py-2">
-                <span class="text-xs text-slate-400">加载中...</span>
               </div>
             </div>
 
@@ -325,8 +324,9 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
-import type { ContentBlock, StyleTemplate } from '../../types';
+import type { ContentBlock, StyleTemplate, GlobalStyleInsertConfig } from '../../types';
 import { useStyleTemplateStore } from '../../stores/styleTemplate';
+import { useBatchTypesetStore } from '../../stores/batchTypeset';
 
 interface Props {
   title?: string;
@@ -340,6 +340,7 @@ interface Props {
   articleId?: string;
   storedContentBlocks?: ContentBlock[];
   storedContainerStyle?: Record<string, string>;
+  styleInsertConfig?: GlobalStyleInsertConfig | null;
 }
 
 const props = defineProps<Props>();
@@ -351,6 +352,7 @@ const emit = defineEmits<{
 }>();
 
 const styleTemplateStore = useStyleTemplateStore();
+const batchTypesetStore = useBatchTypesetStore();
 const selectedIndex = ref<number | null>(null);
 const showStyleSelector = ref(false);
 const showAlignMenu = ref(false);
@@ -365,9 +367,7 @@ const lastArticleId = ref<string | null>(null);
 let skipWatchReset = false;
 
 const styleTemplates = computed(() => styleTemplateStore.allTemplates);
-const visibleTemplateCount = ref(0);
 const visibleTemplateIds = ref(new Set<string>());
-let renderTimer: number | null = null;
 let observer: IntersectionObserver | null = null;
 
 function initObserver() {
@@ -379,7 +379,7 @@ function initObserver() {
       if (entry.isIntersecting) {
         const id = entry.target.getAttribute('data-template-id');
         if (id) {
-          visibleTemplateIds.value.add(id);
+          visibleTemplateIds.value = new Set([...visibleTemplateIds.value, id]);
         }
       }
     });
@@ -387,44 +387,20 @@ function initObserver() {
 }
 
 watch(showStyleSelector, (newVal) => {
-  if (renderTimer) {
-    cancelAnimationFrame(renderTimer);
-    renderTimer = null;
-  }
   if (newVal) {
-    visibleTemplateCount.value = 0;
     visibleTemplateIds.value = new Set();
     initObserver();
-    const templates = styleTemplates.value;
-    const batchSize = 3;
-    function renderBatch() {
-      const nextCount = Math.min(visibleTemplateCount.value + batchSize, templates.length);
-      visibleTemplateCount.value = nextCount;
-      if (nextCount < templates.length) {
-        renderTimer = requestAnimationFrame(renderBatch);
+    nextTick(() => {
+      if (observer && templateListRef.value) {
+        const items = templateListRef.value.querySelectorAll('[data-template-id]');
+        items.forEach((item) => observer!.observe(item));
       }
-    }
-    renderTimer = requestAnimationFrame(renderBatch);
+    });
   } else {
     if (observer) {
       observer.disconnect();
       observer = null;
     }
-  }
-});
-
-const visibleStyleTemplates = computed(() => {
-  return styleTemplates.value.slice(0, visibleTemplateCount.value);
-});
-
-watch(visibleStyleTemplates, async () => {
-  await nextTick();
-  const obs = observer;
-  if (obs && templateListRef.value) {
-    const items = templateListRef.value.querySelectorAll('[data-template-id]');
-    items.forEach((item) => {
-      obs.observe(item);
-    });
   }
 });
 
@@ -448,6 +424,10 @@ function onCompositionEnd(event: CompositionEvent) {
     const blocks = [...contentBlocks.value];
     blocks[index] = { ...blocks[index], content: target.innerText };
     contentBlocks.value = blocks;
+  }
+  
+  if (props.articleId) {
+    batchTypesetStore.updateArticleContentBlocks(props.articleId, [...contentBlocks.value], { ...containerStyleObj.value });
   }
   emitContentBlocksUpdate();
 }
@@ -603,6 +583,53 @@ function buildContentBlocksFromTemplate(): ContentBlock[] {
   return [];
 }
 
+// 样式块ID前缀，用于识别自动生成的样式块
+const STYLE_BLOCK_PREFIX = 'style-insert-';
+
+function isStyleBlock(block: ContentBlock): boolean {
+  return !!block.styleInsertPosition;
+}
+
+function isHeaderStyleBlock(block: ContentBlock): boolean {
+  return block.styleInsertPosition === 'header';
+}
+
+function isBetweenStyleBlock(block: ContentBlock): boolean {
+  return block.styleInsertPosition === 'between';
+}
+
+function isFooterStyleBlock(block: ContentBlock): boolean {
+  return block.styleInsertPosition === 'footer';
+}
+
+/**
+ * 生成指定位置的样式ContentBlock数组
+ */
+function generateStyleBlocks(position: 'header' | 'between' | 'footer'): ContentBlock[] {
+  const config = props.styleInsertConfig;
+  if (!config || !config[position].enabled || config[position].templateIds.length === 0) {
+    return [];
+  }
+  
+  // 去重，防止重复插入同一个样式
+  const uniqueTemplateIds = [...new Set(config[position].templateIds)];
+  
+  const blocks: ContentBlock[] = [];
+  uniqueTemplateIds.forEach((templateId, index) => {
+    const template = styleTemplateStore.getTemplateById(templateId);
+    if (template) {
+      blocks.push({
+        id: `${STYLE_BLOCK_PREFIX}${position}-${templateId}-${index}`,
+        type: 'html',
+        content: template.name,
+        html: template.html,
+        styleInsertPosition: position,
+      });
+    }
+  });
+  return blocks;
+}
+
 function selectRow(index: number) {
   selectedIndex.value = index;
   showAlignMenu.value = false;
@@ -730,6 +757,10 @@ function updateEmptyBlock(index: number, event: Event) {
   if (block?.align) {
     target.style.textAlign = block.align;
   }
+  
+  if (props.articleId) {
+    batchTypesetStore.updateArticleContentBlocks(props.articleId, [...contentBlocks.value], { ...containerStyleObj.value });
+  }
   emitContentBlocksUpdate();
 }
 
@@ -753,6 +784,34 @@ function updateHtmlBlock(index: number, event: Event) {
     contentBlocks.value = blocks;
   }
   emitContentBlocksUpdate();
+}
+
+const editingBlockId = ref<string | null>(null);
+
+function handleHtmlBlockFocus(index: number) {
+  const block = contentBlocks.value[index];
+  if (block) {
+    editingBlockId.value = block.id;
+  }
+}
+
+function handleHtmlBlockBlur(index: number, event: Event) {
+  const target = event.target as HTMLElement;
+  const block = contentBlocks.value[index];
+  if (!block) return;
+
+  const newHtml = target.innerHTML;
+  if (newHtml !== block.html) {
+    const blocks = [...contentBlocks.value];
+    blocks[index] = { ...blocks[index], html: newHtml, content: target.innerText };
+    contentBlocks.value = blocks;
+    
+    if (props.articleId) {
+      batchTypesetStore.updateArticleContentBlocks(props.articleId, [...contentBlocks.value], { ...containerStyleObj.value });
+    }
+    emitContentBlocksUpdate();
+  }
+  editingBlockId.value = null;
 }
 
 function openExternal(url: string) {
@@ -814,11 +873,159 @@ watch(
   { immediate: true },
 );
 
+// 监听storedContentBlocks变化，同步到本地contentBlocks
+watch(
+  () => props.storedContentBlocks,
+  (newBlocks) => {
+    if (!newBlocks || newBlocks.length === 0) return;
+    // 如果正在编辑，不更新
+    if (editingBlockId.value) return;
+    // 同步外部传入的contentBlocks（包括样式块）
+    contentBlocks.value = newBlocks.map(b => ({ ...b }));
+    if (props.storedContainerStyle) {
+      containerStyleObj.value = { ...props.storedContainerStyle };
+    }
+    nextTick(() => {
+      syncHtmlBlocksToDom();
+    });
+  },
+  { deep: true }
+);
+
+// 记录上一次的样式配置，用于检测哪个位置变化了
+const lastHeaderConfig = ref('');
+const lastBetweenConfig = ref('');
+const lastFooterConfig = ref('');
+
+/**
+ * 同步指定位置的样式到contentBlocks
+ * 三个位置独立处理，互不影响
+ * @returns 是否同步成功
+ */
+function syncStylePosition(position: 'header' | 'between' | 'footer'): boolean {
+  const config = props.styleInsertConfig;
+  if (!config) return false;
+  
+  const isEnabled = config[position].enabled && config[position].templateIds.length > 0;
+  
+  // 移除该位置的旧样式块
+  let blocks = contentBlocks.value.filter(block => {
+    if (position === 'header') return !isHeaderStyleBlock(block);
+    if (position === 'between') return !isBetweenStyleBlock(block);
+    if (position === 'footer') return !isFooterStyleBlock(block);
+    return true;
+  });
+  
+  // 如果该位置未启用，只移除旧块
+  if (!isEnabled) {
+    contentBlocks.value = blocks;
+    emitContentBlocksUpdate();
+    return true;
+  }
+  
+  // 生成新的样式块
+  const newStyleBlocks = generateStyleBlocks(position);
+  if (newStyleBlocks.length === 0) return true;
+  
+  // 如果没有内容块，先从模板构建
+  const nonStyleBlocks = blocks.filter(block => !isStyleBlock(block));
+  if (nonStyleBlocks.length === 0) {
+    blocks = buildContentBlocksFromTemplate();
+    if (blocks.length === 0) return false; // 模板未渲染，同步失败
+  }
+  
+  // 根据位置插入样式块
+  const result: ContentBlock[] = [];
+  
+  if (position === 'header') {
+    // 头部：插入到最前面
+    result.push(...newStyleBlocks, ...blocks);
+  } else if (position === 'footer') {
+    // 底部：插入到最后面
+    result.push(...blocks, ...newStyleBlocks);
+  } else {
+    // 段落之间：在内容块之间插入，保持原有顺序
+    for (let i = 0; i < blocks.length; i++) {
+      result.push(blocks[i]);
+      // 在两个非样式块之间插入段落样式
+      if (!isStyleBlock(blocks[i]) && i < blocks.length - 1) {
+        if (!isStyleBlock(blocks[i + 1])) {
+          result.push(...newStyleBlocks);
+        }
+      }
+    }
+  }
+  
+  contentBlocks.value = result;
+  emitContentBlocksUpdate();
+  return true;
+}
+
+// 监听样式配置变化，自动同步到contentBlocks（三个位置独立处理）
+watch(
+  () => props.styleInsertConfig,
+  (newConfig) => {
+    if (editingBlockId.value || !newConfig) return;
+    
+    // 序列化各位置的配置，检测变化
+    const headerKey = JSON.stringify({ enabled: newConfig.header.enabled, ids: newConfig.header.templateIds });
+    const betweenKey = JSON.stringify({ enabled: newConfig.between.enabled, ids: newConfig.between.templateIds });
+    const footerKey = JSON.stringify({ enabled: newConfig.footer.enabled, ids: newConfig.footer.templateIds });
+    
+    const headerChanged = headerKey !== lastHeaderConfig.value;
+    const betweenChanged = betweenKey !== lastBetweenConfig.value;
+    const footerChanged = footerKey !== lastFooterConfig.value;
+    
+    // 没有变化则跳过
+    if (!headerChanged && !betweenChanged && !footerChanged) return;
+    
+    // 确保有内容块
+    const nonStyleBlocks = contentBlocks.value.filter(block => !isStyleBlock(block));
+    if (nonStyleBlocks.length === 0) {
+      const templateBlocks = buildContentBlocksFromTemplate();
+      if (templateBlocks.length > 0) {
+        contentBlocks.value = templateBlocks;
+      }
+    }
+    
+    // 只同步变化的位置，根据结果更新记录
+    let headerSuccess = true;
+    let betweenSuccess = true;
+    let footerSuccess = true;
+    
+    if (headerChanged) headerSuccess = syncStylePosition('header');
+    if (betweenChanged) betweenSuccess = syncStylePosition('between');
+    if (footerChanged) footerSuccess = syncStylePosition('footer');
+    
+    // 只有同步成功才更新记录，失败的下次会重试
+    if (headerChanged && headerSuccess) lastHeaderConfig.value = headerKey;
+    if (betweenChanged && betweenSuccess) lastBetweenConfig.value = betweenKey;
+    if (footerChanged && footerSuccess) lastFooterConfig.value = footerKey;
+  },
+  { deep: true }
+);
+
 watch(
   () => [props.processedHtml, props.templateId, props.images],
   () => {
     if (skipWatchReset) return;
-    if (hasContentBlocks.value) return;
+    if (hasContentBlocks.value) {
+      // 已有内容块时，如果有未成功的样式同步，尝试重新同步
+      const config = props.styleInsertConfig;
+      if (config) {
+        const nonStyleBlocks = contentBlocks.value.filter(block => !isStyleBlock(block));
+        if (nonStyleBlocks.length > 0) {
+          const headerKey = JSON.stringify({ enabled: config.header.enabled, ids: config.header.templateIds });
+          const betweenKey = JSON.stringify({ enabled: config.between.enabled, ids: config.between.templateIds });
+          const footerKey = JSON.stringify({ enabled: config.footer.enabled, ids: config.footer.templateIds });
+          
+          if (headerKey !== lastHeaderConfig.value) syncStylePosition('header');
+          if (betweenKey !== lastBetweenConfig.value) syncStylePosition('between');
+          if (footerKey !== lastFooterConfig.value) syncStylePosition('footer');
+        }
+      }
+      return;
+    }
     contentBlocks.value = [];
     containerStyleObj.value = {};
     selectedIndex.value = null;
@@ -832,17 +1039,73 @@ watch(selectedIndex, () => {
   }
 });
 
+watch(
+  () => contentBlocks.value,
+  (newBlocks) => {
+    nextTick(() => {
+      newBlocks.forEach((block, index) => {
+        if (block.type === 'html' && block.id !== editingBlockId.value) {
+          const el = document.querySelector(`[data-block-id="${block.id}"]`) as HTMLElement;
+          if (el && el.innerHTML !== (block.html || '')) {
+            el.innerHTML = block.html || '';
+          }
+        }
+      });
+    });
+  },
+  { deep: true }
+);
+
+watch(
+  () => props.articleId,
+  (newId, oldId) => {
+    if (newId !== oldId) {
+      if (editingBlockId.value) {
+        const editingIndex = contentBlocks.value.findIndex(b => b.id === editingBlockId.value);
+        if (editingIndex !== -1) {
+          const el = document.querySelector(`[data-block-id="${editingBlockId.value}"]`) as HTMLElement;
+          if (el) {
+            const block = contentBlocks.value[editingIndex];
+            const newHtml = el.innerHTML;
+            if (newHtml !== block.html) {
+              const blocks = [...contentBlocks.value];
+              blocks[editingIndex] = { ...blocks[editingIndex], html: newHtml, content: el.innerText };
+              contentBlocks.value = blocks;
+              
+              if (oldId) {
+                batchTypesetStore.updateArticleContentBlocks(oldId, [...contentBlocks.value], { ...containerStyleObj.value });
+              }
+            }
+          }
+        }
+        editingBlockId.value = null;
+      }
+    }
+  }
+);
+
 onMounted(() => {
   document.addEventListener('click', handleClickOutside);
   window.addEventListener('scroll', updateToolbarPosition, true);
   window.addEventListener('resize', updateToolbarPosition);
+  
+  nextTick(() => {
+    syncHtmlBlocksToDom();
+  });
 });
 
+function syncHtmlBlocksToDom() {
+  contentBlocks.value.forEach((block, index) => {
+    if (block.type === 'html') {
+      const el = document.querySelector(`[data-block-id="${block.id}"]`) as HTMLElement;
+      if (el && el.innerHTML !== (block.html || '')) {
+        el.innerHTML = block.html || '';
+      }
+    }
+  });
+}
+
 onUnmounted(() => {
-  if (renderTimer) {
-    cancelAnimationFrame(renderTimer);
-    renderTimer = null;
-  }
   if (observer) {
     observer.disconnect();
     observer = null;

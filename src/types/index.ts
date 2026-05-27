@@ -242,6 +242,7 @@ export interface ContentBlock {
   imagePath?: string;
   imageName?: string;
   align?: 'left' | 'center' | 'right';
+  styleInsertPosition?: 'header' | 'between' | 'footer';
 }
 
 // 样式模板

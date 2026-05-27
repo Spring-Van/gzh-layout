@@ -65,6 +65,7 @@
             :article-id="currentArticle?.id"
             :stored-content-blocks="currentArticle?.contentBlocks"
             :stored-container-style="currentArticle?.containerStyle"
+            :style-insert-config="currentStyleInsertConfig"
             @open-style-manager="showStyleTemplateModal = true"
             @update:content-blocks="handleContentBlocksUpdate"
           />
@@ -391,12 +392,12 @@ const currentArticleGeneratedCoverImageSrc = computed(() => {
   return "";
 });
 
-onMounted(() => {
+onMounted(async () => {
   generateArticlesFromProject();
   templateStore.loadTemplates();
   coverTemplateStore.loadCoverTemplates();
   wechatAccountStore.loadAccounts();
-  styleTemplateStore.loadCustomTemplates();
+  await styleTemplateStore.loadCustomTemplates();
 });
 
 function generateArticlesFromProject() {
@@ -569,6 +570,7 @@ function getImageUrl(filePath: string): string {
 
 function handleContentBlocksUpdate(blocks: ContentBlock[], containerStyle: Record<string, string>) {
   if (!currentArticle.value) return;
+  // 保留样式块标记
   batchStore.updateArticleContentBlocks(currentArticle.value.id, blocks, containerStyle);
 }
 
@@ -580,17 +582,6 @@ const currentStyleInsertConfig = computed(() => {
   return currentArticle.value.styleInsertConfig;
 });
 
-function getStyleTemplatesHtml(position: 'header' | 'footer' | 'between'): string {
-  const config = currentStyleInsertConfig.value;
-  if (!config || !config[position].enabled || config[position].templateIds.length === 0) {
-    return '';
-  }
-  return config[position].templateIds
-    .map(id => styleTemplateStore.getTemplateById(id)?.html || '')
-    .filter(html => html)
-    .join('');
-}
-
 const processedTemplateHtml = computed(() => {
   if (!currentTemplate.value || !currentArticle.value) return "";
   
@@ -600,66 +591,7 @@ const processedTemplateHtml = computed(() => {
     getImageUrl,
   );
   
-  const headerHtml = getStyleTemplatesHtml('header');
-  const footerHtml = getStyleTemplatesHtml('footer');
-  const betweenHtml = getStyleTemplatesHtml('between');
-  
-  if (!headerHtml && !footerHtml && !betweenHtml) {
-    return baseHtml;
-  }
-  
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(baseHtml, 'text/html');
-  const container = doc.body.firstElementChild as HTMLElement;
-  
-  if (!container) {
-    return headerHtml + baseHtml + footerHtml;
-  }
-  
-  const allChildren = Array.from(container.children);
-  const imageRows: Element[] = [];
-  const nonImageRows: Element[] = [];
-  
-  allChildren.forEach(child => {
-    if (child.querySelector('img')) {
-      imageRows.push(child);
-    } else {
-      nonImageRows.push(child);
-    }
-  });
-  
-  while (container.firstChild) {
-    container.removeChild(container.firstChild);
-  }
-  
-  if (headerHtml) {
-    const headerDiv = doc.createElement('div');
-    headerDiv.innerHTML = headerHtml;
-    Array.from(headerDiv.children).forEach(child => {
-      container.appendChild(child.cloneNode(true));
-    });
-  }
-  
-  imageRows.forEach((row, index) => {
-    container.appendChild(row.cloneNode(true));
-    if (betweenHtml && index < imageRows.length - 1) {
-      const betweenDiv = doc.createElement('div');
-      betweenDiv.innerHTML = betweenHtml;
-      Array.from(betweenDiv.children).forEach(child => {
-        container.appendChild(child.cloneNode(true));
-      });
-    }
-  });
-  
-  if (footerHtml) {
-    const footerDiv = doc.createElement('div');
-    footerDiv.innerHTML = footerHtml;
-    Array.from(footerDiv.children).forEach(child => {
-      container.appendChild(child.cloneNode(true));
-    });
-  }
-  
-  return container.outerHTML;
+  return baseHtml;
 });
 </script>
 

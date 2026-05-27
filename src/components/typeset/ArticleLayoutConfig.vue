@@ -119,7 +119,7 @@
             >
               <div class="flex-1">
                 <p class="text-xs text-slate-500">
-                  已选择 {{ styleInsertConfig[position.value].templateIds.length }} 个样式
+                  {{ styleInsertConfig[position.value].templateIds.length > 0 ? '已选择样式' : '未选择样式' }}
                 </p>
               </div>
               <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -251,11 +251,11 @@ function openStyleDrawer(position: StyleInsertPosition) {
   showStyleDrawer.value = true;
 }
 
-function handleStyleConfirm(selectedIds: string[]) {
+function handleStyleConfirm(selectedId: string | null) {
   const newConfig = { ...props.styleInsertConfig };
   newConfig[currentEditPosition.value] = {
     ...newConfig[currentEditPosition.value],
-    templateIds: selectedIds,
+    templateIds: selectedId ? [selectedId] : [],
   };
   emit("update:styleInsertConfig", newConfig);
 }
