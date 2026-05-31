@@ -4753,7 +4753,7 @@ function getAugmentedNamespace(n) {
   });
   return a;
 }
-var boolbase$1 = {
+var boolbase = {
   trueFunc: function trueFunc() {
     return true;
   },
@@ -4761,7 +4761,7 @@ var boolbase$1 = {
     return false;
   }
 };
-const boolbase = /* @__PURE__ */ getDefaultExportFromCjs(boolbase$1);
+const boolbase$1 = /* @__PURE__ */ getDefaultExportFromCjs(boolbase);
 const procedure = /* @__PURE__ */ new Map([
   [SelectorType.Universal, 50],
   [SelectorType.Tag, 30],
@@ -4911,7 +4911,7 @@ const attributeRules = {
     const { adapter: adapter2 } = options;
     const { name, value } = data2;
     if (/\s/.test(value)) {
-      return boolbase.falseFunc;
+      return boolbase$1.falseFunc;
     }
     const regex = new RegExp(`(?:^|\\s)${escapeRegex(value)}(?:$|\\s)`, shouldIgnoreCase(data2, options) ? "i" : "");
     return function element(elem) {
@@ -4928,7 +4928,7 @@ const attributeRules = {
     let { value } = data2;
     const len = value.length;
     if (len === 0) {
-      return boolbase.falseFunc;
+      return boolbase$1.falseFunc;
     }
     if (shouldIgnoreCase(data2, options)) {
       value = value.toLowerCase();
@@ -4948,7 +4948,7 @@ const attributeRules = {
     let { value } = data2;
     const len = -value.length;
     if (len === 0) {
-      return boolbase.falseFunc;
+      return boolbase$1.falseFunc;
     }
     if (shouldIgnoreCase(data2, options)) {
       value = value.toLowerCase();
@@ -4966,7 +4966,7 @@ const attributeRules = {
     const { adapter: adapter2 } = options;
     const { name, value } = data2;
     if (value === "") {
-      return boolbase.falseFunc;
+      return boolbase$1.falseFunc;
     }
     if (shouldIgnoreCase(data2, options)) {
       const regex = new RegExp(escapeRegex(value), "i");
@@ -5055,13 +5055,13 @@ function compile(parsed) {
   const a = parsed[0];
   const b = parsed[1] - 1;
   if (b < 0 && a <= 0)
-    return boolbase.falseFunc;
+    return boolbase$1.falseFunc;
   if (a === -1)
     return (index2) => index2 <= b;
   if (a === 0)
     return (index2) => index2 === b;
   if (a === 1)
-    return b < 0 ? boolbase.trueFunc : (index2) => index2 >= b;
+    return b < 0 ? boolbase$1.trueFunc : (index2) => index2 >= b;
   const absA = Math.abs(a);
   const bMod = (b % absA + absA) % absA;
   return a > 1 ? (index2) => index2 >= b && index2 % absA === bMod : (index2) => index2 <= b && index2 % absA === bMod;
@@ -5090,9 +5090,9 @@ const filters = {
   // Location specific methods
   "nth-child"(next2, rule, { adapter: adapter2, equals }) {
     const func = nthCheck(rule);
-    if (func === boolbase.falseFunc)
-      return boolbase.falseFunc;
-    if (func === boolbase.trueFunc)
+    if (func === boolbase$1.falseFunc)
+      return boolbase$1.falseFunc;
+    if (func === boolbase$1.trueFunc)
       return getChildFunc(next2, adapter2);
     return function nthChild(elem) {
       const siblings2 = adapter2.getSiblings(elem);
@@ -5109,9 +5109,9 @@ const filters = {
   },
   "nth-last-child"(next2, rule, { adapter: adapter2, equals }) {
     const func = nthCheck(rule);
-    if (func === boolbase.falseFunc)
-      return boolbase.falseFunc;
-    if (func === boolbase.trueFunc)
+    if (func === boolbase$1.falseFunc)
+      return boolbase$1.falseFunc;
+    if (func === boolbase$1.trueFunc)
       return getChildFunc(next2, adapter2);
     return function nthLastChild(elem) {
       const siblings2 = adapter2.getSiblings(elem);
@@ -5128,9 +5128,9 @@ const filters = {
   },
   "nth-of-type"(next2, rule, { adapter: adapter2, equals }) {
     const func = nthCheck(rule);
-    if (func === boolbase.falseFunc)
-      return boolbase.falseFunc;
-    if (func === boolbase.trueFunc)
+    if (func === boolbase$1.falseFunc)
+      return boolbase$1.falseFunc;
+    if (func === boolbase$1.trueFunc)
       return getChildFunc(next2, adapter2);
     return function nthOfType(elem) {
       const siblings2 = adapter2.getSiblings(elem);
@@ -5148,9 +5148,9 @@ const filters = {
   },
   "nth-last-of-type"(next2, rule, { adapter: adapter2, equals }) {
     const func = nthCheck(rule);
-    if (func === boolbase.falseFunc)
-      return boolbase.falseFunc;
-    if (func === boolbase.trueFunc)
+    if (func === boolbase$1.falseFunc)
+      return boolbase$1.falseFunc;
+    if (func === boolbase$1.trueFunc)
       return getChildFunc(next2, adapter2);
     return function nthLastOfType(elem) {
       const siblings2 = adapter2.getSiblings(elem);
@@ -5191,7 +5191,7 @@ function dynamicStatePseudo(name) {
   return function dynamicPseudo(next2, _rule, { adapter: adapter2 }) {
     const func = adapter2[name];
     if (typeof func !== "function") {
-      return boolbase.falseFunc;
+      return boolbase$1.falseFunc;
     }
     return function active(elem) {
       return func(elem) && next2(elem);
@@ -5298,8 +5298,8 @@ const aliases = {
 };
 const PLACEHOLDER_ELEMENT = {};
 function ensureIsTag(next2, adapter2) {
-  if (next2 === boolbase.falseFunc)
-    return boolbase.falseFunc;
+  if (next2 === boolbase$1.falseFunc)
+    return boolbase$1.falseFunc;
   return (elem) => adapter2.isTag(elem) && next2(elem);
 }
 function getNextSiblings(elem, adapter2) {
@@ -5325,7 +5325,7 @@ function copyOptions(options) {
 }
 const is$2 = (next2, token, options, context, compileToken2) => {
   const func = compileToken2(token, copyOptions(options), context);
-  return func === boolbase.trueFunc ? next2 : func === boolbase.falseFunc ? boolbase.falseFunc : (elem) => func(elem) && next2(elem);
+  return func === boolbase$1.trueFunc ? next2 : func === boolbase$1.falseFunc ? boolbase$1.falseFunc : (elem) => func(elem) && next2(elem);
 };
 const subselects = {
   is: is$2,
@@ -5336,7 +5336,7 @@ const subselects = {
   where: is$2,
   not(next2, token, options, context, compileToken2) {
     const func = compileToken2(token, copyOptions(options), context);
-    return func === boolbase.falseFunc ? next2 : func === boolbase.trueFunc ? boolbase.falseFunc : (elem) => !func(elem) && next2(elem);
+    return func === boolbase$1.falseFunc ? next2 : func === boolbase$1.trueFunc ? boolbase$1.falseFunc : (elem) => !func(elem) && next2(elem);
   },
   has(next2, subselect, options, _context2, compileToken2) {
     const { adapter: adapter2 } = options;
@@ -5347,10 +5347,10 @@ const subselects = {
       [PLACEHOLDER_ELEMENT]
     ) : void 0;
     const compiled = compileToken2(subselect, opts, context);
-    if (compiled === boolbase.falseFunc)
-      return boolbase.falseFunc;
+    if (compiled === boolbase$1.falseFunc)
+      return boolbase$1.falseFunc;
     const hasElement = ensureIsTag(compiled, adapter2);
-    if (context && compiled !== boolbase.trueFunc) {
+    if (context && compiled !== boolbase$1.trueFunc) {
       const { shouldTestNextSiblings = false } = compiled;
       return (elem) => {
         if (!next2(elem))
@@ -5576,19 +5576,19 @@ function compileToken(token, options, context) {
       }
     }
     return compileRules(rules, options, finalContext);
-  }).reduce(reduceRules, boolbase.falseFunc);
+  }).reduce(reduceRules, boolbase$1.falseFunc);
   query.shouldTestNextSiblings = shouldTestNextSiblings;
   return query;
 }
 function compileRules(rules, options, context) {
   var _a3;
-  return rules.reduce((previous, rule) => previous === boolbase.falseFunc ? boolbase.falseFunc : compileGeneralSelector(previous, rule, options, context, compileToken), (_a3 = options.rootFunc) !== null && _a3 !== void 0 ? _a3 : boolbase.trueFunc);
+  return rules.reduce((previous, rule) => previous === boolbase$1.falseFunc ? boolbase$1.falseFunc : compileGeneralSelector(previous, rule, options, context, compileToken), (_a3 = options.rootFunc) !== null && _a3 !== void 0 ? _a3 : boolbase$1.trueFunc);
 }
 function reduceRules(a, b) {
-  if (b === boolbase.falseFunc || a === boolbase.trueFunc) {
+  if (b === boolbase$1.falseFunc || a === boolbase$1.trueFunc) {
     return a;
   }
-  if (a === boolbase.falseFunc || b === boolbase.trueFunc) {
+  if (a === boolbase$1.falseFunc || b === boolbase$1.trueFunc) {
     return b;
   }
   return function combine(elem) {
@@ -5828,8 +5828,8 @@ function findFilterElements(root2, selector, options, queryForSelector, totalLim
        */
       rootFunc: (el) => result.includes(el)
     };
-  } else if (options.rootFunc && options.rootFunc !== boolbase$1.trueFunc) {
-    options = { ...options, rootFunc: boolbase$1.trueFunc };
+  } else if (options.rootFunc && options.rootFunc !== boolbase.trueFunc) {
+    options = { ...options, rootFunc: boolbase.trueFunc };
   }
   return remainingSelector.some(isFilter) ? findFilterElements(result, remainingSelector, options, false, totalLimit) : remainingHasTraversal ? (
     // Query existing elements to resolve traversal.
@@ -5852,7 +5852,7 @@ function filterElements(elements, sel, options) {
   if (els.length === 0)
     return els;
   const query = _compileToken(sel, options);
-  return query === boolbase$1.trueFunc ? els : els.filter(query);
+  return query === boolbase.trueFunc ? els : els.filter(query);
 }
 const reContextSelector = /^\s*(?:[+~]|:scope\b)/;
 function find(selectorOrHaystack) {

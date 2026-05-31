@@ -43,15 +43,9 @@
           <div class="flex-1 flex flex-col">
             <div
               ref="imageContainerRef"
-              class="relative bg-slate-100 rounded-xl overflow-hidden select-none"
+              class="relative bg-slate-100 rounded-xl overflow-hidden select-none touch-none"
               :style="{ height: containerHeight + 'px' }"
-              @mousedown="handleMouseDown"
-              @mousemove="handleMouseMove"
-              @mouseup="handleMouseUp"
-              @mouseleave="handleMouseUp"
-              @touchstart="handleTouchStart"
-              @touchmove="handleTouchMove"
-              @touchend="handleMouseUp"
+              @pointerdown.prevent="onPointerDown"
             >
               <img
                 ref="sourceImageRef"
@@ -61,14 +55,16 @@
                 @load="onImageLoad"
               />
 
-              <!-- 遮罩层：裁剪框外部区域 -->
+              <!-- 遮罩层：裁剪框外部区域（拖拽时由 DOM 直接更新样式） -->
               <template v-if="activeRatio === '235'">
                 <!-- 上下遮罩 -->
                 <div
+                  data-overlay="top"
                   class="absolute left-0 right-0 bg-black/50 pointer-events-none"
                   :style="{ top: 0, height: cropOverlayTop + 'px' }"
                 />
                 <div
+                  data-overlay="bottom"
                   class="absolute left-0 right-0 bg-black/50 pointer-events-none"
                   :style="{ top: cropOverlayBottom + 'px', bottom: 0 }"
                 />
@@ -76,6 +72,7 @@
               <template v-else>
                 <!-- 上下左右遮罩（1:1 正方形） -->
                 <div
+                  data-overlay="top"
                   class="absolute bg-black/50 pointer-events-none"
                   :style="{
                     top: 0,
@@ -85,6 +82,7 @@
                   }"
                 />
                 <div
+                  data-overlay="bottom"
                   class="absolute bg-black/50 pointer-events-none"
                   :style="{
                     bottom: 0,
@@ -94,6 +92,7 @@
                   }"
                 />
                 <div
+                  data-overlay="left"
                   class="absolute bg-black/50 pointer-events-none"
                   :style="{
                     top: cropOverlayTop + 'px',
@@ -103,6 +102,7 @@
                   }"
                 />
                 <div
+                  data-overlay="right"
                   class="absolute bg-black/50 pointer-events-none"
                   :style="{
                     top: cropOverlayTop + 'px',
@@ -113,8 +113,9 @@
                 />
               </template>
 
-              <!-- 裁剪框 -->
+              <!-- 裁剪框（拖拽时由 DOM 直接更新样式） -->
               <div
+                data-overlay="frame"
                 class="absolute border-2 border-white/80 pointer-events-none"
                 :style="{
                   top: cropOverlayTop + 'px',
@@ -126,24 +127,22 @@
                 <!-- 四边拖拽手柄 -->
                 <div
                   class="absolute -top-1.5 left-1/2 -translate-x-1/2 w-4 h-1.5 bg-white rounded-sm cursor-ns-resize pointer-events-auto"
-                  @mousedown.stop="startResize('n', $event)"
-                  @touchstart.stop="startResize('n', $event)"
+                  @pointerdown.stop="onHandlePointerDown('n', $event)"
                 />
                 <div
                   class="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-4 h-1.5 bg-white rounded-sm cursor-ns-resize pointer-events-auto"
-                  @mousedown.stop="startResize('s', $event)"
-                  @touchstart.stop="startResize('s', $event)"
+                  @pointerdown.stop="onHandlePointerDown('s', $event)"
                 />
                 <template v-if="activeRatio === '11'">
                   <div
+                    data-handle="w"
                     class="absolute -left-1.5 top-1/2 -translate-y-1/2 w-1.5 h-4 bg-white rounded-sm cursor-ew-resize pointer-events-auto"
-                    @mousedown.stop="startResize('w', $event)"
-                    @touchstart.stop="startResize('w', $event)"
+                    @pointerdown.stop="onHandlePointerDown('w', $event)"
                   />
                   <div
+                    data-handle="e"
                     class="absolute -right-1.5 top-1/2 -translate-y-1/2 w-1.5 h-4 bg-white rounded-sm cursor-ew-resize pointer-events-auto"
-                    @mousedown.stop="startResize('e', $event)"
-                    @touchstart.stop="startResize('e', $event)"
+                    @pointerdown.stop="onHandlePointerDown('e', $event)"
                   />
                 </template>
               </div>
@@ -154,14 +153,14 @@
             </p>
           </div>
 
-          <!-- 右侧：双比例预览（骨架屏样式 + 可点击切换） -->
-          <div class="w-64 flex flex-col gap-4">
+          <!-- 右侧：双比例预览（更紧凑、可滚动） -->
+          <div class="w-52 flex flex-col gap-2 max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
             <!-- 2.35:1 预览卡片 -->
             <div
               class="cursor-pointer group"
               @click="switchRatio('235')"
             >
-              <div class="flex items-center gap-1 mb-2">
+              <div class="flex items-center gap-1 mb-1">
                 <span class="text-xs font-medium text-slate-600"
                   >2.35:1（消息列表）</span
                 >
@@ -181,24 +180,24 @@
               </div>
               <!-- 骨架屏卡片 -->
               <div
-                class="w-full aspect-[2.35/1] rounded-lg overflow-hidden border-2 transition-all"
+                class="w-full rounded-lg overflow-hidden border-2 transition-all bg-white"
                 :class="activeRatio === '235'
                   ? 'border-emerald-500 shadow-sm'
                   : 'border-slate-200 group-hover:border-slate-300'"
+                style="min-height: 120px;"
               >
-                <div class="w-full h-full bg-white flex">
-                  <!-- 左侧文字区域 -->
-                  <div class="flex-1 p-2 flex flex-col justify-center gap-1.5">
-                    <div class="h-2 bg-slate-200 rounded w-3/4" />
-                    <div class="h-2 bg-slate-200 rounded w-1/2" />
-                  </div>
-                  <!-- 右侧图片区域 -->
-                  <div class="w-[40%] h-full p-1">
-                    <div
-                      class="w-full h-full rounded overflow-hidden"
-                      :style="previewStyle235"
-                    />
-                  </div>
+                <!-- 顶部：一行骨架屏（两个短条并排） -->
+                <div class="px-2 py-1.5 flex items-center gap-2">
+                  <div class="h-1.5 bg-slate-200 rounded w-16" />
+                  <div class="h-1.5 bg-slate-200 rounded w-10" />
+                </div>
+
+                <!-- 底部：2.35:1 图片预览，宽度占满，高度由比例决定（增大卡片高度仅通过 padding） -->
+                <div class="px-1 pb-3 pt-1">
+                  <div
+                    class="w-full aspect-[2.35/1] rounded overflow-hidden"
+                    :style="previewStyle235"
+                  />
                 </div>
               </div>
             </div>
@@ -208,7 +207,7 @@
               class="cursor-pointer group"
               @click="switchRatio('11')"
             >
-              <div class="flex items-center gap-1 mb-2">
+              <div class="flex items-center gap-1 mb-1">
                 <span class="text-xs font-medium text-slate-600"
                   >1:1（转发卡片和公众号主页）</span
                 >
@@ -221,17 +220,17 @@
                   : 'border-slate-200 group-hover:border-slate-300'"
               >
                 <div class="w-full h-full bg-white flex">
-                  <!-- 左侧文字区域 -->
-                  <div class="flex-1 p-2 flex flex-col justify-center gap-1.5">
-                    <div class="h-2 bg-slate-200 rounded w-3/4" />
-                    <div class="h-2 bg-slate-200 rounded w-1/2" />
-                  </div>
-                  <!-- 右侧方形图片区域 -->
-                  <div class="h-full aspect-square p-1">
+                  <!-- 左侧：1:1 预览图 -->
+                  <div class="h-full p-1">
                     <div
-                      class="w-full h-full rounded overflow-hidden"
+                      class="h-full aspect-square rounded overflow-hidden"
                       :style="previewStyle11"
                     />
+                  </div>
+                  <!-- 右侧：骨架屏展示 -->
+                  <div class="flex-1 p-2 flex flex-col justify-center gap-1">
+                    <div class="h-1.5 bg-slate-200 rounded w-3/4" />
+                    <div class="h-1.5 bg-slate-200 rounded w-1/2" />
                   </div>
                 </div>
               </div>
@@ -286,7 +285,7 @@ const emit = defineEmits<{
 }>();
 
 // ============ 常量 ============
-const CONTAINER_HEIGHT = 480;
+const CONTAINER_HEIGHT = 420;
 const containerHeight = ref(CONTAINER_HEIGHT);
 
 // 2.35:1 默认全图，1:1 默认居中正方形
@@ -567,116 +566,226 @@ function syncCropFromOverlay(
   }
 }
 
-// ============ 拖拽事件 ============
+// ============ 拖拽事件（pointer + DOM 直接更新） ============
 
-function getClientY(e: MouseEvent | TouchEvent): number {
-  if ("touches" in e) {
-    return e.touches[0]?.clientY ?? e.changedTouches[0]?.clientY ?? 0;
-  }
-  return e.clientY;
+function clamp(v: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, v));
 }
 
-function getClientX(e: MouseEvent | TouchEvent): number {
-  if ("touches" in e) {
-    return e.touches[0]?.clientX ?? e.changedTouches[0]?.clientX ?? 0;
+function setOverlayDOM(params: {
+  top: number;
+  height: number;
+  left?: number;
+  width?: number;
+  showSide?: boolean;
+}) {
+  const root = imageContainerRef.value;
+  if (!root) return;
+  const topEl = root.querySelector('[data-overlay="top"]') as HTMLElement | null;
+  const bottomEl = root.querySelector('[data-overlay="bottom"]') as HTMLElement | null;
+  const frameEl = root.querySelector('[data-overlay="frame"]') as HTMLElement | null;
+
+  const top = params.top;
+  const height = params.height;
+  const bottom = top + height;
+
+  if (topEl) {
+    topEl.style.height = `${top}px`;
   }
-  return e.clientX;
+  if (bottomEl) {
+    bottomEl.style.top = `${bottom}px`;
+  }
+  if (frameEl) {
+    frameEl.style.top = `${top}px`;
+    frameEl.style.height = `${height}px`;
+  }
+
+  if (activeRatio.value === '11') {
+    const left = params.left ?? 0;
+    const width = params.width ?? 0;
+    const leftEl = root.querySelector('[data-overlay="left"]') as HTMLElement | null;
+    const rightEl = root.querySelector('[data-overlay="right"]') as HTMLElement | null;
+    if (leftEl) {
+      leftEl.style.top = `${top}px`;
+      leftEl.style.height = `${height}px`;
+      leftEl.style.width = `${left}px`;
+    }
+    if (rightEl) {
+      rightEl.style.top = `${top}px`;
+      rightEl.style.height = `${height}px`;
+      rightEl.style.width = `${Math.max(0, root.clientWidth - (left + width))}px`;
+    }
+    if (frameEl) {
+      frameEl.style.left = `${left}px`;
+      frameEl.style.width = `${height}px`;
+    }
+  } else {
+    if (frameEl) {
+      frameEl.style.left = `0px`;
+      frameEl.style.width = `100%`;
+    }
+  }
 }
 
-function handleMouseDown(e: MouseEvent | TouchEvent) {
-  if (!imageContainerRef.value) return;
+function onPointerDown(e: PointerEvent) {
+  const root = imageContainerRef.value;
+  if (!root) return;
+
+  // 起始点
   isDragging.value = true;
   dragMode.value = "move";
-  dragStartY.value = getClientY(e);
-  dragStartX.value = getClientX(e);
+  root.setPointerCapture(e.pointerId);
+
+  dragStartY.value = e.clientY;
+  dragStartX.value = e.clientX;
   dragStartTop.value = cropOverlayTop.value;
   dragStartLeft.value = cropOverlayLeft.value;
   dragStartHeight.value = cropOverlayHeight.value;
   dragStartWidth.value = cropOverlayWidth.value;
+
+  const onMove = (ev: PointerEvent) => {
+    if (!isDragging.value) return;
+    const deltaY = ev.clientY - dragStartY.value;
+    const deltaX = ev.clientX - dragStartX.value;
+    const rect = imageDisplayRect.value;
+
+    if (dragMode.value === "move") {
+      let newTop = dragStartTop.value + deltaY;
+      let newLeft = dragStartLeft.value + deltaX;
+      if (activeRatio.value === '235') {
+        newTop = clamp(newTop, rect.y, rect.y + rect.height - dragStartHeight.value);
+        setOverlayDOM({ top: newTop, height: dragStartHeight.value });
+      } else {
+        newTop = clamp(newTop, rect.y, rect.y + rect.height - dragStartHeight.value);
+        newLeft = clamp(newLeft, rect.x, rect.x + rect.width - dragStartWidth.value);
+        setOverlayDOM({ top: newTop, height: dragStartHeight.value, left: newLeft, width: dragStartWidth.value });
+      }
+    } else if (dragMode.value === 'resize-s') {
+      let newHeight = dragStartHeight.value + deltaY;
+      newHeight = clamp(newHeight, 20, rect.y + rect.height - dragStartTop.value);
+      setOverlayDOM({ top: dragStartTop.value, height: newHeight });
+    } else if (dragMode.value === 'resize-n') {
+      let newTop = dragStartTop.value + deltaY;
+      let newHeight = dragStartHeight.value - deltaY;
+      if (newHeight < 20) {
+        newHeight = 20;
+        newTop = dragStartTop.value + dragStartHeight.value - 20;
+      }
+      newTop = clamp(newTop, rect.y, rect.y + rect.height - newHeight);
+      setOverlayDOM({ top: newTop, height: newHeight });
+    } else if (dragMode.value === 'resize-e') {
+      let newWidth = dragStartWidth.value + deltaX;
+      newWidth = clamp(newWidth, 20, rect.x + rect.width - dragStartLeft.value);
+      setOverlayDOM({ top: dragStartTop.value, height: dragStartHeight.value, left: dragStartLeft.value, width: newWidth });
+    } else if (dragMode.value === 'resize-w') {
+      let newLeft = dragStartLeft.value + deltaX;
+      let newWidth = dragStartWidth.value - deltaX;
+      if (newWidth < 20) {
+        newWidth = 20;
+        newLeft = dragStartLeft.value + dragStartWidth.value - 20;
+      }
+      newLeft = clamp(newLeft, rect.x, rect.x + rect.width - newWidth);
+      setOverlayDOM({ top: dragStartTop.value, height: dragStartHeight.value, left: newLeft, width: newWidth });
+    }
+  };
+
+  const onUp = (ev: PointerEvent) => {
+    isDragging.value = false;
+    dragMode.value = 'move';
+    root.releasePointerCapture(ev.pointerId);
+    root.removeEventListener('pointermove', onMove);
+    root.removeEventListener('pointerup', onUp);
+
+    // 将 DOM 当前位置回写到 Vue 数据（以触发右侧预览更新）
+    const frameEl = root.querySelector('[data-overlay="frame"]') as HTMLElement | null;
+    if (frameEl) {
+      const topPx = parseFloat(frameEl.style.top || '0');
+      const heightPx = parseFloat(frameEl.style.height || '0');
+      const leftPx = parseFloat(frameEl.style.left || '0');
+      // width 在 235 模式为 100%，此处传 rect.width 即可
+      const widthPx = activeRatio.value === '11' ? parseFloat(frameEl.style.width || '0') : imageDisplayRect.value.width;
+      syncCropFromOverlay(topPx, heightPx, leftPx, widthPx);
+    }
+  };
+
+  root.addEventListener('pointermove', onMove);
+  root.addEventListener('pointerup', onUp);
 }
 
-function startResize(
-  direction: "n" | "s" | "w" | "e",
-  e: MouseEvent | TouchEvent,
-) {
-  e.preventDefault();
-  e.stopPropagation();
+function onHandlePointerDown(direction: 'n' | 's' | 'w' | 'e', e: PointerEvent) {
+  const root = imageContainerRef.value;
+  if (!root) return;
+
   isDragging.value = true;
   dragMode.value =
-    direction === "n"
-      ? "resize-n"
-      : direction === "s"
-        ? "resize-s"
-        : direction === "w"
-          ? "resize-w"
-          : "resize-e";
-  dragStartY.value = getClientY(e);
-  dragStartX.value = getClientX(e);
+    direction === 'n' ? 'resize-n'
+    : direction === 's' ? 'resize-s'
+    : direction === 'w' ? 'resize-w'
+    : 'resize-e';
+
+  root.setPointerCapture(e.pointerId);
+  dragStartY.value = e.clientY;
+  dragStartX.value = e.clientX;
   dragStartTop.value = cropOverlayTop.value;
   dragStartLeft.value = cropOverlayLeft.value;
   dragStartHeight.value = cropOverlayHeight.value;
   dragStartWidth.value = cropOverlayWidth.value;
-}
 
-function handleMouseMove(e: MouseEvent | TouchEvent) {
-  if (!isDragging.value) return;
-  e.preventDefault();
+  const onMove = (ev: PointerEvent) => {
+    if (!isDragging.value) return;
+    const deltaY = ev.clientY - dragStartY.value;
+    const deltaX = ev.clientX - dragStartX.value;
+    const rect = imageDisplayRect.value;
 
-  const deltaY = getClientY(e) - dragStartY.value;
-  const deltaX = getClientX(e) - dragStartX.value;
-
-  if (dragMode.value === "move") {
-    const newTop = dragStartTop.value + deltaY;
-    if (activeRatio.value === "235") {
-      syncCropFromOverlay(newTop, dragStartHeight.value);
-    } else {
-      const newLeft = dragStartLeft.value + deltaX;
-      syncCropFromOverlay(newTop, dragStartHeight.value, newLeft, dragStartWidth.value);
-    }
-  } else if (dragMode.value === "resize-n") {
-    const newTop = dragStartTop.value + deltaY;
-    const newHeight = dragStartHeight.value - deltaY;
-    if (newHeight >= 20) {
-      if (activeRatio.value === "235") {
-        syncCropFromOverlay(newTop, newHeight);
-      } else {
-        syncCropFromOverlay(newTop, newHeight, dragStartLeft.value, dragStartWidth.value);
+    if (dragMode.value === 'resize-s') {
+      let newHeight = dragStartHeight.value + deltaY;
+      newHeight = clamp(newHeight, 20, rect.y + rect.height - dragStartTop.value);
+      setOverlayDOM({ top: dragStartTop.value, height: newHeight });
+    } else if (dragMode.value === 'resize-n') {
+      let newTop = dragStartTop.value + deltaY;
+      let newHeight = dragStartHeight.value - deltaY;
+      if (newHeight < 20) {
+        newHeight = 20;
+        newTop = dragStartTop.value + dragStartHeight.value - 20;
       }
-    }
-  } else if (dragMode.value === "resize-s") {
-    const newHeight = dragStartHeight.value + deltaY;
-    if (newHeight >= 20) {
-      if (activeRatio.value === "235") {
-        syncCropFromOverlay(dragStartTop.value, newHeight);
-      } else {
-        syncCropFromOverlay(dragStartTop.value, newHeight, dragStartLeft.value, dragStartWidth.value);
+      newTop = clamp(newTop, rect.y, rect.y + rect.height - newHeight);
+      setOverlayDOM({ top: newTop, height: newHeight });
+    } else if (dragMode.value === 'resize-e') {
+      let newWidth = dragStartWidth.value + deltaX;
+      newWidth = clamp(newWidth, 20, rect.x + rect.width - dragStartLeft.value);
+      setOverlayDOM({ top: dragStartTop.value, height: dragStartHeight.value, left: dragStartLeft.value, width: newWidth });
+    } else if (dragMode.value === 'resize-w') {
+      let newLeft = dragStartLeft.value + deltaX;
+      let newWidth = dragStartWidth.value - deltaX;
+      if (newWidth < 20) {
+        newWidth = 20;
+        newLeft = dragStartLeft.value + dragStartWidth.value - 20;
       }
+      newLeft = clamp(newLeft, rect.x, rect.x + rect.width - newWidth);
+      setOverlayDOM({ top: dragStartTop.value, height: dragStartHeight.value, left: newLeft, width: newWidth });
     }
-  } else if (dragMode.value === "resize-w") {
-    const newLeft = dragStartLeft.value + deltaX;
-    const newWidth = dragStartWidth.value - deltaX;
-    if (newWidth >= 20) {
-      syncCropFromOverlay(dragStartTop.value, dragStartHeight.value, newLeft, newWidth);
+  };
+
+  const onUp = (ev: PointerEvent) => {
+    isDragging.value = false;
+    dragMode.value = 'move';
+    root.releasePointerCapture(ev.pointerId);
+    root.removeEventListener('pointermove', onMove);
+    root.removeEventListener('pointerup', onUp);
+
+    // 将 DOM 当前位置回写到 Vue 数据（以触发右侧预览更新）
+    const frameEl = root.querySelector('[data-overlay="frame"]') as HTMLElement | null;
+    if (frameEl) {
+      const topPx = parseFloat(frameEl.style.top || '0');
+      const heightPx = parseFloat(frameEl.style.height || '0');
+      const leftPx = parseFloat(frameEl.style.left || '0');
+      const widthPx = activeRatio.value === '11' ? parseFloat(frameEl.style.width || '0') : imageDisplayRect.value.width;
+      syncCropFromOverlay(topPx, heightPx, leftPx, widthPx);
     }
-  } else if (dragMode.value === "resize-e") {
-    const newWidth = dragStartWidth.value + deltaX;
-    if (newWidth >= 20) {
-      syncCropFromOverlay(dragStartTop.value, dragStartHeight.value, dragStartLeft.value, newWidth);
-    }
-  }
-}
+  };
 
-function handleMouseUp() {
-  isDragging.value = false;
-  dragMode.value = "move";
-}
-
-function handleTouchStart(e: TouchEvent) {
-  handleMouseDown(e);
-}
-
-function handleTouchMove(e: TouchEvent) {
-  handleMouseMove(e);
+  root.addEventListener('pointermove', onMove);
+  root.addEventListener('pointerup', onUp);
 }
 
 // ============ 操作 ============

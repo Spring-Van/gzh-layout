@@ -110,6 +110,17 @@
                 >超出</span
               >
             </div>
+            <!-- 每张图片的裁剪定位按钮（仅有效槽位） -->
+            <button
+              v-if="idx < requiredImageCount"
+              class="absolute bottom-0.5 right-0.5 w-5 h-5 bg-black/60 text-white rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+              title="调整显示位置"
+              @click.stop="openImageCrop(idx)"
+            >
+              <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 7h4m0 0V3m0 4v4m12-4h-4m0 0V3m0 4v4M4 17h4m0 0v4m0-4v-4m12 4h-4m0 0v4m0-4v-4"/>
+              </svg>
+            </button>
           </div>
         </div>
         <p class="text-[10px] text-slate-400 mt-1.5">
@@ -175,6 +186,15 @@
       @confirm="handleCropConfirm"
     />
 
+    <ImageCropModal
+      :visible="showImageCrop"
+      :image-url="cropTargetIndex >= 0 && cropTargetIndex < autoSelectedImages.length ? getImageUrl(autoSelectedImages[cropTargetIndex].path) : ''"
+      :slot-aspect="cropSlotAspect"
+      :initial-rect="currentCropRect"
+      @close="showImageCrop = false"
+      @confirm="handleImageCropConfirm"
+    />
+
     <div
       v-if="showZoomModal"
       class="fixed inset-0 bg-slate-900/90 z-50 flex items-center justify-center p-8"
@@ -219,6 +239,7 @@
 import { ref, computed, watch, nextTick } from "vue";
 import { useCoverTemplateStore } from "../../stores/coverTemplate";
 import CoverCropTool from "./CoverCropTool.vue";
+import ImageCropModal from "./ImageCropModal.vue";
 import type { CoverTemplate, ImageFile, ArticleCoverConfig } from "../../types";
 
 interface Props {
@@ -238,6 +259,9 @@ const coverTemplateStore = useCoverTemplateStore();
 const selectedTemplate = ref<CoverTemplate | null>(null);
 const showZoomModal = ref(false);
 const showCropTool = ref(false);
+const showImageCrop = ref(false);
+const cropTargetIndex = ref(-1);
+const cropSlotAspect = ref(1);
 const zoomScale = ref(1);
 const coverPreviewRef = ref<HTMLDivElement>();
 
@@ -264,6 +288,7 @@ const coverPreview = computed(() => {
   let html = selectedTemplate.value.html.replace(/`/g, "");
   const imgRegex = /<img[^>]*>/gi;
   const imgTags = html.match(imgRegex) || [];
+  const cropRects = props.coverConfig?.imageCropRects || {};
 
   imgTags.forEach((imgTag, index) => {
     if (
@@ -273,10 +298,27 @@ const coverPreview = computed(() => {
       const img = autoSelectedImages.value[index];
       const srcMatch = imgTag.match(/src="[^"]*"/);
       if (srcMatch) {
-        const newImgTag = imgTag.replace(
+        let newImgTag = imgTag.replace(
           srcMatch[0],
           `src="${props.getImageUrl(img.path)}"`,
         );
+        // 应用裁剪位置
+        const rect = cropRects[index];
+        if (rect && (rect.w < 1 || rect.h < 1)) {
+          const posX = ((rect.x + rect.w / 2) * 100);
+          const posY = ((rect.y + rect.h / 2) * 100);
+          if (newImgTag.includes('style="')) {
+            newImgTag = newImgTag.replace(
+              'style="',
+              `style="object-fit:cover;object-position:${posX.toFixed(1)}% ${posY.toFixed(1)}%;`,
+            );
+          } else {
+            newImgTag = newImgTag.replace(
+              '<img',
+              `<img style="object-fit:cover;object-position:${posX.toFixed(1)}% ${posY.toFixed(1)}%"`,
+            );
+          }
+        }
         html = html.replace(imgTag, newImgTag);
       }
     }
@@ -307,6 +349,7 @@ function updateCoverConfig() {
     cropMode: "cover",
     pic_crop_235_1: currentCrop235.value,
     pic_crop_1_1: currentCrop11.value,
+    imageCropRects: props.coverConfig?.imageCropRects,
   };
   emit("update:coverConfig", config);
 }
@@ -324,6 +367,7 @@ function handleCropConfirm(data: {
     cropMode: "cover",
     pic_crop_235_1: data.pic_crop_235_1,
     pic_crop_1_1: data.pic_crop_1_1,
+    imageCropRects: props.coverConfig?.imageCropRects,
   };
   emit("update:coverConfig", config);
 }
@@ -361,4 +405,36 @@ watch(
   },
   { deep: true },
 );
+
+// ====== 每张图片独立裁剪 ======
+const currentCropRect = computed(() => {
+  if (cropTargetIndex.value < 0) return { x: 0, y: 0, w: 1, h: 1 };
+  const rects = props.coverConfig?.imageCropRects;
+  return rects?.[cropTargetIndex.value] ?? { x: 0, y: 0, w: 1, h: 1 };
+});
+
+function openImageCrop(idx: number) {
+  cropTargetIndex.value = idx;
+  cropSlotAspect.value = 1; // 默认 1:1，后续可从模板推断
+  showImageCrop.value = true;
+}
+
+function handleImageCropConfirm(rect: { x: number; y: number; w: number; h: number }) {
+  if (cropTargetIndex.value < 0) return;
+  const prev = props.coverConfig?.imageCropRects ? { ...props.coverConfig.imageCropRects } : {};
+  prev[cropTargetIndex.value] = rect;
+  const config: ArticleCoverConfig = {
+    inheritGlobal: false,
+    templateId: selectedTemplate.value?.id,
+    selectedImageIds: autoSelectedImages.value
+      .slice(0, requiredImageCount.value)
+      .map((img) => img.id),
+    cropMode: "cover",
+    pic_crop_235_1: currentCrop235.value,
+    pic_crop_1_1: currentCrop11.value,
+    imageCropRects: prev,
+  };
+  emit("update:coverConfig", config);
+  showImageCrop.value = false;
+}
 </script>

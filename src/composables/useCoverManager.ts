@@ -118,6 +118,7 @@ export function useCoverManager(options: UseCoverManagerOptions) {
     articleId: string,
     folderPath: string,
     existingCoverPath?: string,
+    imageCropRects?: Record<number, { x: number; y: number; w: number; h: number }>,
   ): Promise<CoverGenerateResult | null> {
     if (existingCoverPath) {
       await deleteCoverImageFile(existingCoverPath);
@@ -127,6 +128,7 @@ export function useCoverManager(options: UseCoverManagerOptions) {
       templateId,
       selectedImageIds,
       images,
+      imageCropRects,
     );
     if (!coverImage) return null;
 
@@ -178,6 +180,7 @@ export function useCoverManager(options: UseCoverManagerOptions) {
       article.id,
       folderPath,
       article.coverConfig.generatedCoverImagePath,
+      article.coverConfig.imageCropRects,
     );
 
     if (result) {
@@ -244,6 +247,8 @@ export function useCoverManager(options: UseCoverManagerOptions) {
         article.images,
         article.id,
         newCoverFolderPath,
+        article.coverConfig.generatedCoverImagePath,
+        article.coverConfig.imageCropRects,
       );
 
       if (result) {
@@ -328,6 +333,7 @@ export function useCoverManager(options: UseCoverManagerOptions) {
         article.id,
         articleCoverFolderPath,
         article.coverConfig.generatedCoverImagePath,
+        article.coverConfig.imageCropRects,
       );
 
       if (result) {
@@ -388,6 +394,7 @@ export function useCoverManager(options: UseCoverManagerOptions) {
         article.id,
         folderPath,
         oldCoverPath,
+        article.coverConfig.imageCropRects,
       );
 
       if (result) {
@@ -426,6 +433,7 @@ export function useCoverManager(options: UseCoverManagerOptions) {
         article.id,
         folderPath,
         oldCoverPath,
+        article.coverConfig.imageCropRects,
       );
 
       if (result) {

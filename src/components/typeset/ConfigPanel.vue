@@ -104,6 +104,7 @@
           @open-template-selector="$emit('open-article-cover-template-selector')"
           @open-template-manager="$emit('open-cover-template-manager')"
           @open-image-selector="$emit('open-image-selector')"
+          @open-image-position-editor="$emit('open-image-position-editor')"
           @crop="$emit('crop', 'article', $event)"
         />
       </template>
@@ -205,6 +206,7 @@ interface Emits {
   (e: "open-image-selector"): void;
   (e: "open-image-manager"): void;
   (e: "crop", mode: "global" | "article", ratio: "235" | "11"): void;
+  (e: "open-image-position-editor"): void;
   (e: "back"): void;
   (e: "publish"): void;
 }

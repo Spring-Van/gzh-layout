@@ -309,12 +309,23 @@
         </div>
       </div>
     </div>
+  
+    <ImageCropModal
+      :visible="showCropModal"
+      :image-url="cropTargetIndex >= 0 && selectedImages[cropTargetIndex] ? getImageUrl(selectedImages[cropTargetIndex]!.path) : ''"
+      :initial-rect="cropTargetIndex >= 0 ? getCropRect(cropTargetIndex) : { x: 0, y: 0, w: 1, h: 1 }"
+      @close="showCropModal = false"
+      @confirm="handleCropConfirm"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
+import ImageCropModal from "./ImageCropModal.vue";
 import type { ImageFile } from "../../types";
+
+interface CropRect { x: number; y: number; w: number; h: number }
 
 interface Props {
   visible: boolean;
@@ -322,6 +333,7 @@ interface Props {
   selectedImageIds: string[];
   requiredCount: number;
   getImageUrl: (path: string) => string;
+  imageCropRects?: Record<number, CropRect>;
 }
 
 const props = defineProps<Props>();
@@ -329,7 +341,12 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   (e: "close"): void;
   (e: "update:selectedImageIds", ids: string[]): void;
+  (e: "update:imageCropRects", rects: Record<number, CropRect>): void;
 }>();
+
+// 裁剪状态
+const showCropModal = ref(false);
+const cropTargetIndex = ref(-1);
 
 // 选择模式：'position' = 按位置选择，'direct' = 直接点选
 const selectionMode = ref<"position" | "direct">("direct");
@@ -392,6 +409,28 @@ function handleImagePickerSelect(img: ImageFile) {
     localSelectedIds.value = newIds;
     closeImagePicker();
   }
+}
+
+function openCropModal(idx: number) {
+  cropTargetIndex.value = idx;
+  showCropModal.value = true;
+}
+
+function handleCropConfirm(rect: CropRect) {
+  if (cropTargetIndex.value < 0) return;
+  const prev = props.imageCropRects ? { ...props.imageCropRects } : {};
+  prev[cropTargetIndex.value] = rect;
+  emit("update:imageCropRects", prev);
+  showCropModal.value = false;
+}
+
+function getCropRect(idx: number): CropRect {
+  return props.imageCropRects?.[idx] ?? { x: 0, y: 0, w: 1, h: 1 };
+}
+
+function isCropped(idx: number): boolean {
+  const r = getCropRect(idx);
+  return r.w < 1 || r.h < 1;
 }
 
 function handleSave() {

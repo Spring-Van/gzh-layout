@@ -1,5 +1,6 @@
 import { ref } from "vue";
 import type { CoverTemplate } from "../types";
+import { cropToBackgroundStyle } from "../utils/cropStyle";
 
 interface SimpleImage {
   id: string;
@@ -7,10 +8,107 @@ interface SimpleImage {
   name: string;
 }
 
+interface CropRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 interface UseCoverGeneratorOptions {
   coverTemplates: CoverTemplate[];
   getImageUrl: (path: string) => string;
   addLog?: (message: string) => void;
+}
+
+/** 中心偏移阈值：偏移量低于此值视为居中 */
+const CENTER_OFFSET_THRESHOLD = 0.02;
+
+/**
+ * 使用 canvas 对图片按归一化裁剪矩形进行裁剪
+ * 优先使用 fetch + createImageBitmap 避免 canvas 污染，
+ * 失败时回退到 Image 加载方式
+ * @returns 裁剪后的 PNG data URL，失败返回 null
+ */
+async function cropImageWithCanvas(
+  imageUrl: string,
+  cropRect: CropRect,
+): Promise<string | null> {
+  try {
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      return cropImageWithCanvasFallback(imageUrl, cropRect);
+    }
+    const blob = await response.blob();
+    const bitmap = await createImageBitmap(blob);
+
+    const srcW = bitmap.width;
+    const srcH = bitmap.height;
+    const sx = Math.round(srcW * cropRect.x);
+    const sy = Math.round(srcH * cropRect.y);
+    const sw = Math.max(1, Math.round(srcW * cropRect.w));
+    const sh = Math.max(1, Math.round(srcH * cropRect.h));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = sw;
+    canvas.height = sh;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      bitmap.close();
+      return null;
+    }
+    ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
+    bitmap.close();
+
+    const dataUrl = canvas.toDataURL("image/png");
+    return dataUrl;
+  } catch {
+    return cropImageWithCanvasFallback(imageUrl, cropRect);
+  }
+}
+
+function cropImageWithCanvasFallback(
+  imageUrl: string,
+  cropRect: CropRect,
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const srcW = img.naturalWidth;
+        const srcH = img.naturalHeight;
+        const sx = Math.round(srcW * cropRect.x);
+        const sy = Math.round(srcH * cropRect.y);
+        const sw = Math.max(1, Math.round(srcW * cropRect.w));
+        const sh = Math.max(1, Math.round(srcH * cropRect.h));
+
+        const canvas = document.createElement("canvas");
+        canvas.width = sw;
+        canvas.height = sh;
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        if (!ctx) {
+          resolve(null);
+          return;
+        }
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+        const dataUrl = canvas.toDataURL("image/png");
+        resolve(dataUrl);
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => {
+      resolve(null);
+    };
+    img.src = imageUrl;
+  });
+}
+
+function isCentered(rect: CropRect): boolean {
+  return (
+    Math.abs(rect.x + rect.w / 2 - 0.5) < CENTER_OFFSET_THRESHOLD &&
+    Math.abs(rect.y + rect.h / 2 - 0.5) < CENTER_OFFSET_THRESHOLD
+  );
 }
 
 export function useCoverGenerator(options: UseCoverGeneratorOptions) {
@@ -39,6 +137,7 @@ export function useCoverGenerator(options: UseCoverGeneratorOptions) {
     templateId: string,
     selectedImageIds: string[],
     images: SimpleImage[],
+    imageCropRects?: Record<number, CropRect>,
   ): Promise<string> {
     const template = coverTemplates.find((t) => t.id === templateId);
     if (!template) {
@@ -60,34 +159,51 @@ export function useCoverGenerator(options: UseCoverGeneratorOptions) {
       }),
     );
 
-    let html = template.html;
-
     const tempDiv = document.createElement("div");
     tempDiv.style.width = "2350px";
     tempDiv.style.height = "1000px";
     tempDiv.style.position = "absolute";
     tempDiv.style.left = "-9999px";
     tempDiv.style.top = "-9999px";
-    tempDiv.innerHTML = html;
+    tempDiv.innerHTML = template.html;
 
     const imgElements = tempDiv.querySelectorAll("img");
     addLog?.("模板中的 img 标签数量：" + imgElements.length);
 
-    imgElements.forEach((img, idx) => {
-      if (idx < selectedImageIds.length) {
-        const imageId = selectedImageIds[idx];
-        const image = images.find((i) => i.id === imageId);
-        if (image) {
-          const imgUrl = getImageUrl(image.path);
-          addLog?.(
-            `替换 img ${idx}: ${imageId} -> ${imgUrl.substring(0, 50)}...`,
-          );
-          img.setAttribute("src", imgUrl);
-        } else {
-          addLog?.("警告：找不到图片：" + imageId);
+    for (let idx = 0; idx < imgElements.length; idx++) {
+      if (idx >= selectedImageIds.length) continue;
+      const imageId = selectedImageIds[idx];
+      const image = images.find((i) => i.id === imageId);
+      if (!image) {
+        addLog?.("警告：找不到图片：" + imageId);
+        console.warn('[generateCoverImage] 找不到图片:', imageId, 'idx:', idx, 'selectedImageIds:', selectedImageIds);
+        continue;
+      }
+
+      const imgUrl = getImageUrl(image.path);
+      addLog?.(`替换 img ${idx}: ${imageId} -> ${imgUrl.substring(0, 50)}...`);
+
+      const rect = imageCropRects?.[idx];
+
+      if (rect && !(rect.w >= 0.99 && rect.h >= 0.99)) {
+        const cropped = await cropImageWithCanvas(imgUrl, rect);
+        if (cropped) {
+          imgElements[idx].setAttribute("src", cropped);
+          addLog?.(`卡槽 ${idx} 已canvas裁剪: x=${rect.x.toFixed(2)} y=${rect.y.toFixed(2)} w=${rect.w.toFixed(2)} h=${rect.h.toFixed(2)}`);
+          continue;
+        }
+        addLog?.(`卡槽 ${idx} canvas裁剪失败，尝试object-fit偏移`);
+        if (!isCentered(rect)) {
+          const centerX = ((rect.x + rect.w / 2) * 100).toFixed(2);
+          const centerY = ((rect.y + rect.h / 2) * 100).toFixed(2);
+          imgElements[idx].style.objectFit = "cover";
+          imgElements[idx].style.objectPosition = `${centerX}% ${centerY}%`;
+          addLog?.(`卡槽 ${idx} 已object-fit偏移: centerX=${centerX}% centerY=${centerY}%`);
         }
       }
-    });
+
+      imgElements[idx].setAttribute("src", imgUrl);
+    }
 
     const allElements = tempDiv.querySelectorAll("*");
     let bgImageCount = 0;
@@ -105,14 +221,30 @@ export function useCoverGenerator(options: UseCoverGeneratorOptions) {
           const image = images.find((i) => i.id === imageId);
           if (image) {
             const imgUrl = getImageUrl(image.path);
-            addLog?.(
-              `替换 background-image ${imageIndex}: ${imageId} -> ${imgUrl.substring(0, 50)}...`,
-            );
-            const newStyle = styleAttr.replace(
-              /background-image:\s*url\(['"]?[^'")\s]+['"]?\)/gi,
-              `background-image: url('${imgUrl}')`,
-            );
-            htmlEl.setAttribute("style", newStyle);
+            addLog?.(`替换 background-image ${imageIndex}: ${imageId} -> ${imgUrl.substring(0, 50)}...`);
+
+            const rect = imageCropRects?.[imageIndex];
+            if (rect && !(rect.w >= 0.99 && rect.h >= 0.99)) {
+              const cropKey = `${rect.x.toFixed(6)}_${rect.y.toFixed(6)}_${(rect.x + rect.w).toFixed(6)}_${(rect.y + rect.h).toFixed(6)}`;
+              const bgStyle = cropToBackgroundStyle(imgUrl, cropKey);
+              const styleEntries = Object.entries(bgStyle)
+                .map(([k, v]) => `${k.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase())}:${v}`)
+                .join(";");
+              const cleanedStyle = styleAttr
+                .replace(/;\s*background-image:\s*url\(['"]?[^'")\s]+['"]?\)/gi, ";")
+                .replace(/background-image:\s*url\(['"]?[^'")\s]+['"]?\);?\s*/gi, "")
+                .replace(/;;+/g, ";")
+                .replace(/^\s*;\s*/, "")
+                .replace(/\s*;\s*$/, "");
+              htmlEl.setAttribute("style", cleanedStyle ? cleanedStyle + ";" + styleEntries : styleEntries);
+              addLog?.(`bg卡槽 ${imageIndex} 已裁剪`);
+            } else {
+              const newStyle = styleAttr.replace(
+                /background-image:\s*url\(['"]?[^'")\s]+['"]?\)/gi,
+                `background-image: url('${imgUrl}')`,
+              );
+              htmlEl.setAttribute("style", newStyle);
+            }
             bgImageCount++;
           } else {
             addLog?.("警告：找不到图片：" + imageId);
@@ -137,7 +269,7 @@ export function useCoverGenerator(options: UseCoverGeneratorOptions) {
         Array.from(tempDiv.querySelectorAll("img")).map(
           (img) =>
             new Promise((resolve, reject) => {
-              if (img.complete) {
+              if ((img as HTMLImageElement).complete) {
                 resolve(true);
               } else {
                 img.onload = () => resolve(true);
@@ -154,9 +286,9 @@ export function useCoverGenerator(options: UseCoverGeneratorOptions) {
         width: 2350,
         height: 1000,
         scale: 1,
-        useCORS: true,
+        useCORS: false,
         allowTaint: true,
-        logging: false,
+        logging: true,
       });
 
       const dataUrl = canvas.toDataURL("image/png");

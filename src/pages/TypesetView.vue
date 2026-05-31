@@ -122,6 +122,7 @@
       "
       @open-index-selector="showCoverImageIndexSelector = true"
       @open-image-selector="showCoverImageSelector = true"
+      @open-image-position-editor="showImagePositionEditor = true"
       @open-image-manager="showImageManagerDrawer = true"
       @crop="handleCropRequest"
       @back="$router.push('/setup')"
@@ -152,8 +153,10 @@
       :selected-image-ids="currentArticle?.coverConfig.selectedImageIds || []"
       :required-count="currentArticleCoverTemplateImageCount"
       :get-image-url="getImageUrl"
+      :image-crop-rects="currentArticle?.coverConfig.imageCropRects"
       @close="showCoverImageSelector = false"
       @update:selected-image-ids="handleUpdateCoverImageIds"
+      @update:image-crop-rects="handleUpdateImageCropRects"
     />
 
     <CoverImageIndexSelectorDrawer
@@ -208,6 +211,16 @@
       @confirm="handleCoverCropConfirm"
     />
 
+    <CoverImagePositionEditor
+      :visible="showImagePositionEditor"
+      :images="selectedCoverImagesForPosition"
+      :get-image-url="getImageUrl"
+      :current-crop-rects="currentArticle?.coverConfig.imageCropRects"
+      :slot-ratios="currentArticleSlotRatios"
+      @close="showImagePositionEditor = false"
+      @confirm="handleImagePositionConfirm"
+    />
+
     <!-- 调试日志区域 -->
     <DebugLogPanel
       v-if="debugLogs.length > 0 && showDebugLogs"
@@ -240,6 +253,7 @@ import ModalCoverTemplateSelector from "../components/layout/ModalCoverTemplateS
 import CoverImageSelectorDrawer from "../components/common/CoverImageSelectorDrawer.vue";
 import CoverImageIndexSelectorDrawer from "../components/common/CoverImageIndexSelectorDrawer.vue";
 import CoverCropTool from "../components/common/CoverCropTool.vue";
+import CoverImagePositionEditor from "../components/common/CoverImagePositionEditor.vue";
 import ImageManagerDrawer from "../components/typeset/ImageManagerDrawer.vue";
 import ModalStyleTemplate from "../components/layout/ModalStyleTemplate.vue";
 import ArticleQueue from "../components/typeset/ArticleQueue.vue";
@@ -249,6 +263,7 @@ import ConfigPanel from "../components/typeset/ConfigPanel.vue";
 import type { ImageFile, ContentBlock } from "../types";
 import { expandTemplateWithImages } from "../composables/useTemplateRender";
 import DebugLogPanel from "../components/common/DebugLogPanel.vue";
+import { getCoverSlotRatios } from "../utils/coverSlotRatios";
 
 const projectStore = useProjectStore();
 const templateStore = useTemplateStore();
@@ -290,6 +305,7 @@ const showArticleCoverTemplateSelector = ref(false);
 const showCoverImageSelector = ref(false);
 const showCoverImageIndexSelector = ref(false);
 const showCoverCropTool = ref(false);
+const showImagePositionEditor = ref(false);
 const showImageManagerDrawer = ref(false);
 const showStyleTemplateModal = ref(false);
 const selectedCoverIndex = ref(0);
@@ -359,6 +375,25 @@ const currentArticleCoverTemplateImageCount = computed(() => {
   return getCoverTemplateImageCount(
     currentArticle.value?.coverConfig.templateId || "",
   );
+});
+
+const selectedCoverImagesForPosition = computed(() => {
+  if (!currentArticle.value) return [];
+  const selectedIds = currentArticle.value.coverConfig.selectedImageIds;
+  if (!selectedIds || selectedIds.length === 0) return [];
+  return selectedIds
+    .map((id) => currentArticle.value!.images.find((img) => img.id === id))
+    .filter((img): img is ImageFile => img !== undefined);
+});
+
+const currentArticleSlotRatios = computed(() => {
+  if (!currentArticle.value?.coverConfig.templateId) return [];
+  const templateId = currentArticle.value.coverConfig.templateId;
+  const template = coverTemplateStore.coverTemplates.find(
+    (t) => t.id === templateId,
+  );
+  if (!template) return [];
+  return getCoverSlotRatios(template.html);
 });
 
 const displayGeneratedCoverImage = computed(() => {
@@ -558,6 +593,29 @@ async function handleUpdateCoverImageIds(ids: string[]) {
     await regenerateSingleArticleCover(batchStore.currentArticleIndex);
     coverVersion.value = Date.now();
   }
+}
+
+function handleUpdateImageCropRects(rects: Record<number, { x: number; y: number; w: number; h: number }>) {
+  if (currentArticle.value) {
+    batchStore.updateCurrentArticleCoverConfig({
+      imageCropRects: rects,
+    });
+    addLog("已更新图片裁剪位置");
+  }
+}
+
+async function handleImagePositionConfirm(cropRects: Record<number, { x: number; y: number; w: number; h: number }>) {
+  if (!currentArticle.value) return;
+
+  batchStore.updateCurrentArticleCoverConfig({
+    imageCropRects: cropRects,
+  });
+
+  addLog("已更新图片裁剪位置，正在重新生成封面...");
+
+  await regenerateSingleArticleCover(batchStore.currentArticleIndex);
+  coverVersion.value = Date.now();
+  addLog("封面重新生成完成");
 }
 
 function getImageUrl(filePath: string): string {

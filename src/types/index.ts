@@ -1,3 +1,5 @@
+export interface CropRect { x: number; y: number; w: number; h: number }
+
 export type AppView = 'home' | 'project' | 'templates' | 'history' | 'settings';
 
 // 预览模式
@@ -99,6 +101,7 @@ export interface ArticleCoverConfig {
   pic_crop_1_1?: string;
   generatedCoverImage?: string; // base64 格式（已废弃，保留用于向后兼容）
   generatedCoverImagePath?: string; // 文件路径，用于预览和上传到公众号
+  imageCropRects?: Record<number, CropRect>;
 }
 
 // 文章 - 排版配置

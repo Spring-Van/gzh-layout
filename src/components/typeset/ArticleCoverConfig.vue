@@ -131,6 +131,17 @@
         </svg>
         选择封面图片
       </button>
+
+      <button
+        v-if="article.coverConfig.templateId && article.coverConfig.selectedImageIds?.length"
+        class="w-full py-2.5 text-sm font-medium text-amber-600 bg-amber-50 rounded-xl hover:bg-amber-100 transition flex items-center justify-center gap-2 border border-amber-200"
+        @click="article.coverConfig.selectedImageIds?.length ? $emit('open-image-position-editor') : $emit('open-image-selector')"
+      >
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 7h4m0 0V3m0 4v4m12-4h-4m0 0V3m0 4v4M4 17h4m0 0v4m0-4v-4m12 4h-4m0 0v4m0-4v-4"/>
+        </svg>
+        调整图片位置
+      </button>
     </template>
   </div>
 </template>
@@ -156,6 +167,7 @@ interface Emits {
   (e: "open-template-selector"): void;
   (e: "open-template-manager"): void;
   (e: "open-image-selector"): void;
+  (e: "open-image-position-editor"): void;
   (e: "crop", ratio: "235" | "11"): void;
 }
 
