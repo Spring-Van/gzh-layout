@@ -25,6 +25,52 @@ interface UseCoverGeneratorOptions {
 const CENTER_OFFSET_THRESHOLD = 0.02;
 
 /**
+ * 将任意图片 URL（file:// 或 http(s)://）转换为 base64 data URL
+ * 解决 html2canvas 加载 file:// 资源时导致 canvas 污染、
+ * canvas.toDataURL() 抛 SecurityError 的问题
+ * @returns 转换后的 data URL，失败返回 null
+ */
+async function loadImageAsDataUrl(imageUrl: string): Promise<string | null> {
+  // 已经是 data URL，直接返回
+  if (imageUrl.startsWith("data:")) return imageUrl;
+
+  try {
+    const response = await fetch(imageUrl);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return await new Promise<string | null>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    // 降级：使用 Image + canvas 方式（可能产生污染但仅用于读取）
+    return new Promise<string | null>((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            resolve(null);
+            return;
+          }
+          ctx.drawImage(img, 0, 0);
+          resolve(canvas.toDataURL("image/png"));
+        } catch {
+          resolve(null);
+        }
+      };
+      img.onerror = () => resolve(null);
+      img.src = imageUrl;
+    });
+  }
+}
+
+/**
  * 使用 canvas 对图片按归一化裁剪矩形进行裁剪
  * 优先使用 fetch + createImageBitmap 避免 canvas 污染，
  * 失败时回退到 Image 加载方式
@@ -159,6 +205,22 @@ export function useCoverGenerator(options: UseCoverGeneratorOptions) {
       }),
     );
 
+    // 预加载所有选中的图片为 base64 data URL，避免 html2canvas 因 file:// 资源污染 canvas
+    const dataUrlMap = new Map<string, string>();
+    const uniqueImageIds = Array.from(new Set(selectedImageIds));
+    await Promise.all(
+      uniqueImageIds.map(async (id) => {
+        const image = images.find((i) => i.id === id);
+        if (!image) return;
+        const imgUrl = getImageUrl(image.path);
+        const dataUrl = await loadImageAsDataUrl(imgUrl);
+        if (dataUrl) {
+          dataUrlMap.set(id, dataUrl);
+        }
+      }),
+    );
+    addLog?.(`预加载 data URL 成功：${dataUrlMap.size}/${uniqueImageIds.length}`);
+
     const tempDiv = document.createElement("div");
     tempDiv.style.width = "2350px";
     tempDiv.style.height = "1000px";
@@ -180,13 +242,16 @@ export function useCoverGenerator(options: UseCoverGeneratorOptions) {
         continue;
       }
 
-      const imgUrl = getImageUrl(image.path);
+      // 优先使用预加载的 data URL，否则回退到原 file:// URL
+      const imgUrl = dataUrlMap.get(imageId) || getImageUrl(image.path);
       addLog?.(`替换 img ${idx}: ${imageId} -> ${imgUrl.substring(0, 50)}...`);
 
       const rect = imageCropRects?.[idx];
 
       if (rect && !(rect.w >= 0.99 && rect.h >= 0.99)) {
-        const cropped = await cropImageWithCanvas(imgUrl, rect);
+        // 裁剪源必须是 data URL（file:// 在 fetch+canvas 中可能失败）
+        const cropSource = dataUrlMap.get(imageId) || getImageUrl(image.path);
+        const cropped = await cropImageWithCanvas(cropSource, rect);
         if (cropped) {
           imgElements[idx].setAttribute("src", cropped);
           addLog?.(`卡槽 ${idx} 已canvas裁剪: x=${rect.x.toFixed(2)} y=${rect.y.toFixed(2)} w=${rect.w.toFixed(2)} h=${rect.h.toFixed(2)}`);
@@ -220,7 +285,8 @@ export function useCoverGenerator(options: UseCoverGeneratorOptions) {
           const imageId = selectedImageIds[imageIndex];
           const image = images.find((i) => i.id === imageId);
           if (image) {
-            const imgUrl = getImageUrl(image.path);
+            // 优先使用预加载的 data URL
+            const imgUrl = dataUrlMap.get(imageId) || getImageUrl(image.path);
             addLog?.(`替换 background-image ${imageIndex}: ${imageId} -> ${imgUrl.substring(0, 50)}...`);
 
             const rect = imageCropRects?.[imageIndex];
@@ -296,12 +362,15 @@ export function useCoverGenerator(options: UseCoverGeneratorOptions) {
       return dataUrl;
     } catch (error) {
       addLog?.("错误：生成封面图失败：" + (error as Error).message);
+      // 降级：返回第一张图片的 data URL（保持 base64，避免污染）
       if (selectedImageIds.length > 0) {
         const firstImage = images.find((i) => i.id === selectedImageIds[0]);
         if (firstImage) {
-          const fallbackUrl = getImageUrl(firstImage.path);
-          addLog?.("降级显示第一张图片：" + fallbackUrl.substring(0, 50) + "...");
-          return fallbackUrl;
+          const firstDataUrl = dataUrlMap.get(selectedImageIds[0]);
+          if (firstDataUrl) {
+            addLog?.("降级显示第一张图片（data URL）");
+            return firstDataUrl;
+          }
         }
       }
       return "";

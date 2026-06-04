@@ -67,6 +67,7 @@
             :stored-container-style="currentArticle?.containerStyle"
             :style-insert-config="currentStyleInsertConfig"
             @open-style-manager="showStyleTemplateModal = true"
+            @edit-style-template="handleEditStyleTemplate"
             @update:content-blocks="handleContentBlocksUpdate"
           />
         </template>
@@ -232,7 +233,8 @@
     <!-- 样式模板管理弹窗 -->
     <ModalStyleTemplate
       :visible="showStyleTemplateModal"
-      @close="showStyleTemplateModal = false"
+      :template-id-to-edit="styleTemplateIdToEdit"
+      @close="handleCloseStyleModal"
     />
   </section>
 </template>
@@ -308,6 +310,7 @@ const showCoverCropTool = ref(false);
 const showImagePositionEditor = ref(false);
 const showImageManagerDrawer = ref(false);
 const showStyleTemplateModal = ref(false);
+const styleTemplateIdToEdit = ref<string | undefined>(undefined);
 const selectedCoverIndex = ref(0);
 const selectedCoverRatio = ref<"235" | "11">("235");
 const isCropModeGlobal = ref(false);
@@ -396,35 +399,34 @@ const currentArticleSlotRatios = computed(() => {
   return getCoverSlotRatios(template.html);
 });
 
-const displayGeneratedCoverImage = computed(() => {
-  if (currentArticle.value?.coverConfig.generatedCoverImagePath) {
+/**
+ * 获取封面图片源（优先使用 base64 数据 URL，避免 CSS background-image 中 file:// 协议无法渲染的问题）
+ */
+function getCoverImageSrc(article: typeof currentArticle.value): string {
+  if (!article) return "";
+  if (article.coverConfig.generatedCoverImage) {
+    return article.coverConfig.generatedCoverImage;
+  }
+  if (article.coverConfig.generatedCoverImagePath) {
     return (
-      getImageUrl(currentArticle.value.coverConfig.generatedCoverImagePath) +
+      getImageUrl(article.coverConfig.generatedCoverImagePath) +
       `?v=${coverVersion.value}`
     );
   }
   return "";
-});
+}
 
-const globalGeneratedCoverImageSrc = computed(() => {
-  if (currentArticle.value?.coverConfig.generatedCoverImagePath) {
-    return (
-      getImageUrl(currentArticle.value.coverConfig.generatedCoverImagePath) +
-      `?v=${coverVersion.value}`
-    );
-  }
-  return "";
-});
+const displayGeneratedCoverImage = computed(() =>
+  getCoverImageSrc(currentArticle.value),
+);
 
-const currentArticleGeneratedCoverImageSrc = computed(() => {
-  if (currentArticle.value?.coverConfig.generatedCoverImagePath) {
-    return (
-      getImageUrl(currentArticle.value.coverConfig.generatedCoverImagePath) +
-      `?v=${coverVersion.value}`
-    );
-  }
-  return "";
-});
+const globalGeneratedCoverImageSrc = computed(() =>
+  getCoverImageSrc(currentArticle.value),
+);
+
+const currentArticleGeneratedCoverImageSrc = computed(() =>
+  getCoverImageSrc(currentArticle.value),
+);
 
 onMounted(async () => {
   generateArticlesFromProject();
@@ -629,6 +631,20 @@ function handleContentBlocksUpdate(blocks: ContentBlock[], containerStyle: Recor
   if (!currentArticle.value) return;
   // 保留样式块标记
   batchStore.updateArticleContentBlocks(currentArticle.value.id, blocks, containerStyle);
+}
+
+/**
+ * 双击样式卡片：打开样式管理弹窗并直接进入该模板的编辑态
+ */
+function handleEditStyleTemplate(templateId: string) {
+  styleTemplateIdToEdit.value = templateId;
+  showStyleTemplateModal.value = true;
+}
+
+function handleCloseStyleModal() {
+  showStyleTemplateModal.value = false;
+  // 关闭后清空目标 id，避免下次普通打开仍处于编辑态
+  styleTemplateIdToEdit.value = undefined;
 }
 
 const currentStyleInsertConfig = computed(() => {

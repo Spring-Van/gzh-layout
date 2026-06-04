@@ -95,11 +95,12 @@
             </template>
             <template v-else-if="block.type === 'html'">
               <div
+                :ref="(el) => initHtmlBlockRef(el as HTMLElement | null, block.id, block.html || '')"
                 class="editable-html"
                 contenteditable="true"
                 :data-block-index="index"
                 :data-block-id="block.id"
-                v-html="block.html || ''"
+                @input="updateHtmlBlock(index, $event)"
                 @focus="handleHtmlBlockFocus(index)"
                 @blur="handleHtmlBlockBlur(index, $event)"
                 @compositionstart="onCompositionStart"
@@ -150,7 +151,7 @@
       >
         <button
           class="flex flex-col items-center gap-1 p-2 rounded-lg hover:bg-slate-50 transition-colors"
-          @click="showStyleSelector = true"
+          @click="openStyleSelector"
         >
           <svg class="w-5 h-5 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 2L2 7l10 5 10-5-10-5z"/>
@@ -285,6 +286,8 @@
                 :data-template-id="template.id"
                 class="border border-slate-200 rounded-xl cursor-pointer hover:border-emerald-400 hover:bg-emerald-50/50 transition-colors group overflow-hidden"
                 @click="insertStyleTemplate(template)"
+                @dblclick.stop="editStyleTemplate(template)"
+                title="单击插入正文，双击编辑样式"
               >
                 <div class="p-3 flex items-center justify-between">
                   <div>
@@ -348,6 +351,7 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   (e: 'update:block', index: number, block: ContentBlock): void;
   (e: 'open-style-manager'): void;
+  (e: 'edit-style-template', templateId: string): void;
   (e: 'update:content-blocks', blocks: ContentBlock[], containerStyle: Record<string, string>): void;
 }>();
 
@@ -364,7 +368,17 @@ const containerStyleObj = ref<Record<string, string>>({});
 const templateListRef = ref<HTMLElement | null>(null);
 const isComposing = ref(false);
 const lastArticleId = ref<string | null>(null);
+const htmlBlockInitialized = new Set<string>();
 let skipWatchReset = false;
+/** 模板行覆盖：key=行索引，value=该行被编辑后的 outerHTML */
+const rowOverrides = new Map<number, string>();
+/** 当前正在编辑的模板行元素（直接 DOM 引用，避免依赖 v-html 字符串） */
+const editingRowEl = ref<HTMLElement | null>(null);
+/** 样式模板插入节流：记录上次插入的模板 id 及时间，避免双击重复插入 */
+let lastInsertTemplateId = '';
+let lastInsertTime = 0;
+/** 唯一块 ID 生成计数器（避免 Date.now() 毫秒相同导致 :key 冲突） */
+let blockIdCounter = 0;
 
 const styleTemplates = computed(() => styleTemplateStore.allTemplates);
 const visibleTemplateIds = ref(new Set<string>());
@@ -425,11 +439,17 @@ function onCompositionEnd(event: CompositionEvent) {
     blocks[index] = { ...blocks[index], content: target.innerText };
     contentBlocks.value = blocks;
   }
-  
   if (props.articleId) {
     batchTypesetStore.updateArticleContentBlocks(props.articleId, [...contentBlocks.value], { ...containerStyleObj.value });
   }
   emitContentBlocksUpdate();
+}
+
+function initHtmlBlockRef(el: HTMLElement | null, blockId: string, html: string) {
+  if (el && !htmlBlockInitialized.has(blockId)) {
+    el.innerHTML = html;
+    htmlBlockInitialized.add(blockId);
+  }
 }
 
 function emitContentBlocksUpdate() {
@@ -492,17 +512,72 @@ function handleTemplateClick(event: MouseEvent) {
   const container = templateContainerRef.value.firstElementChild;
   if (!container) return;
 
+  // 先提交正在编辑的行
+  flushEditingRow();
+
   const target = event.target as HTMLElement;
-  for (let i = 0; i < container.children.length; i++) {
-    const row = container.children[i] as HTMLElement;
-    if (row.contains(target) || row === target) {
-      selectRow(i);
-      updateTemplateRowStyles();
-      return;
-    }
+  // 向上查找最近的顶层子元素，避免深层嵌套元素点击不到的问题
+  let row: HTMLElement | null = target;
+  while (row && row.parentElement !== container) {
+    row = row.parentElement as HTMLElement | null;
   }
-  deselect();
+  if (!row) {
+    deselect();
+    updateTemplateRowStyles();
+    return;
+  }
+
+  const rows = Array.from(container.children) as HTMLElement[];
+  const idx = rows.indexOf(row);
+  if (idx === -1) {
+    deselect();
+    updateTemplateRowStyles();
+    return;
+  }
+  selectRow(idx);
   updateTemplateRowStyles();
+
+  // 让选中的行可编辑
+  nextTick(() => {
+    enableRowEditing(row as HTMLElement);
+  });
+}
+
+/**
+ * 将当前编辑中的行的修改保存到行覆盖映射
+ * 不修改 v-html 的源字符串（processedHtml），避免 DOM 序列化往返丢失内容
+ */
+function flushEditingRow() {
+  if (!editingRowEl.value || !templateContainerRef.value) return;
+  const container = templateContainerRef.value.firstElementChild as HTMLElement | null;
+  if (!container) return;
+  const rows = Array.from(container.children) as HTMLElement[];
+  const idx = rows.indexOf(editingRowEl.value);
+  if (idx === -1) return;
+  // 退出编辑态
+  editingRowEl.value.removeAttribute('contenteditable');
+  editingRowEl.value.classList.remove('template-row--editing');
+  // 记录该行的最终 outerHTML，覆盖原模板行
+  const newRowHtml = editingRowEl.value.outerHTML;
+  rowOverrides.set(idx, newRowHtml);
+  editingRowEl.value = null;
+}
+
+/**
+ * 让指定行进入编辑态
+ */
+function enableRowEditing(row: HTMLElement) {
+  // 取消其他行的编辑态
+  if (editingRowEl.value && editingRowEl.value !== row) {
+    flushEditingRow();
+  }
+  row.setAttribute('contenteditable', 'true');
+  row.classList.add('template-row--editing');
+  // 阻止 click 事件冒泡触发再次 selectRow 导致光标丢失
+  row.addEventListener('click', (e) => e.stopPropagation(), { once: true });
+  editingRowEl.value = row;
+  // 仅聚焦，不选中全部（避免替换误删）
+  row.focus();
 }
 
 /**
@@ -666,11 +741,20 @@ function insertEmptyLine() {
 
 function insertStyleTemplate(template: StyleTemplate) {
   if (selectedIndex.value === null) return;
+
+  // 防双击重复插入：500ms 内同一模板 id 视为重复
+  const now = Date.now();
+  if (template.id === lastInsertTemplateId && now - lastInsertTime < 500) {
+    return;
+  }
+  lastInsertTemplateId = template.id;
+  lastInsertTime = now;
+
   if (!hasContentBlocks.value) {
     contentBlocks.value = buildContentBlocksFromTemplate();
   }
   const newBlock: ContentBlock = {
-    id: `html-${Date.now()}`,
+    id: `html-${++blockIdCounter}`,
     type: 'html',
     content: template.name,
     html: template.html,
@@ -681,6 +765,17 @@ function insertStyleTemplate(template: StyleTemplate) {
   selectedIndex.value = idx;
   updateToolbarPosition();
   emitContentBlocksUpdate();
+}
+
+/**
+ * 双击样式模板卡片：进入"编辑样式模板"（不插入到正文）
+ */
+function editStyleTemplate(template: StyleTemplate) {
+  showStyleSelector.value = false;
+  // 重置节流，避免单击插入后的双击被忽略
+  lastInsertTemplateId = '';
+  lastInsertTime = 0;
+  emit('edit-style-template', template.id);
 }
 
 function moveBlockUp() {
@@ -750,6 +845,8 @@ function updateEmptyBlock(index: number, event: Event) {
   const target = event.target as HTMLElement;
   const blocks = [...contentBlocks.value];
   if (blocks[index]) {
+    // 标记本次变更是由用户编辑此块引起，watch 中跳过对其他块的反向覆盖
+    userEditedBlockId = blocks[index].id;
     blocks[index] = { ...blocks[index], content: target.innerText };
     contentBlocks.value = blocks;
   }
@@ -780,6 +877,8 @@ function updateHtmlBlock(index: number, event: Event) {
   const target = event.target as HTMLElement;
   const blocks = [...contentBlocks.value];
   if (blocks[index]) {
+    // 标记本次变更是由用户编辑此块引起，watch 中跳过对其他块的反向覆盖
+    userEditedBlockId = blocks[index].id;
     blocks[index] = { ...blocks[index], html: target.innerHTML, content: target.innerText };
     contentBlocks.value = blocks;
   }
@@ -818,6 +917,12 @@ function openExternal(url: string) {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
+function openStyleSelector() {
+  // 打开样式面板前，先提交模板行编辑（避免 DOM 内容未持久化到 editableHtml）
+  flushEditingRow();
+  showStyleSelector.value = true;
+}
+
 function openStyleTemplateManager() {
   showStyleSelector.value = false;
   emit('open-style-manager');
@@ -846,6 +951,8 @@ function handleClickOutside(event: MouseEvent) {
   ) {
     return;
   }
+  // 点击区域外，提交编辑中的行
+  flushEditingRow();
   if (!target.closest('.content-row') && !target.closest('.template-container')) {
     deselect();
     updateTemplateRowStyles();
@@ -858,6 +965,9 @@ watch(
     if (newId !== lastArticleId.value) {
       lastArticleId.value = newId || null;
       skipWatchReset = true;
+      htmlBlockInitialized.clear();
+      rowOverrides.clear();
+      editingRowEl.value = null;
       if (props.storedContentBlocks && props.storedContentBlocks.length > 0) {
         contentBlocks.value = props.storedContentBlocks.map(b => ({ ...b }));
         containerStyleObj.value = props.storedContainerStyle ? { ...props.storedContainerStyle } : {};
@@ -966,19 +1076,27 @@ watch(
   () => props.styleInsertConfig,
   (newConfig) => {
     if (editingBlockId.value || !newConfig) return;
-    
+
     // 序列化各位置的配置，检测变化
     const headerKey = JSON.stringify({ enabled: newConfig.header.enabled, ids: newConfig.header.templateIds });
     const betweenKey = JSON.stringify({ enabled: newConfig.between.enabled, ids: newConfig.between.templateIds });
     const footerKey = JSON.stringify({ enabled: newConfig.footer.enabled, ids: newConfig.footer.templateIds });
-    
+
+    // 首次初始化：记录当前配置快照，不触发任何同步操作
+    if (lastHeaderConfig.value === '' && lastBetweenConfig.value === '' && lastFooterConfig.value === '') {
+      lastHeaderConfig.value = headerKey;
+      lastBetweenConfig.value = betweenKey;
+      lastFooterConfig.value = footerKey;
+      return;
+    }
+
     const headerChanged = headerKey !== lastHeaderConfig.value;
     const betweenChanged = betweenKey !== lastBetweenConfig.value;
     const footerChanged = footerKey !== lastFooterConfig.value;
-    
+
     // 没有变化则跳过
     if (!headerChanged && !betweenChanged && !footerChanged) return;
-    
+
     // 确保有内容块
     const nonStyleBlocks = contentBlocks.value.filter(block => !isStyleBlock(block));
     if (nonStyleBlocks.length === 0) {
@@ -1039,18 +1157,69 @@ watch(selectedIndex, () => {
   }
 });
 
+// 模板 HTML 变化或挂载后：应用行覆盖到 DOM，避免任何字符串往返导致的丢内容
+function applyRowOverrides() {
+  if (!templateContainerRef.value) return;
+  const container = templateContainerRef.value.firstElementChild as HTMLElement | null;
+  if (!container) return;
+  const rows = Array.from(container.children) as HTMLElement[];
+  rowOverrides.forEach((rowHtml, idx) => {
+    if (idx >= 0 && idx < rows.length) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = rowHtml;
+      const newRow = tmp.firstElementChild;
+      if (newRow && rows[idx] !== newRow) {
+        rows[idx].replaceWith(newRow);
+      }
+    }
+  });
+  // 重新应用选中/编辑样式
+  updateTemplateRowStyles();
+}
+
+// 模板 HTML 变化时清空旧覆盖（避免索引错位）；编辑态也清掉
+watch(
+  () => props.processedHtml,
+  () => {
+    rowOverrides.clear();
+    editingRowEl.value = null;
+  },
+);
+
+// 模板 HTML 变化或初次挂载后，异步把行覆盖贴回 DOM
+watch(
+  () => props.processedHtml,
+  () => {
+    nextTick(() => applyRowOverrides());
+  },
+  { immediate: true },
+);
+
+/**
+ * 标记本次 contentBlocks 变更是否由用户编辑触发
+ * 由用户编辑触发的变更不应反向覆盖用户已编辑的其他块
+ */
+let userEditedBlockId: string | null = null;
+
 watch(
   () => contentBlocks.value,
   (newBlocks) => {
     nextTick(() => {
-      newBlocks.forEach((block, index) => {
+      newBlocks.forEach((block) => {
         if (block.type === 'html' && block.id !== editingBlockId.value) {
+          // 若本次变更是用户编辑某个块导致的，跳过对其他块的 DOM 反向同步
+          // 避免在用户没有 blur 的情况下把先前在别的块上的编辑覆盖掉
+          if (userEditedBlockId && userEditedBlockId !== block.id) {
+            return;
+          }
           const el = document.querySelector(`[data-block-id="${block.id}"]`) as HTMLElement;
           if (el && el.innerHTML !== (block.html || '')) {
             el.innerHTML = block.html || '';
           }
         }
       });
+      // 用完即清，仅本轮生效
+      userEditedBlockId = null;
     });
   },
   { deep: true }
@@ -1095,8 +1264,9 @@ onMounted(() => {
 });
 
 function syncHtmlBlocksToDom() {
-  contentBlocks.value.forEach((block, index) => {
-    if (block.type === 'html') {
+  // 同步 DOM 仅在非编辑态下进行，避免覆盖用户正在编辑的块
+  contentBlocks.value.forEach((block) => {
+    if (block.type === 'html' && block.id !== editingBlockId.value) {
       const el = document.querySelector(`[data-block-id="${block.id}"]`) as HTMLElement;
       if (el && el.innerHTML !== (block.html || '')) {
         el.innerHTML = block.html || '';
@@ -1148,6 +1318,15 @@ onUnmounted(() => {
   font-size: 14px;
   line-height: 1.6;
   display: block;
+}
+
+.template-row--editing {
+  outline: 2px dashed #34d399 !important;
+  outline-offset: 2px;
+  border-radius: 8px;
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .editable-html {

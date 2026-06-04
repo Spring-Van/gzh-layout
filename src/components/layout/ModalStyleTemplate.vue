@@ -197,6 +197,8 @@ import type { StyleTemplate } from "../../types";
 
 interface Props {
   visible: boolean;
+  /** 打开时直接进入该模板的编辑态（用于双击样式卡片） */
+  templateIdToEdit?: string;
 }
 
 const props = defineProps<Props>();
@@ -222,8 +224,27 @@ const allTemplates = computed(() => styleTemplateStore.allTemplates);
 watch(
   () => props.visible,
   (newVal) => {
-    if (newVal && allTemplates.value.length > 0) {
-      selectedTemplateId.value = allTemplates.value[0].id;
+    if (newVal) {
+      // 若指定了 templateIdToEdit，直接定位并进入编辑
+      if (props.templateIdToEdit) {
+        const target = allTemplates.value.find((t) => t.id === props.templateIdToEdit);
+        if (target) {
+          selectedTemplateId.value = target.id;
+          editingId.value = target.id;
+          isEditing.value = true;
+          formData.name = target.name;
+          formData.description = target.description || "";
+          formData.html = target.html;
+          return;
+        }
+      }
+      if (allTemplates.value.length > 0) {
+        selectedTemplateId.value = allTemplates.value[0].id;
+      }
+    } else {
+      // 关闭时重置编辑态
+      isEditing.value = false;
+      editingId.value = null;
     }
   },
   { immediate: true },
