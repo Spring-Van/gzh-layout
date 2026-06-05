@@ -194,6 +194,7 @@ let urlAlphabet = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzr
 const POOL_SIZE_MULTIPLIER = 128;
 let pool$1, poolOffset;
 function fillPool(bytes) {
+  if (bytes < 0 || bytes > 1024) throw new RangeError("Wrong ID size");
   if (!pool$1 || pool$1.length < bytes) {
     pool$1 = Buffer.allocUnsafe(bytes * POOL_SIZE_MULTIPLIER);
     webcrypto.getRandomValues(pool$1);
@@ -50681,12 +50682,25 @@ class ExtractService {
       const imageUrls = /* @__PURE__ */ new Set();
       const jsContentImages = $2("#js_content img");
       log == null ? void 0 : log(`[parseWechat] #js_content img 数量: ${jsContentImages.length}`);
+      const upgradeWechatImageUrl = (rawUrl) => {
+        let upgraded = rawUrl;
+        upgraded = upgraded.replace(/\/(\d{2,4})(\?|$)/, "/0$2");
+        try {
+          const urlObj = new URL(upgraded);
+          urlObj.searchParams.delete("tp");
+          urlObj.searchParams.delete("tp_type");
+          upgraded = urlObj.toString();
+        } catch {
+        }
+        log == null ? void 0 : log(`[parseWechat] URL升级: ${rawUrl} -> ${upgraded}`);
+        return upgraded;
+      };
       jsContentImages.each((i, el) => {
         const src = $2(el).attr("data-src") || $2(el).attr("src");
         log == null ? void 0 : log(`[parseWechat] 图片 ${i}: src=${src}`);
         if (src && !src.startsWith("data:")) {
           const normalizedUrl = src.startsWith("//") ? "https:" + src : src;
-          imageUrls.add(normalizedUrl);
+          imageUrls.add(upgradeWechatImageUrl(normalizedUrl));
         }
       });
       if (imageUrls.size === 0) {
@@ -50695,7 +50709,7 @@ class ExtractService {
           const src = $2(el).attr("data-src") || $2(el).attr("src");
           if (src && !src.startsWith("data:") && src.includes("mmbiz.qpic.cn")) {
             const normalizedUrl = src.startsWith("//") ? "https:" + src : src;
-            imageUrls.add(normalizedUrl);
+            imageUrls.add(upgradeWechatImageUrl(normalizedUrl));
             log == null ? void 0 : log(`[parseWechat] 找到 mmbiz 图片: ${normalizedUrl}`);
           }
         });
@@ -50751,8 +50765,49 @@ class ExtractService {
               const noteData = (_b2 = noteDetailMap[noteId]) == null ? void 0 : _b2.note;
               if (noteData == null ? void 0 : noteData.imageList) {
                 log == null ? void 0 : log(`[parseXiaohongshu] 找到 imageList, 长度: ${noteData.imageList.length}`);
+                const upgradeXhsImageUrl = (rawUrl) => {
+                  try {
+                    const urlObj = new URL(rawUrl);
+                    const paramsToRemove = [
+                      "imageView2",
+                      "imageView",
+                      "xhsS3"
+                    ];
+                    for (const key2 of Array.from(urlObj.searchParams.keys())) {
+                      if (paramsToRemove.some((p) => key2.toLowerCase().includes(p.toLowerCase()))) {
+                        urlObj.searchParams.delete(key2);
+                      }
+                    }
+                    let pathname = urlObj.pathname;
+                    pathname = pathname.replace(/\/imageView2[\w\/\.\-]*/g, "/");
+                    urlObj.pathname = pathname;
+                    return urlObj.toString();
+                  } catch {
+                    return rawUrl;
+                  }
+                };
+                const pickXhsBestUrl = (img) => {
+                  var _a4;
+                  if (img.url) {
+                    return upgradeXhsImageUrl(img.url);
+                  }
+                  if (img.urlPre) {
+                    return upgradeXhsImageUrl(img.urlPre);
+                  }
+                  if (img.urlDefault) {
+                    return upgradeXhsImageUrl(img.urlDefault);
+                  }
+                  if (Array.isArray(img.infoList) && img.infoList.length > 0) {
+                    const dft = img.infoList.find((it) => it.imageScene === "WB_DFT");
+                    const prv = img.infoList.find((it) => it.imageScene === "WB_PRV");
+                    if (dft == null ? void 0 : dft.url) return upgradeXhsImageUrl(dft.url);
+                    if (prv == null ? void 0 : prv.url) return upgradeXhsImageUrl(prv.url);
+                    if ((_a4 = img.infoList[0]) == null ? void 0 : _a4.url) return upgradeXhsImageUrl(img.infoList[0].url);
+                  }
+                  return "";
+                };
                 for (const img of noteData.imageList) {
-                  const imgUrl = img.urlDefault || img.url || "";
+                  const imgUrl = pickXhsBestUrl(img);
                   if (imgUrl) {
                     imageUrls.push(imgUrl);
                     log == null ? void 0 : log(`[parseXiaohongshu] 图片URL: ${imgUrl}`);
@@ -50791,7 +50846,7 @@ class ExtractService {
     }
   }
   static async parseDouyin(url, log) {
-    var _a3, _b2, _c2, _d2, _e2;
+    var _a3, _b2, _c2, _d2;
     log == null ? void 0 : log("[parseDouyin] 开始解析抖音");
     try {
       let realUrl = url;
@@ -50820,6 +50875,10 @@ class ExtractService {
         log == null ? void 0 : log("[parseDouyin] 找到 _ROUTER_DATA");
         try {
           const data2 = JSON.parse(routerDataMatch[1]);
+          const pickDouyinBestUrl = (urlList) => {
+            if (!Array.isArray(urlList) || urlList.length === 0) return "";
+            return urlList[urlList.length - 1];
+          };
           const loaderData = data2 == null ? void 0 : data2.loaderData;
           if (loaderData) {
             const pageKey = Object.keys(loaderData).find((k) => k.includes("video") || k.includes("note"));
@@ -50828,13 +50887,14 @@ class ExtractService {
             if (item) {
               if (item.images && Array.isArray(item.images)) {
                 for (const img of item.images) {
-                  if (img.url_list && img.url_list.length > 0) {
-                    imageUrls.push(img.url_list[0]);
+                  const bestUrl = pickDouyinBestUrl(img.url_list);
+                  if (bestUrl) {
+                    imageUrls.push(bestUrl);
                   }
                 }
                 log == null ? void 0 : log(`[parseDouyin] 从 images 提取到 ${imageUrls.length} 张图片`);
               }
-              const coverUrl = (_e2 = (_d2 = (_c2 = item.video) == null ? void 0 : _c2.cover) == null ? void 0 : _d2.url_list) == null ? void 0 : _e2[0];
+              const coverUrl = pickDouyinBestUrl((_d2 = (_c2 = item.video) == null ? void 0 : _c2.cover) == null ? void 0 : _d2.url_list);
               if (coverUrl && !imageUrls.includes(coverUrl)) {
                 imageUrls.push(coverUrl);
                 log == null ? void 0 : log("[parseDouyin] 提取到封面图");
@@ -50845,8 +50905,9 @@ class ExtractService {
             if (!obj || typeof obj !== "object" || depth > 10) return;
             if (obj.images && Array.isArray(obj.images)) {
               for (const img of obj.images) {
-                if (img.url_list && img.url_list.length > 0) {
-                  imageUrls.push(img.url_list[0]);
+                const bestUrl = pickDouyinBestUrl(img.url_list);
+                if (bestUrl) {
+                  imageUrls.push(bestUrl);
                 } else if (img.url) {
                   imageUrls.push(img.url);
                 }
@@ -50898,12 +50959,20 @@ class ExtractService {
       }, log);
       const $2 = load(html2);
       const imageUrls = [];
+      const upgradeWeiboImageUrl = (rawUrl) => {
+        let upgraded = rawUrl;
+        upgraded = upgraded.replace(
+          /\/(orj360|orj240|orj480|mw690|thumbnail|small|bmiddle|square|orj960)\//i,
+          "/large/"
+        );
+        log == null ? void 0 : log(`[parseWeibo] URL升级: ${rawUrl} -> ${upgraded}`);
+        return upgraded;
+      };
       $2("img").each((_, el) => {
         const src = $2(el).attr("src") || $2(el).attr("data-src");
         if (src && !src.startsWith("data:") && (src.includes("sinaimg.cn") || src.includes("weibocdn.com"))) {
           const normalizedUrl = src.startsWith("//") ? "https:" + src : src;
-          imageUrls.push(normalizedUrl);
-          log == null ? void 0 : log(`[parseWeibo] 找到图片: ${normalizedUrl}`);
+          imageUrls.push(upgradeWeiboImageUrl(normalizedUrl));
         }
       });
       log == null ? void 0 : log(`[parseWeibo] 最终找到 ${imageUrls.length} 张图片`);
@@ -50967,6 +51036,13 @@ class ExtractService {
         platform,
         downloaded: false
       }));
+      if (task.images.length > 0) {
+        collectLog(`[extractFromUrl] 开始获取 ${task.images.length} 张图片的元信息...`);
+        const enriched = await this.enrichImagesWithSize(task.images, collectLog);
+        const gotSizeCount = enriched.filter((img) => (img.fileSize ?? 0) > 0).length;
+        collectLog(`[extractFromUrl] 元信息获取完成: ${gotSizeCount}/${enriched.length} 张拿到大小`);
+        task.images = enriched;
+      }
       task.status = "completed";
       collectLog(`[extractFromUrl] 解析完成，共 ${task.images.length} 张图片`);
     } catch (error) {
@@ -51005,18 +51081,30 @@ class ExtractService {
     return `${platform}_${timestamp}_${index2 + 1}${ext}`;
   }
   static getExtensionFromUrl(url) {
+    var _a3;
     try {
-      const pathname = new URL(url).pathname.toLowerCase();
+      const parsedUrl = new URL(url);
+      const pathname = parsedUrl.pathname.toLowerCase();
+      const wxFmt = (_a3 = parsedUrl.searchParams.get("wx_fmt")) == null ? void 0 : _a3.toLowerCase();
+      if (wxFmt) {
+        if (wxFmt.includes("jpeg") || wxFmt.includes("jpg")) return ".jpg";
+        if (wxFmt.includes("png")) return ".png";
+        if (wxFmt.includes("gif")) return ".gif";
+        if (wxFmt.includes("webp")) return ".webp";
+      }
+      if (pathname.includes("mmbiz_jpg") || pathname.includes("_jpg")) return ".jpg";
+      if (pathname.includes("mmbiz_png") || pathname.includes("_png")) return ".png";
+      if (pathname.includes("mmbiz_gif") || pathname.includes("_gif")) return ".gif";
+      if (pathname.includes("mmbiz_webp") || pathname.includes("_webp")) return ".webp";
       const extensions = [".jpg", ".jpeg", ".png", ".gif", ".webp"];
       for (const ext of extensions) {
         if (pathname.endsWith(ext)) {
           return ext;
         }
       }
-      if (pathname.includes("_jpg") || pathname.includes("mmbiz_jpg")) return ".jpg";
-      if (pathname.includes("_png") || pathname.includes("mmbiz_png")) return ".png";
-      if (pathname.includes("_gif") || pathname.includes("mmbiz_gif")) return ".gif";
-      if (pathname.includes("_webp") || pathname.includes("mmbiz_webp")) return ".webp";
+      if (pathname.includes("image-view") || pathname.includes("~tplv-")) {
+        return ".jpg";
+      }
       return ".jpg";
     } catch {
       return ".jpg";
@@ -51059,6 +51147,215 @@ class ExtractService {
       }
     }
     log == null ? void 0 : log(`[downloadImages] 下载完成`);
+    return results;
+  }
+  /**
+   * 用 HEAD 请求探测图片文件大小（不下载完整内容）
+   * 失败时返回 0
+   */
+  static async fetchImageContentLength(url, log) {
+    return new Promise((resolve2) => {
+      const urlObj = new URL(url);
+      const requestModule = urlObj.protocol === "https:" ? https : http$1;
+      const headers2 = {
+        "User-Agent": DEFAULT_HEADERS["User-Agent"]
+      };
+      try {
+        const hostname = urlObj.hostname;
+        if (hostname.includes("douyinpic") || hostname.includes("pstatp") || hostname.includes("byteimg")) {
+          headers2["Referer"] = "https://www.douyin.com/";
+        } else if (hostname.includes("mmbiz")) {
+          headers2["Referer"] = "https://mp.weixin.qq.com/";
+        } else if (hostname.includes("sinaimg")) {
+          headers2["Referer"] = "https://weibo.com/";
+        } else if (!hostname.includes("xhscdn")) {
+          headers2["Referer"] = urlObj.origin + "/";
+        }
+      } catch {
+      }
+      const request2 = requestModule.request(url, { method: "HEAD", headers: headers2, timeout: 8e3 }, (response2) => {
+        if (response2.statusCode === 405 || response2.statusCode === 403) {
+          resolve2(0);
+          return;
+        }
+        if (response2.statusCode && response2.statusCode >= 300 && response2.statusCode < 400) {
+          const location = response2.headers.location;
+          if (location) {
+            const redirectUrl = location.startsWith("http") ? location : new URL(location, url).href;
+            this.fetchImageContentLength(redirectUrl, log).then(resolve2).catch(() => resolve2(0));
+            return;
+          }
+        }
+        const len = parseInt(response2.headers["content-length"] || "0", 10);
+        response2.resume();
+        resolve2(len > 0 ? len : 0);
+      });
+      request2.on("error", () => resolve2(0));
+      request2.on("timeout", () => {
+        request2.destroy();
+        resolve2(0);
+      });
+      request2.end();
+    });
+  }
+  /**
+   * 并发获取一组图片的文件大小（HEAD 优先，失败时 GET 拿 buffer 长度兜底）。
+   * 用于解析阶段就让前端能看到每张图的实际大小，便于用户设置过滤阈值。
+   * 并发数限制为 6，避免被 CDN 限流。
+   */
+  static async enrichImagesWithSize(images, log) {
+    const CONCURRENCY = 6;
+    const result = [...images];
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < result.length) {
+        const idx = cursor++;
+        const img = result[idx];
+        let size = await this.fetchImageContentLength(img.url, log);
+        if (size <= 0) {
+          try {
+            const buffer2 = await this.fetchImageAsBuffer(img.url, log);
+            size = buffer2.length;
+          } catch {
+            size = 0;
+          }
+        }
+        result[idx] = { ...img, fileSize: size };
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, result.length) }, worker));
+    return result;
+  }
+  /**
+   * 用 sharp 解析 Buffer 的图片尺寸（不写盘）
+   * 失败时返回 null
+   */
+  static async probeImageSize(buffer2, log) {
+    try {
+      const metadata = await sharp(buffer2).metadata();
+      if (metadata.width && metadata.height) {
+        return { width: metadata.width, height: metadata.height };
+      }
+      return null;
+    } catch (error) {
+      log == null ? void 0 : log(`[probeImageSize] sharp 解析失败: ${error.message}`);
+      return null;
+    }
+  }
+  /**
+   * 带过滤条件的图片下载
+   * 流程：
+   * 1. 对每张图先用已知的 fileSize 过滤（解析阶段已经获取）；fileSize 未知或 0 的进入下载流程
+   * 2. 进入下载流程的图，先用 HEAD 请求预检文件大小（拿到且<阈值则跳过，节省流量）
+   * 3. HEAD 没拿到时下载 buffer，用 buffer.length 二次校验
+   * 4. 用 sharp 解析 Buffer 尺寸，过滤掉比 minWidth/minHeight 小的（如果启用）
+   * 5. 满足条件的图片才落盘
+   *
+   * 返回的结果中，被过滤的会带 `filtered: true` 和 `filterReason`；
+   * 下载失败的会带 `downloaded: false` 和 `error`。
+   */
+  static async filterAndDownloadImages(images, savePath, filterOptions, onProgress, log) {
+    const results = [];
+    const total = images.length;
+    const { enabled, minWidth = 0, minHeight = 0, minSizeKB = 0 } = filterOptions;
+    const minSizeBytes = minSizeKB * 1024;
+    const needSizeCheck = enabled && minSizeBytes > 0;
+    const needDimCheck = enabled && (minWidth > 0 || minHeight > 0);
+    log == null ? void 0 : log(`[filterAndDownloadImages] 开始 ${total} 张 -> 保存到 ${savePath}, 过滤规则: ${JSON.stringify(filterOptions)}`);
+    if (!enabled) {
+      return this.downloadImages(images, savePath, onProgress, log);
+    }
+    await fs.ensureDir(savePath);
+    for (let i = 0; i < total; i++) {
+      const image = images[i];
+      try {
+        if (needSizeCheck && (image.fileSize ?? 0) > 0 && image.fileSize < minSizeBytes) {
+          const skipped = {
+            ...image,
+            filtered: true,
+            filterReason: `文件 ${(image.fileSize / 1024).toFixed(1)}KB < 阈值 ${minSizeKB}KB`,
+            fileSize: image.fileSize
+          };
+          log == null ? void 0 : log(`[filterAndDownloadImages] 跳过(${i + 1}/${total}) ${image.filename}: ${skipped.filterReason}`);
+          results.push(skipped);
+          onProgress == null ? void 0 : onProgress({ current: i + 1, total, image: skipped });
+          continue;
+        }
+        const buffer2 = await this.fetchImageAsBuffer(image.url, log);
+        if (needSizeCheck && buffer2.length < minSizeBytes) {
+          const skipped = {
+            ...image,
+            filtered: true,
+            filterReason: `文件 ${(buffer2.length / 1024).toFixed(1)}KB < 阈值 ${minSizeKB}KB`,
+            fileSize: buffer2.length
+          };
+          log == null ? void 0 : log(`[filterAndDownloadImages] 跳过(${i + 1}/${total}) ${image.filename}: ${skipped.filterReason}`);
+          results.push(skipped);
+          onProgress == null ? void 0 : onProgress({ current: i + 1, total, image: skipped });
+          continue;
+        }
+        let dim = null;
+        if (needDimCheck) {
+          dim = await this.probeImageSize(buffer2, log);
+          if (dim) {
+            if (minWidth > 0 && dim.width < minWidth) {
+              const skipped = {
+                ...image,
+                filtered: true,
+                filterReason: `宽度 ${dim.width}px < 阈值 ${minWidth}px`,
+                width: dim.width,
+                height: dim.height,
+                fileSize: buffer2.length
+              };
+              log == null ? void 0 : log(`[filterAndDownloadImages] 跳过(${i + 1}/${total}) ${image.filename}: ${skipped.filterReason}`);
+              results.push(skipped);
+              onProgress == null ? void 0 : onProgress({ current: i + 1, total, image: skipped });
+              continue;
+            }
+            if (minHeight > 0 && dim.height < minHeight) {
+              const skipped = {
+                ...image,
+                filtered: true,
+                filterReason: `高度 ${dim.height}px < 阈值 ${minHeight}px`,
+                width: dim.width,
+                height: dim.height,
+                fileSize: buffer2.length
+              };
+              log == null ? void 0 : log(`[filterAndDownloadImages] 跳过(${i + 1}/${total}) ${image.filename}: ${skipped.filterReason}`);
+              results.push(skipped);
+              onProgress == null ? void 0 : onProgress({ current: i + 1, total, image: skipped });
+              continue;
+            }
+          }
+        }
+        const filePath = path.join(savePath, image.filename);
+        await fs.writeFile(filePath, buffer2);
+        log == null ? void 0 : log(`[filterAndDownloadImages] 保存成功(${i + 1}/${total}): ${filePath} (${(buffer2.length / 1024).toFixed(1)}KB${dim ? `, ${dim.width}x${dim.height}` : ""})`);
+        const saved = {
+          ...image,
+          downloaded: true,
+          localPath: filePath,
+          width: dim == null ? void 0 : dim.width,
+          height: dim == null ? void 0 : dim.height,
+          fileSize: buffer2.length
+        };
+        results.push(saved);
+        onProgress == null ? void 0 : onProgress({ current: i + 1, total, image: saved });
+      } catch (error) {
+        const failed = {
+          ...image,
+          downloaded: false,
+          error: error instanceof Error ? error.message : "下载失败"
+        };
+        log == null ? void 0 : log(`[filterAndDownloadImages] 失败(${i + 1}/${total}) ${image.filename}: ${failed.error}`);
+        results.push(failed);
+        onProgress == null ? void 0 : onProgress({ current: i + 1, total, image: failed });
+      }
+    }
+    const filteredCount = results.filter((r) => r.filtered).length;
+    const successCount = results.filter((r) => r.downloaded).length;
+    const failCount = results.filter((r) => !r.downloaded && !r.filtered).length;
+    log == null ? void 0 : log(`[filterAndDownloadImages] 完成: 成功 ${successCount}，过滤 ${filteredCount}，失败 ${failCount} / 总 ${total}`);
     return results;
   }
   static async fetchImageAsBuffer(url, log) {
@@ -51143,6 +51440,16 @@ function registerExtractIpc() {
     const win2 = BrowserWindow.fromWebContents(event.sender);
     console.log(`[IPC] downloadImages 被调用，图片数量: ${images.length}，保存路径: ${savePath}`);
     return ExtractService.downloadImages(images, savePath, (progress) => {
+      win2 == null ? void 0 : win2.webContents.send("extract:downloadProgress", progress);
+    }, (message) => {
+      console.log(`[下载日志] ${message}`);
+      win2 == null ? void 0 : win2.webContents.send("extract:log", message);
+    });
+  });
+  ipcMain.handle("extract:filterAndDownloadImages", async (event, images, savePath, filterOptions) => {
+    const win2 = BrowserWindow.fromWebContents(event.sender);
+    console.log(`[IPC] filterAndDownloadImages 被调用，图片数量: ${images.length}，过滤规则: ${JSON.stringify(filterOptions)}`);
+    return ExtractService.filterAndDownloadImages(images, savePath, filterOptions, (progress) => {
       win2 == null ? void 0 : win2.webContents.send("extract:downloadProgress", progress);
     }, (message) => {
       console.log(`[下载日志] ${message}`);

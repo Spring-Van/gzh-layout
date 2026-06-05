@@ -143,6 +143,11 @@ declare global {
         parseUrl: (url: string) => Promise<ExtractTask>;
         parseUrls: (urls: string[]) => Promise<ExtractTask[]>;
         downloadImages: (images: ExtractedImage[], savePath: string) => Promise<ExtractedImage[]>;
+        filterAndDownloadImages: (
+          images: ExtractedImage[],
+          savePath: string,
+          filterOptions: ImageFilterOptions,
+        ) => Promise<ExtractedImage[]>;
         detectPlatform: (url: string) => Promise<string>;
         proxyImage: (url: string) => Promise<string>;
         onDownloadProgress: (callback: (progress: DownloadProgress) => void) => () => void;
@@ -161,6 +166,26 @@ interface ExtractedImage {
   downloaded: boolean;
   localPath?: string;
   error?: string;
+  /** 是否因过滤条件被跳过 */
+  filtered?: boolean;
+  /** 过滤跳过的原因 */
+  filterReason?: string;
+  /** 图片实际尺寸（像素） */
+  width?: number;
+  height?: number;
+  /** 文件大小（字节） */
+  fileSize?: number;
+}
+
+/** 图片下载过滤选项 */
+interface ImageFilterOptions {
+  enabled: boolean;
+  /** 最小宽度（px），0 表示不限制 */
+  minWidth?: number;
+  /** 最小高度（px），0 表示不限制 */
+  minHeight?: number;
+  /** 最小文件大小（KB），0 表示不限制 */
+  minSizeKB?: number;
 }
 
 interface ExtractTask {

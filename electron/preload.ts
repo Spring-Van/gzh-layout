@@ -82,6 +82,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     parseUrl: (url: string) => ipcRenderer.invoke('extract:parseUrl', url),
     parseUrls: (urls: string[]) => ipcRenderer.invoke('extract:parseUrls', urls),
     downloadImages: (images: any[], savePath: string) => ipcRenderer.invoke('extract:downloadImages', images, savePath),
+    filterAndDownloadImages: (images: any[], savePath: string, filterOptions: any) =>
+      ipcRenderer.invoke('extract:filterAndDownloadImages', images, savePath, filterOptions),
     detectPlatform: (url: string) => ipcRenderer.invoke('extract:detectPlatform', url),
     proxyImage: (url: string) => ipcRenderer.invoke('extract:proxyImage', url),
     onDownloadProgress: (callback: (progress: any) => void) => {
