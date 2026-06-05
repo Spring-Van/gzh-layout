@@ -411,11 +411,6 @@ function handleImagePickerSelect(img: ImageFile) {
   }
 }
 
-function openCropModal(idx: number) {
-  cropTargetIndex.value = idx;
-  showCropModal.value = true;
-}
-
 function handleCropConfirm(rect: CropRect) {
   if (cropTargetIndex.value < 0) return;
   const prev = props.imageCropRects ? { ...props.imageCropRects } : {};
@@ -426,11 +421,6 @@ function handleCropConfirm(rect: CropRect) {
 
 function getCropRect(idx: number): CropRect {
   return props.imageCropRects?.[idx] ?? { x: 0, y: 0, w: 1, h: 1 };
-}
-
-function isCropped(idx: number): boolean {
-  const r = getCropRect(idx);
-  return r.w < 1 || r.h < 1;
 }
 
 function handleSave() {

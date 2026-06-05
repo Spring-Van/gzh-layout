@@ -250,8 +250,6 @@ function computeCropRect(): CropRect {
   if (!imgW.value || !imgH.value) return { x: 0, y: 0, w: 1, h: 1 };
   const baseW = imgW.value * fillScale.value;
   const baseH = imgH.value * fillScale.value;
-  const scaledW = baseW * zoom.value;
-  const scaledH = baseH * zoom.value;
   const centerImgX = VP_W / 2 + offsetX.value;
   const centerImgY = VP_H.value / 2 + offsetY.value;
 
