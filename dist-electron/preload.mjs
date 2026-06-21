@@ -1,1 +1,96 @@
-"use strict";const r=require("electron");r.contextBridge.exposeInMainWorld("ipcRenderer",{on(...e){const[t,n]=e;return r.ipcRenderer.on(t,(c,...o)=>n(c,...o))},off(...e){const[t,...n]=e;return r.ipcRenderer.off(t,...n)},send(...e){const[t,...n]=e;return r.ipcRenderer.send(t,...n)},invoke(...e){const[t,...n]=e;return r.ipcRenderer.invoke(t,...n)}});r.contextBridge.exposeInMainWorld("electronAPI",{selectFolder:()=>r.ipcRenderer.invoke("file:selectFolder"),scanFolder:e=>r.ipcRenderer.invoke("image:scanFolder",e),backupFolder:e=>r.ipcRenderer.invoke("file:backupFolder",e),calculateMD5:e=>r.ipcRenderer.invoke("file:calculateMD5",e),splitIntoFolders:(e,t,n,c)=>r.ipcRenderer.invoke("file:splitIntoFolders",e,t,n,c),saveBase64Image:(e,t)=>r.ipcRenderer.invoke("file:saveBase64Image",e,t),createCoverFolder:e=>r.ipcRenderer.invoke("file:createCoverFolder",e),saveCoverImage:(e,t,n)=>r.ipcRenderer.invoke("file:saveCoverImage",e,t,n),deleteCoverFolder:e=>r.ipcRenderer.invoke("file:deleteCoverFolder",e),deleteCoverImage:e=>r.ipcRenderer.invoke("file:deleteCoverImage",e),convertWebpImages:(e,t,n)=>r.ipcRenderer.invoke("file:convertWebpImages",e,t,n),db:{init:()=>r.ipcRenderer.invoke("db:init"),getAllProjects:()=>r.ipcRenderer.invoke("db:getAllProjects"),getProject:e=>r.ipcRenderer.invoke("db:getProject",e),saveProject:e=>r.ipcRenderer.invoke("db:saveProject",e),deleteProject:e=>r.ipcRenderer.invoke("db:deleteProject",e),getAllTemplates:()=>r.ipcRenderer.invoke("db:getAllTemplates"),saveTemplate:e=>r.ipcRenderer.invoke("db:saveTemplate",e),deleteTemplate:e=>r.ipcRenderer.invoke("db:deleteTemplate",e),getAllCoverTemplates:()=>r.ipcRenderer.invoke("db:getAllCoverTemplates"),saveCoverTemplate:e=>r.ipcRenderer.invoke("db:saveCoverTemplate",e),deleteCoverTemplate:e=>r.ipcRenderer.invoke("db:deleteCoverTemplate",e),getAllStyleTemplates:()=>r.ipcRenderer.invoke("db:getAllStyleTemplates"),saveStyleTemplate:e=>r.ipcRenderer.invoke("db:saveStyleTemplate",e),deleteStyleTemplate:e=>r.ipcRenderer.invoke("db:deleteStyleTemplate",e),getAllWechatAccounts:()=>r.ipcRenderer.invoke("db:getAllWechatAccounts"),getWechatAccount:e=>r.ipcRenderer.invoke("db:getWechatAccount",e),getActiveWechatAccount:()=>r.ipcRenderer.invoke("db:getActiveWechatAccount"),getDefaultSyncWechatAccount:()=>r.ipcRenderer.invoke("db:getDefaultSyncWechatAccount"),saveWechatAccount:e=>r.ipcRenderer.invoke("db:saveWechatAccount",e),setActiveWechatAccount:e=>r.ipcRenderer.invoke("db:setActiveWechatAccount",e),setDefaultSyncWechatAccount:e=>r.ipcRenderer.invoke("db:setDefaultSyncWechatAccount",e),deleteWechatAccount:e=>r.ipcRenderer.invoke("db:deleteWechatAccount",e)},wechat:{getAccessToken:(e,t)=>r.ipcRenderer.invoke("wechat:getAccessToken",e,t),clearTokenCache:()=>r.ipcRenderer.invoke("wechat:clearTokenCache"),getAccountInfo:e=>r.ipcRenderer.invoke("wechat:getAccountInfo",e),authenticate:(e,t)=>r.ipcRenderer.invoke("wechat:authenticate",e,t),verifyToken:e=>r.ipcRenderer.invoke("wechat:verifyToken",e),getTokenCacheInfo:()=>r.ipcRenderer.invoke("wechat:getTokenCacheInfo"),uploadCoverImage:(e,t)=>r.ipcRenderer.invoke("wechat:uploadCoverImage",e,t),uploadContentImage:(e,t)=>r.ipcRenderer.invoke("wechat:uploadContentImage",e,t),batchUploadContentImages:(e,t)=>r.ipcRenderer.invoke("wechat:batchUploadContentImages",e,t),createDraft:(e,t)=>r.ipcRenderer.invoke("wechat:createDraft",e,t),publishDraft:(e,t)=>r.ipcRenderer.invoke("wechat:publishDraft",e,t),buildArticleHtml:(e,t)=>r.ipcRenderer.invoke("wechat:buildArticleHtml",e,t),calculateCropParams:e=>r.ipcRenderer.invoke("wechat:calculateCropParams",e),batchUpload:e=>r.ipcRenderer.invoke("wechat:batchUpload",e),onUploadProgress:e=>{const t=(n,c)=>e(c);return r.ipcRenderer.on("wechat:uploadProgress",t),()=>r.ipcRenderer.off("wechat:uploadProgress",t)}},extract:{parseUrl:e=>r.ipcRenderer.invoke("extract:parseUrl",e),parseUrls:e=>r.ipcRenderer.invoke("extract:parseUrls",e),downloadImages:(e,t)=>r.ipcRenderer.invoke("extract:downloadImages",e,t),filterAndDownloadImages:(e,t,n)=>r.ipcRenderer.invoke("extract:filterAndDownloadImages",e,t,n),detectPlatform:e=>r.ipcRenderer.invoke("extract:detectPlatform",e),proxyImage:e=>r.ipcRenderer.invoke("extract:proxyImage",e),onDownloadProgress:e=>{const t=(n,c)=>e(c);return r.ipcRenderer.on("extract:downloadProgress",t),()=>r.ipcRenderer.off("extract:downloadProgress",t)},onLog:e=>{const t=(n,c)=>e(c);return r.ipcRenderer.on("extract:log",t),()=>r.ipcRenderer.off("extract:log",t)}}});
+"use strict";
+const electron = require("electron");
+electron.contextBridge.exposeInMainWorld("ipcRenderer", {
+  on(...args) {
+    const [channel, listener] = args;
+    return electron.ipcRenderer.on(channel, (event, ...args2) => listener(event, ...args2));
+  },
+  off(...args) {
+    const [channel, ...omit] = args;
+    return electron.ipcRenderer.off(channel, ...omit);
+  },
+  send(...args) {
+    const [channel, ...omit] = args;
+    return electron.ipcRenderer.send(channel, ...omit);
+  },
+  invoke(...args) {
+    const [channel, ...omit] = args;
+    return electron.ipcRenderer.invoke(channel, ...omit);
+  }
+});
+electron.contextBridge.exposeInMainWorld("electronAPI", {
+  selectFolder: () => electron.ipcRenderer.invoke("file:selectFolder"),
+  scanFolder: (folderPath) => electron.ipcRenderer.invoke("image:scanFolder", folderPath),
+  backupFolder: (sourcePath) => electron.ipcRenderer.invoke("file:backupFolder", sourcePath),
+  calculateMD5: (filePath) => electron.ipcRenderer.invoke("file:calculateMD5", filePath),
+  splitIntoFolders: (sourcePath, images, splitCount, folderDate) => electron.ipcRenderer.invoke("file:splitIntoFolders", sourcePath, images, splitCount, folderDate),
+  saveBase64Image: (base64Data, filename) => electron.ipcRenderer.invoke("file:saveBase64Image", base64Data, filename),
+  createCoverFolder: (basePath) => electron.ipcRenderer.invoke("file:createCoverFolder", basePath),
+  saveCoverImage: (coverFolder, base64Data, filename) => electron.ipcRenderer.invoke("file:saveCoverImage", coverFolder, base64Data, filename),
+  deleteCoverFolder: (coverFolder) => electron.ipcRenderer.invoke("file:deleteCoverFolder", coverFolder),
+  deleteCoverImage: (filePath) => electron.ipcRenderer.invoke("file:deleteCoverImage", filePath),
+  convertWebpImages: (sourcePath, webpImages, backupEnabled) => electron.ipcRenderer.invoke("file:convertWebpImages", sourcePath, webpImages, backupEnabled),
+  db: {
+    init: () => electron.ipcRenderer.invoke("db:init"),
+    getAllProjects: () => electron.ipcRenderer.invoke("db:getAllProjects"),
+    getProject: (projectId) => electron.ipcRenderer.invoke("db:getProject", projectId),
+    saveProject: (project) => electron.ipcRenderer.invoke("db:saveProject", project),
+    deleteProject: (projectId) => electron.ipcRenderer.invoke("db:deleteProject", projectId),
+    getAllTemplates: () => electron.ipcRenderer.invoke("db:getAllTemplates"),
+    saveTemplate: (template) => electron.ipcRenderer.invoke("db:saveTemplate", template),
+    deleteTemplate: (templateId) => electron.ipcRenderer.invoke("db:deleteTemplate", templateId),
+    getAllCoverTemplates: () => electron.ipcRenderer.invoke("db:getAllCoverTemplates"),
+    saveCoverTemplate: (template) => electron.ipcRenderer.invoke("db:saveCoverTemplate", template),
+    deleteCoverTemplate: (templateId) => electron.ipcRenderer.invoke("db:deleteCoverTemplate", templateId),
+    getAllStyleTemplates: () => electron.ipcRenderer.invoke("db:getAllStyleTemplates"),
+    saveStyleTemplate: (template) => electron.ipcRenderer.invoke("db:saveStyleTemplate", template),
+    deleteStyleTemplate: (templateId) => electron.ipcRenderer.invoke("db:deleteStyleTemplate", templateId),
+    getAllWechatAccounts: () => electron.ipcRenderer.invoke("db:getAllWechatAccounts"),
+    getWechatAccount: (accountId) => electron.ipcRenderer.invoke("db:getWechatAccount", accountId),
+    getActiveWechatAccount: () => electron.ipcRenderer.invoke("db:getActiveWechatAccount"),
+    getDefaultSyncWechatAccount: () => electron.ipcRenderer.invoke("db:getDefaultSyncWechatAccount"),
+    saveWechatAccount: (account) => electron.ipcRenderer.invoke("db:saveWechatAccount", account),
+    setActiveWechatAccount: (accountId) => electron.ipcRenderer.invoke("db:setActiveWechatAccount", accountId),
+    setDefaultSyncWechatAccount: (accountId) => electron.ipcRenderer.invoke("db:setDefaultSyncWechatAccount", accountId),
+    deleteWechatAccount: (accountId) => electron.ipcRenderer.invoke("db:deleteWechatAccount", accountId)
+  },
+  wechat: {
+    getAccessToken: (appId, appSecret) => electron.ipcRenderer.invoke("wechat:getAccessToken", appId, appSecret),
+    clearTokenCache: () => electron.ipcRenderer.invoke("wechat:clearTokenCache"),
+    getAccountInfo: (accessToken) => electron.ipcRenderer.invoke("wechat:getAccountInfo", accessToken),
+    authenticate: (appId, appSecret) => electron.ipcRenderer.invoke("wechat:authenticate", appId, appSecret),
+    verifyToken: (accessToken) => electron.ipcRenderer.invoke("wechat:verifyToken", accessToken),
+    getTokenCacheInfo: () => electron.ipcRenderer.invoke("wechat:getTokenCacheInfo"),
+    uploadCoverImage: (accessToken, imagePath) => electron.ipcRenderer.invoke("wechat:uploadCoverImage", accessToken, imagePath),
+    uploadContentImage: (accessToken, imagePath) => electron.ipcRenderer.invoke("wechat:uploadContentImage", accessToken, imagePath),
+    batchUploadContentImages: (accessToken, imagePaths) => electron.ipcRenderer.invoke("wechat:batchUploadContentImages", accessToken, imagePaths),
+    createDraft: (accessToken, params) => electron.ipcRenderer.invoke("wechat:createDraft", accessToken, params),
+    publishDraft: (accessToken, draftMediaId) => electron.ipcRenderer.invoke("wechat:publishDraft", accessToken, draftMediaId),
+    buildArticleHtml: (title, imageUrls) => electron.ipcRenderer.invoke("wechat:buildArticleHtml", title, imageUrls),
+    calculateCropParams: (originalRatio) => electron.ipcRenderer.invoke("wechat:calculateCropParams", originalRatio),
+    batchUpload: (params) => electron.ipcRenderer.invoke("wechat:batchUpload", params),
+    onUploadProgress: (callback) => {
+      const listener = (_event, progress) => callback(progress);
+      electron.ipcRenderer.on("wechat:uploadProgress", listener);
+      return () => electron.ipcRenderer.off("wechat:uploadProgress", listener);
+    }
+  },
+  extract: {
+    parseUrl: (url) => electron.ipcRenderer.invoke("extract:parseUrl", url),
+    parseUrls: (urls) => electron.ipcRenderer.invoke("extract:parseUrls", urls),
+    downloadImages: (images, savePath) => electron.ipcRenderer.invoke("extract:downloadImages", images, savePath),
+    filterAndDownloadImages: (images, savePath, filterOptions) => electron.ipcRenderer.invoke("extract:filterAndDownloadImages", images, savePath, filterOptions),
+    detectPlatform: (url) => electron.ipcRenderer.invoke("extract:detectPlatform", url),
+    proxyImage: (url) => electron.ipcRenderer.invoke("extract:proxyImage", url),
+    onDownloadProgress: (callback) => {
+      const listener = (_event, progress) => callback(progress);
+      electron.ipcRenderer.on("extract:downloadProgress", listener);
+      return () => electron.ipcRenderer.off("extract:downloadProgress", listener);
+    },
+    onLog: (callback) => {
+      const listener = (_event, message) => callback(message);
+      electron.ipcRenderer.on("extract:log", listener);
+      return () => electron.ipcRenderer.off("extract:log", listener);
+    }
+  }
+});

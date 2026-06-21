@@ -495,30 +495,44 @@ const isValidUrl = computed(() => {
 });
 
 /**
- * 获取模板渲染后 DOM 中的行元素数量
+ * 获取模板行所在的容器。
+ * - 单顶层元素且有子元素：行是该顶层元素的子元素（保持原行为，可逐个选中子节点）
+ * - 多顶层元素（或顶层元素无子元素）：行是 template-container 的直接子元素（修复多顶层无法选中的问题）
+ */
+function getTemplateRowsContainer(): HTMLElement | null {
+  if (!templateContainerRef.value) return null;
+  const wrapper = templateContainerRef.value;
+  const firstTopLevel = wrapper.firstElementChild as HTMLElement | null;
+  if (!firstTopLevel) return null;
+  if (wrapper.children.length === 1 && firstTopLevel.children.length > 0) {
+    return firstTopLevel;
+  }
+  return wrapper;
+}
+
+/**
+ * 获取模板行元素数量
  */
 function getTemplateRowCount(): number {
-  if (!templateContainerRef.value) return 0;
-  const container = templateContainerRef.value.firstElementChild;
-  if (!container) return 0;
-  return container.children.length;
+  const rowsContainer = getTemplateRowsContainer();
+  if (!rowsContainer) return 0;
+  return rowsContainer.children.length;
 }
 
 /**
  * 点击模板区域时，判断点击了哪一行
  */
 function handleTemplateClick(event: MouseEvent) {
-  if (!templateContainerRef.value) return;
-  const container = templateContainerRef.value.firstElementChild;
-  if (!container) return;
+  const rowsContainer = getTemplateRowsContainer();
+  if (!rowsContainer) return;
 
   // 先提交正在编辑的行
   flushEditingRow();
 
   const target = event.target as HTMLElement;
-  // 向上查找最近的顶层子元素，避免深层嵌套元素点击不到的问题
+  // 向上查找最近的"行元素"：行容器的直接子节点
   let row: HTMLElement | null = target;
-  while (row && row.parentElement !== container) {
+  while (row && row.parentElement !== rowsContainer) {
     row = row.parentElement as HTMLElement | null;
   }
   if (!row) {
@@ -527,7 +541,7 @@ function handleTemplateClick(event: MouseEvent) {
     return;
   }
 
-  const rows = Array.from(container.children) as HTMLElement[];
+  const rows = Array.from(rowsContainer.children) as HTMLElement[];
   const idx = rows.indexOf(row);
   if (idx === -1) {
     deselect();
@@ -548,10 +562,10 @@ function handleTemplateClick(event: MouseEvent) {
  * 不修改 v-html 的源字符串（processedHtml），避免 DOM 序列化往返丢失内容
  */
 function flushEditingRow() {
-  if (!editingRowEl.value || !templateContainerRef.value) return;
-  const container = templateContainerRef.value.firstElementChild as HTMLElement | null;
-  if (!container) return;
-  const rows = Array.from(container.children) as HTMLElement[];
+  if (!editingRowEl.value) return;
+  const rowsContainer = getTemplateRowsContainer();
+  if (!rowsContainer) return;
+  const rows = Array.from(rowsContainer.children) as HTMLElement[];
   const idx = rows.indexOf(editingRowEl.value);
   if (idx === -1) return;
   // 退出编辑态
@@ -584,12 +598,12 @@ function enableRowEditing(row: HTMLElement) {
  * 更新模板行的选中样式（直接操作 DOM）
  */
 function updateTemplateRowStyles() {
-  if (!templateContainerRef.value) return;
-  const container = templateContainerRef.value.firstElementChild;
-  if (!container) return;
+  const rowsContainer = getTemplateRowsContainer();
+  if (!rowsContainer) return;
 
-  for (let i = 0; i < container.children.length; i++) {
-    const row = container.children[i] as HTMLElement;
+  const rows = Array.from(rowsContainer.children) as HTMLElement[];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
     if (i === selectedIndex.value) {
       row.style.outline = '2px dashed #34d399';
       row.style.outlineOffset = '2px';
@@ -620,11 +634,11 @@ function getStyleObject(el: HTMLElement): Record<string, string> {
  * 清除模板容器中所有行的选中样式
  */
 function clearTemplateRowOutlines() {
-  if (!templateContainerRef.value) return;
-  const container = templateContainerRef.value.firstElementChild;
-  if (!container) return;
-  for (let i = 0; i < container.children.length; i++) {
-    const row = container.children[i] as HTMLElement;
+  const rowsContainer = getTemplateRowsContainer();
+  if (!rowsContainer) return;
+  const rows = Array.from(rowsContainer.children) as HTMLElement[];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
     row.style.outline = '';
     row.style.outlineOffset = '';
     row.style.borderRadius = '';
@@ -633,11 +647,17 @@ function clearTemplateRowOutlines() {
 
 function buildContentBlocksFromTemplate(): ContentBlock[] {
   if (useTemplateRows.value && templateContainerRef.value) {
-    const container = templateContainerRef.value.firstElementChild as HTMLElement | null;
-    if (container) {
+    const wrapper = templateContainerRef.value;
+    const firstTopLevel = wrapper.firstElementChild as HTMLElement | null;
+    if (firstTopLevel) {
       clearTemplateRowOutlines();
-      containerStyleObj.value = getStyleObject(container);
-      return Array.from(container.children).map((child, i) => ({
+      // 单顶层且有子元素时，行容器的内联样式来自该顶层元素；否则（多顶层/无子元素）来自 wrapper
+      const rowsContainer =
+        wrapper.children.length === 1 && firstTopLevel.children.length > 0
+          ? firstTopLevel
+          : wrapper;
+      containerStyleObj.value = getStyleObject(rowsContainer);
+      return Array.from(rowsContainer.children).map((child, i) => ({
         id: `tpl-row-${i}`,
         type: 'html' as const,
         content: `行${i + 1}`,
@@ -1159,10 +1179,9 @@ watch(selectedIndex, () => {
 
 // 模板 HTML 变化或挂载后：应用行覆盖到 DOM，避免任何字符串往返导致的丢内容
 function applyRowOverrides() {
-  if (!templateContainerRef.value) return;
-  const container = templateContainerRef.value.firstElementChild as HTMLElement | null;
-  if (!container) return;
-  const rows = Array.from(container.children) as HTMLElement[];
+  const rowsContainer = getTemplateRowsContainer();
+  if (!rowsContainer) return;
+  const rows = Array.from(rowsContainer.children) as HTMLElement[];
   rowOverrides.forEach((rowHtml, idx) => {
     if (idx >= 0 && idx < rows.length) {
       const tmp = document.createElement('div');
