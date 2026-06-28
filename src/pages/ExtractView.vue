@@ -645,6 +645,30 @@
                   class="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2"
                 >
                   <button
+                    class="p-2 rounded-lg transition-colors"
+                    :class="
+                      image.filtered
+                        ? 'bg-amber-500 text-white hover:bg-amber-600'
+                        : 'bg-white/90 text-slate-700 hover:bg-white'
+                    "
+                    :title="image.filtered ? '取消已过滤标记' : '标记为已过滤'"
+                    @click.stop="toggleManualFilter(image)"
+                  >
+                    <svg
+                      class="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
+                      />
+                    </svg>
+                  </button>
+                  <button
                     class="p-2 bg-white/90 rounded-lg hover:bg-white transition-colors"
                     @click="previewImage(image)"
                   >
@@ -863,6 +887,30 @@
                   class="px-2 py-0.5 text-xs bg-slate-100 text-slate-500 rounded-full"
                   >待下载</span
                 >
+                <button
+                  class="p-1.5 rounded-lg transition-colors"
+                  :class="
+                    image.filtered
+                      ? 'bg-amber-50 text-amber-600 hover:bg-amber-100'
+                      : 'hover:bg-slate-100 text-slate-500'
+                  "
+                  :title="image.filtered ? '取消已过滤标记' : '标记为已过滤'"
+                  @click="toggleManualFilter(image)"
+                >
+                  <svg
+                    class="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
+                    />
+                  </svg>
+                </button>
                 <button
                   class="p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
                   @click="previewImage(image)"
@@ -1424,6 +1472,22 @@ function clearTasks() {
   Object.keys(imageLoadingState).forEach((key) => {
     delete imageLoadingState[key];
   });
+}
+
+/**
+ * 手动切换图片的"已过滤"标记
+ * - 标记后：图片会在 UI 上以 60% 透明 + 琥珀色徽章展示，下载时会被跳过
+ * - 取消标记：恢复为可下载状态（不修改 downloaded/localPath/error）
+ * - 复用 filtered/filterReason 字段，与自动过滤走同一套展示/下载跳过逻辑
+ */
+function toggleManualFilter(image: ExtractedImage) {
+  if (image.filtered) {
+    image.filtered = false;
+    image.filterReason = undefined;
+  } else {
+    image.filtered = true;
+    image.filterReason = "手动标记";
+  }
 }
 
 function previewImage(image: ExtractedImage) {
