@@ -1,4 +1,5 @@
 <template>
+  <Teleport to="body">
   <div
     v-if="visible"
     class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center"
@@ -180,7 +181,7 @@
               </div>
               <!-- 骨架屏卡片 -->
               <div
-                class="w-full rounded-lg overflow-hidden border-2 transition-all bg-white"
+                class="w-full rounded-lg overflow-hidden border-2 transition-[border-color,box-shadow] bg-white"
                 :class="activeRatio === '235'
                   ? 'border-emerald-500 shadow-sm'
                   : 'border-slate-200 group-hover:border-slate-300'"
@@ -214,7 +215,7 @@
               </div>
               <!-- 骨架屏卡片 -->
               <div
-                class="w-full aspect-[2.35/1] rounded-lg overflow-hidden border-2 transition-all"
+                class="w-full aspect-[2.35/1] rounded-lg overflow-hidden border-2 transition-[border-color,box-shadow]"
                 :class="activeRatio === '11'
                   ? 'border-emerald-500 shadow-sm'
                   : 'border-slate-200 group-hover:border-slate-300'"
@@ -258,6 +259,7 @@
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">

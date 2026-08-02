@@ -511,7 +511,7 @@
             <div v-if="isDownloading" class="flex items-center gap-2">
               <div class="w-32 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                 <div
-                  class="h-full bg-blue-500 rounded-full transition-all duration-300"
+                  class="h-full bg-blue-500 rounded-full transition-[width] duration-300"
                   :style="{ width: `${downloadProgress}%` }"
                 />
               </div>

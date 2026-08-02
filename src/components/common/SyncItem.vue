@@ -42,6 +42,8 @@
         :src="coverImageSrc"
         :alt="title"
         class="w-full h-full object-cover"
+        loading="lazy"
+        decoding="async"
       />
     </div>
     <div

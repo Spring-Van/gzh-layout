@@ -34,7 +34,7 @@
       <div
         v-for="(article, index) in props.articles"
         :key="article.id"
-        class="bg-white border rounded-xl p-3 cursor-pointer transition-all hover:shadow-md"
+        class="bg-white border rounded-xl p-3 cursor-pointer transition-[background-color,border-color,box-shadow] hover:shadow-md"
         :class="[
           index === props.currentArticleIndex
             ? 'border-primary bg-blue-50/30 shadow-sm'

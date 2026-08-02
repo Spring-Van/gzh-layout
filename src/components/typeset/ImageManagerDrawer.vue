@@ -1,16 +1,13 @@
 <template>
-  <div
-    class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-end transition-opacity"
-    :class="[visible ? 'opacity-100' : 'opacity-0 pointer-events-none']"
-    @click.self="$emit('close')"
-  >
+  <Teleport to="body">
+    <Transition name="drawer">
+      <div
+        v-if="visible"
+        class="drawer-mask fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-end"
+        @click.self="$emit('close')"
+      >
     <div
-      class="bg-white h-full overflow-hidden flex flex-col shadow-2xl"
-      :class="[
-        visible ? 'translate-x-0' : 'translate-x-full',
-        'transition-transform duration-300 ease-out',
-        'w-full lg:w-[700px]'
-      ]"
+      class="drawer-panel bg-white h-full overflow-hidden flex flex-col shadow-2xl w-full lg:w-[700px]"
     >
       <div
         class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 flex-shrink-0"
@@ -54,7 +51,9 @@
               class="w-full h-full object-cover"
               @error="
                 (e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
+                  const target = e.target as HTMLImageElement;
+                  target.style.opacity = '0.2';
+                  target.style.background = '#e2e8f0';
                 }
               "
             />
@@ -96,7 +95,9 @@
         </div>
       </div>
     </div>
-  </div>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -111,6 +112,7 @@ interface ImageItem {
 interface Props {
   visible: boolean;
   images: ImageItem[];
+  getImageUrlFn?: (filePath: string) => string;
 }
 
 const props = defineProps<Props>();
@@ -135,9 +137,10 @@ watch(() => props.images, (val) => {
   if (props.visible) {
     localImages.value = [...val];
   }
-}, { deep: true });
+});
 
 function getImageUrl(filePath: string): string {
+  if (props.getImageUrlFn) return props.getImageUrlFn(filePath);
   return `file://${filePath.replace(/\\/g, '/')}`;
 }
 
@@ -174,3 +177,21 @@ function handleSave() {
   emit('close');
 }
 </script>
+
+<style scoped>
+/* 抽屉面板滑入滑出：关闭时彻底卸载，避免隐形合成层持续做 backdrop-blur 计算 */
+.drawer-mask {
+  transition: opacity 0.2s ease;
+}
+.drawer-panel {
+  transition: transform 0.25s ease-out;
+}
+.drawer-enter-from,
+.drawer-leave-to {
+  opacity: 0;
+}
+.drawer-enter-from .drawer-panel,
+.drawer-leave-to .drawer-panel {
+  transform: translateX(100%);
+}
+</style>

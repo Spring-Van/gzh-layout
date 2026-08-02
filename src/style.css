@@ -37,5 +37,122 @@
   .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
   .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+  /* ====================================================================
+     主项目 dark 模式适配
+     将主项目中硬编码的 tailwind slate/white 浅色工具类，
+     在 html.dark 下映射到语义令牌（见 theme/tokens.css）。
+     浅色模式零影响，dark 模式下整站自动跟随主题。
+     ==================================================================== */
+
+  /* 背景层 */
+  html.dark .bg-white { background-color: var(--bg-surface); }
+  html.dark .bg-slate-50,
+  html.dark .bg-slate-100 { background-color: var(--bg-elevated); }
+  html.dark .bg-slate-200 { background-color: var(--bg-hover); }
+
+  /* 半透明背景（Modal 预览区/底部条等） */
+  html.dark .bg-slate-50\/50 { background-color: rgba(255, 255, 255, 0.04); }
+  html.dark .bg-slate-100\/50 { background-color: rgba(255, 255, 255, 0.05); }
+  html.dark .bg-slate-50\/50:hover { background-color: rgba(255, 255, 255, 0.07); }
+
+  /* hover 背景 */
+  html.dark .hover\:bg-slate-50:hover,
+  html.dark .hover\:bg-slate-100:hover { background-color: var(--bg-hover); }
+  html.dark .hover\:bg-slate-200:hover { background-color: var(--border-default); }
+
+  /* 文字层 */
+  html.dark .text-slate-900 { color: var(--text-primary); }
+  html.dark .text-slate-800,
+  html.dark .text-slate-700 { color: var(--text-primary); }
+  html.dark .text-slate-600,
+  html.dark .text-slate-500 { color: var(--text-secondary); }
+  html.dark .text-slate-400,
+  html.dark .text-slate-300 { color: var(--text-muted); }
+
+  /* 文字 hover */
+  html.dark .hover\:text-slate-600:hover,
+  html.dark .hover\:text-slate-700:hover { color: var(--text-primary); }
+
+  /* 边框 */
+  html.dark .border-slate-300 { border-color: var(--border-default); }
+  html.dark .border-slate-200,
+  html.dark .border-slate-100 { border-color: var(--border-subtle); }
+  html.dark .hover\:border-slate-300:hover { border-color: var(--border-strong); }
+
+  /* 分隔线（h-px bg-slate-200 等） */
+  html.dark .bg-slate-100.bg-slate-200,
+  html.dark .divide-slate-100 > * + *,
+  html.dark .divide-slate-200 > * + * { border-color: var(--border-subtle); }
+
+  /* 渐变背景（HomeView 顶部 from-slate-50 via-white to-slate-100）
+     dark 下让渐变透明，露出 body 的 --bg-app 深色渐变 */
+  html.dark .from-slate-50,
+  html.dark .via-white,
+  html.dark .to-slate-100,
+  html.dark .from-slate-100,
+  html.dark .to-slate-50 {
+    --tw-gradient-from: transparent;
+    --tw-gradient-to: transparent;
+    --tw-gradient-via: transparent;
+  }
+
+  /* 阴影在 dark 下偏弱 */
+  html.dark .shadow-sm { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); }
+  html.dark .shadow-xl,
+  html.dark .shadow-2xl { box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); }
+
+  /* ====================================================================
+     Modal 组件状态色 dark 变体
+     覆盖 ModalAccount/ModalTemplateSelector/DuplicateImageModal/WebpConvertModal 等
+     中的 blue/green/amber/red 状态面板与徽章
+     ==================================================================== */
+
+  /* 选中态：blue-50 背景 / blue-200 边框（列表项选中） */
+  html.dark .bg-blue-50 { background-color: rgba(34, 211, 238, 0.08); }
+  html.dark .border-blue-200 { border-color: rgba(34, 211, 238, 0.25); }
+
+  /* 蓝色徽章 / 文字（ModalAccount active 标记） */
+  html.dark .bg-blue-100 { background-color: rgba(34, 211, 238, 0.15); }
+  html.dark .text-blue-600 { color: #67e8f9; }
+  html.dark .hover\:bg-blue-50:hover { background-color: rgba(34, 211, 238, 0.12); }
+  html.dark .hover\:bg-green-50:hover { background-color: rgba(34, 197, 94, 0.12); }
+
+  /* 成功状态（ModalAccount 已绑定） */
+  html.dark .bg-green-50 { background-color: rgba(34, 197, 94, 0.08); }
+  html.dark .border-green-100 { border-color: rgba(34, 197, 94, 0.2); }
+  html.dark .text-green-800 { color: #86efac; }
+  html.dark .text-green-700 { color: #4ade80; }
+  html.dark .text-green-600 { color: #4ade80; }
+  html.dark .bg-green-100 { background-color: rgba(34, 197, 94, 0.15); }
+  html.dark .hover\:bg-green-200:hover { background-color: rgba(34, 197, 94, 0.25); }
+
+  /* 警告状态（ModalAccount 未绑定、WebpConvertModal 徽章） */
+  html.dark .bg-amber-50 { background-color: rgba(251, 191, 36, 0.08); }
+  html.dark .border-amber-100 { border-color: rgba(251, 191, 36, 0.2); }
+  html.dark .text-amber-800 { color: #fcd34d; }
+  html.dark .text-amber-700 { color: #fbbf24; }
+  html.dark .text-amber-600 { color: #fbbf24; }
+  html.dark .bg-amber-100 { background-color: rgba(251, 191, 36, 0.15); }
+  html.dark .bg-amber-500 { background-color: #d97706; }
+
+  /* 错误状态（ModalAccount 鉴权失败） */
+  html.dark .bg-red-50 { background-color: rgba(239, 68, 68, 0.08); }
+  html.dark .border-red-100 { border-color: rgba(239, 68, 68, 0.2); }
+  html.dark .text-red-500 { color: #f87171; }
+  html.dark .bg-red-100 { background-color: rgba(239, 68, 68, 0.15); }
+  html.dark .hover\:text-red-500:hover { color: #fca5a5; }
+  html.dark .hover\:text-red-600:hover { color: #fca5a5; }
+
+  /* 灰色徽章（DuplicateImageModal 重复组标签） */
+  html.dark .bg-slate-200 { background-color: var(--border-default); }
+
+  /* Modal 遮罩在 dark 下加深 */
+  html.dark .bg-slate-900\/40 { background-color: rgba(0, 0, 0, 0.6); }
+  html.dark .bg-slate-900\/60 { background-color: rgba(0, 0, 0, 0.7); }
+  html.dark .bg-black\/50 { background-color: rgba(0, 0, 0, 0.65); }
+
+  /* Modal 内 #576b95 微信蓝链接色（PhoneMockup 预览中） */
+  html.dark .text-\[\#576b95\] { color: #6b95ff; }
 }
 

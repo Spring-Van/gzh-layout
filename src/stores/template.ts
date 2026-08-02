@@ -52,12 +52,11 @@ export const useTemplateStore = defineStore('template', () => {
   }
 
   async function clearOtherDefaults(currentTemplateId: string) {
-    for (const t of customTemplates.value) {
-      if (t.id !== currentTemplateId && t.isDefault) {
-        t.isDefault = false;
-        await saveTemplateToDb(t);
-      }
-    }
+    const toUpdate = customTemplates.value.filter(t => t.id !== currentTemplateId && t.isDefault);
+    if (toUpdate.length === 0) return;
+    // 先批量 mutate，再并行落库
+    toUpdate.forEach(t => { t.isDefault = false; });
+    await Promise.all(toUpdate.map(t => saveTemplateToDb(t)));
   }
 
   async function deleteTemplate(templateId: string) {

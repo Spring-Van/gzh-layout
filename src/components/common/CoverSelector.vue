@@ -377,7 +377,6 @@ watch(
   () => {
     nextTick(() => (zoomScale.value = 1));
   },
-  { deep: true },
 );
 
 watch(showZoomModal, (val) => {
@@ -403,7 +402,6 @@ watch(
   () => {
     if (selectedTemplate.value) updateCoverConfig();
   },
-  { deep: true },
 );
 
 // ====== 每张图片独立裁剪 ======

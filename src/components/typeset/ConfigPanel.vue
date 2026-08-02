@@ -3,7 +3,7 @@
     <div class="p-4 border-b border-slate-100 sticky top-0 bg-white z-20">
       <div class="flex bg-slate-100 rounded-lg p-0.5">
         <button
-          class="flex-1 py-2 text-xs font-medium rounded-md transition-all"
+          class="flex-1 py-2 text-xs font-medium rounded-md transition-[color,background-color,border-color,box-shadow]"
           :class="[
             configMode === 'global'
               ? 'bg-white text-slate-800 shadow-sm'
@@ -14,7 +14,7 @@
           全局设置
         </button>
         <button
-          class="flex-1 py-2 text-xs font-medium rounded-md transition-all"
+          class="flex-1 py-2 text-xs font-medium rounded-md transition-[color,background-color,border-color,box-shadow]"
           :class="[
             configMode === 'article'
               ? 'bg-white text-slate-800 shadow-sm'
@@ -30,7 +30,7 @@
         <button
           v-for="tab in tabs"
           :key="tab.value"
-          class="flex-1 pb-2 text-xs font-medium border-b-2 transition-all"
+          class="flex-1 pb-2 text-xs font-medium border-b-2 transition-colors"
           :class="[
             configTab === tab.value
               ? 'border-primary text-primary'

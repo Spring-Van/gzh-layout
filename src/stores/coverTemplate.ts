@@ -50,12 +50,11 @@ export const useCoverTemplateStore = defineStore('coverTemplate', () => {
   }
 
   async function clearOtherDefaults(currentTemplateId: string) {
-    for (const t of userTemplates.value) {
-      if (t.id !== currentTemplateId && t.isDefault) {
-        t.isDefault = false;
-        await dbSaveCoverTemplate(t);
-      }
-    }
+    const toUpdate = userTemplates.value.filter(t => t.id !== currentTemplateId && t.isDefault);
+    if (toUpdate.length === 0) return;
+    // 先批量 mutate，再并行落库
+    toUpdate.forEach(t => { t.isDefault = false; });
+    await Promise.all(toUpdate.map(t => dbSaveCoverTemplate(t)));
   }
 
   async function deleteCoverTemplate(templateId: string) {

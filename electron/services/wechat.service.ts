@@ -208,10 +208,20 @@ class WechatService {
     return !data.errcode;
   }
 
+  private assertLocalImagePath(imagePath: string): void {
+    if (!imagePath) {
+      throw new Error('图片路径为空，无法上传');
+    }
+    if (/^(data:|blob:|https?:)/i.test(imagePath)) {
+      throw new Error('图片必须是本地文件路径，data URL、blob URL 和网络 URL 请先转换为本地文件');
+    }
+  }
+
   async uploadCoverImage(
     accessToken: string,
     imagePath: string
   ): Promise<CoverUploadResult> {
+    this.assertLocalImagePath(imagePath);
     const buffer = await fs.readFile(imagePath);
     const fileName = path.basename(imagePath);
     const ext = path.extname(fileName).toLowerCase();
@@ -242,6 +252,7 @@ class WechatService {
     accessToken: string,
     imagePath: string
   ): Promise<ContentImageResult> {
+    this.assertLocalImagePath(imagePath);
     const buffer = await fs.readFile(imagePath);
     const fileName = path.basename(imagePath);
     const ext = path.extname(fileName).toLowerCase();

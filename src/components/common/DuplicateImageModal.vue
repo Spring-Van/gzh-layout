@@ -1,4 +1,5 @@
 <template>
+  <Teleport to="body">
   <div
     v-if="visible"
     class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
@@ -52,7 +53,7 @@
 
             <div class="grid grid-cols-2 gap-3">
               <div
-                class="relative border-2 rounded-lg overflow-hidden cursor-pointer transition-all"
+                class="relative border-2 rounded-lg overflow-hidden cursor-pointer transition-colors"
                 :class="
                   selectedToKeep[pair.original.id]
                     ? 'border-primary'
@@ -98,7 +99,7 @@
               </div>
 
               <div
-                class="relative border-2 rounded-lg overflow-hidden cursor-pointer transition-all"
+                class="relative border-2 rounded-lg overflow-hidden cursor-pointer transition-colors"
                 :class="
                   selectedToKeep[pair.duplicate.id]
                     ? 'border-primary'
@@ -168,6 +169,7 @@
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">

@@ -123,7 +123,7 @@
           }}</span>
         </div>
 
-        <div v-html="processedHtml" class="space-y-6"></div>
+        <div v-html="processedHtml" class="template-preview-reset"></div>
         <div class="mt-16 mb-8 text-center text-slate-400 text-xs">
           — 预览到底部了 —
         </div>
@@ -218,5 +218,38 @@ function saveTemplate() {
 
 .background {
   background-color: #f8fafc;
+}
+
+.template-preview-reset {
+  all: initial;
+  display: block;
+}
+
+.template-preview-reset :deep(p) {
+  margin: 1em 0;
+}
+.template-preview-reset :deep(h1),
+.template-preview-reset :deep(h2),
+.template-preview-reset :deep(h3),
+.template-preview-reset :deep(h4),
+.template-preview-reset :deep(h5),
+.template-preview-reset :deep(h6) {
+  margin: 0.67em 0;
+  font-weight: bold;
+}
+.template-preview-reset :deep(h1) { font-size: 2em; }
+.template-preview-reset :deep(h2) { font-size: 1.5em; }
+.template-preview-reset :deep(h3) { font-size: 1.17em; }
+.template-preview-reset :deep(h4) { font-size: 1em; }
+.template-preview-reset :deep(h5) { font-size: 0.83em; }
+.template-preview-reset :deep(h6) { font-size: 0.67em; }
+.template-preview-reset :deep(blockquote),
+.template-preview-reset :deep(figure),
+.template-preview-reset :deep(ul),
+.template-preview-reset :deep(ol),
+.template-preview-reset :deep(dl),
+.template-preview-reset :deep(dd),
+.template-preview-reset :deep(pre) {
+  margin: 1em 0;
 }
 </style>

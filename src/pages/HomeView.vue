@@ -1,7 +1,21 @@
 <template>
   <section
-    class="w-full h-full overflow-y-auto bg-gradient-to-br from-slate-50 via-white to-slate-100"
+    class="w-full h-full overflow-y-auto bg-app-bg relative"
   >
+    <!-- 主题切换 -->
+    <button
+      class="absolute top-4 right-4 z-10 flex items-center justify-center w-10 h-10 bg-surface rounded-lg border border-border-subtle text-text-secondary hover:text-text-primary hover:shadow-md transition-[color,background-color,border-color,box-shadow]"
+      :title="theme === 'dark' ? '切换到浅色' : '切换到深色'"
+      @click="toggleTheme"
+    >
+      <svg v-if="theme === 'dark'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+      </svg>
+      <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+      </svg>
+    </button>
+
     <div class="max-w-5xl mx-auto px-6 py-12 md:py-16">
       <!-- 头部欢迎区域 -->
       <div class="text-center mb-14">
@@ -22,17 +36,105 @@
             />
           </svg>
         </div>
-        <h1 class="text-4xl font-bold text-slate-800 mb-3">
+        <h1 class="text-4xl font-bold text-text-primary mb-3">
           {{ greeting }}，创作者
         </h1>
-        <p class="text-slate-500 text-lg">选择工具，开始创作</p>
+        <p class="text-text-secondary text-lg">选择工具，开始创作</p>
       </div>
 
       <!-- 工具网格 -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- 漫画工作台 -->
+        <div
+          class="group relative bg-surface rounded-2xl border border-border-subtle overflow-hidden cursor-pointer transition-[border-color,box-shadow,transform] duration-300 hover:shadow-xl hover:shadow-cyan-500/10 hover:border-cyan-300 hover:-translate-y-1"
+          @click="$router.push('/comic')"
+        >
+          <!-- 顶部渐变装饰条 -->
+          <div
+            class="h-1.5 bg-gradient-to-r from-cyan-500 to-blue-500"
+          ></div>
+
+          <div class="p-7">
+            <div class="flex items-start gap-5">
+              <!-- 图标 -->
+              <div
+                class="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-cyan-500/20 group-hover:scale-110 transition-transform duration-300"
+              >
+                <svg
+                  class="w-7 h-7 text-white"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.5"
+                    d="M13 10V3L4 14h7v7l9-11h-7z"
+                  />
+                </svg>
+              </div>
+
+              <!-- 内容 -->
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-2">
+                  <h3 class="text-xl font-bold text-text-primary">漫画工作台</h3>
+                  <span
+                    class="px-2 py-0.5 text-[10px] font-medium bg-cyan-50 text-cyan-600 rounded-full"
+                  >
+                    可用
+                  </span>
+                </div>
+                <p class="text-sm text-text-secondary leading-relaxed mb-4">
+                  从故事到分镜，AI 驱动的一站式漫画创作工作流
+                </p>
+
+                <!-- 功能标签 -->
+                <div class="flex flex-wrap gap-2">
+                  <span
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
+                  >
+                    故事分析
+                  </span>
+                  <span
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
+                  >
+                    分镜生成
+                  </span>
+                  <span
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
+                  >
+                    AI 绘图
+                  </span>
+                  <span
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
+                  >
+                    导出发布
+                  </span>
+                </div>
+              </div>
+
+              <!-- 箭头 -->
+              <svg
+                class="w-5 h-5 text-text-muted group-hover:text-cyan-500 group-hover:translate-x-1 transition-[color,transform] duration-300 flex-shrink-0 mt-2"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 5l7 7-7 7"
+                />
+              </svg>
+            </div>
+          </div>
+        </div>
+
         <!-- 公众号矩阵工具 -->
         <div
-          class="group relative bg-white rounded-2xl border border-slate-200 overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/10 hover:border-blue-300 hover:-translate-y-1"
+          class="group relative bg-surface rounded-2xl border border-border-subtle overflow-hidden cursor-pointer transition-[border-color,box-shadow,transform] duration-300 hover:shadow-xl hover:shadow-blue-500/10 hover:border-blue-300 hover:-translate-y-1"
           @click="$router.push('/setup')"
         >
           <!-- 顶部渐变装饰条 -->
@@ -64,36 +166,36 @@
               <!-- 内容 -->
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 mb-2">
-                  <h3 class="text-xl font-bold text-slate-800">公众号矩阵</h3>
+                  <h3 class="text-xl font-bold text-text-primary">公众号矩阵</h3>
                   <span
                     class="px-2 py-0.5 text-[10px] font-medium bg-blue-50 text-blue-600 rounded-full"
                   >
                     可用
                   </span>
                 </div>
-                <p class="text-sm text-slate-500 leading-relaxed mb-4">
+                <p class="text-sm text-text-secondary leading-relaxed mb-4">
                   批量处理图片素材，智能排版，一键同步到微信公众号草稿箱
                 </p>
 
                 <!-- 功能标签 -->
                 <div class="flex flex-wrap gap-2">
                   <span
-                    class="px-2.5 py-1 text-[11px] font-medium bg-slate-100 text-slate-600 rounded-md"
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
                   >
                     素材清洗
                   </span>
                   <span
-                    class="px-2.5 py-1 text-[11px] font-medium bg-slate-100 text-slate-600 rounded-md"
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
                   >
                     批量排版
                   </span>
                   <span
-                    class="px-2.5 py-1 text-[11px] font-medium bg-slate-100 text-slate-600 rounded-md"
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
                   >
                     封面生成
                   </span>
                   <span
-                    class="px-2.5 py-1 text-[11px] font-medium bg-slate-100 text-slate-600 rounded-md"
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
                   >
                     一键同步
                   </span>
@@ -102,7 +204,7 @@
 
               <!-- 箭头 -->
               <svg
-                class="w-5 h-5 text-slate-300 group-hover:text-blue-500 group-hover:translate-x-1 transition-all duration-300 flex-shrink-0 mt-2"
+                class="w-5 h-5 text-text-muted group-hover:text-blue-500 group-hover:translate-x-1 transition-[color,transform] duration-300 flex-shrink-0 mt-2"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -120,7 +222,7 @@
 
         <!-- 图片提取工具 -->
         <div
-          class="group relative bg-white rounded-2xl border border-slate-200 overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl hover:shadow-emerald-500/10 hover:border-emerald-300 hover:-translate-y-1"
+          class="group relative bg-surface rounded-2xl border border-border-subtle overflow-hidden cursor-pointer transition-[border-color,box-shadow,transform] duration-300 hover:shadow-xl hover:shadow-emerald-500/10 hover:border-emerald-300 hover:-translate-y-1"
           @click="$router.push('/extract')"
         >
           <!-- 顶部渐变装饰条 -->
@@ -152,31 +254,31 @@
               <!-- 内容 -->
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 mb-2">
-                  <h3 class="text-xl font-bold text-slate-800">图片提取</h3>
+                  <h3 class="text-xl font-bold text-text-primary">图片提取</h3>
                   <span
                     class="px-2 py-0.5 text-[10px] font-medium bg-emerald-50 text-emerald-600 rounded-full"
                   >
                     可用
                   </span>
                 </div>
-                <p class="text-sm text-slate-500 leading-relaxed mb-4">
+                <p class="text-sm text-text-secondary leading-relaxed mb-4">
                   从微信公众号、小红书、抖音等平台链接批量提取原图
                 </p>
 
                 <!-- 功能标签 -->
                 <div class="flex flex-wrap gap-2">
                   <span
-                    class="px-2.5 py-1 text-[11px] font-medium bg-slate-100 text-slate-600 rounded-md"
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
                   >
                     批量提取
                   </span>
                   <span
-                    class="px-2.5 py-1 text-[11px] font-medium bg-slate-100 text-slate-600 rounded-md"
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
                   >
                     原图下载
                   </span>
                   <span
-                    class="px-2.5 py-1 text-[11px] font-medium bg-slate-100 text-slate-600 rounded-md"
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
                   >
                     多平台支持
                   </span>
@@ -185,7 +287,101 @@
 
               <!-- 箭头 -->
               <svg
-                class="w-5 h-5 text-slate-300 group-hover:text-emerald-500 group-hover:translate-x-1 transition-all duration-300 flex-shrink-0 mt-2"
+                class="w-5 h-5 text-text-muted group-hover:text-emerald-500 group-hover:translate-x-1 transition-[color,transform] duration-300 flex-shrink-0 mt-2"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 5l7 7-7 7"
+                />
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        <!-- 系统设置 -->
+        <div
+          class="group relative bg-surface rounded-2xl border border-border-subtle overflow-hidden cursor-pointer transition-[border-color,box-shadow,transform] duration-300 hover:shadow-xl hover:shadow-slate-500/10 hover:border-slate-400 hover:-translate-y-1"
+          @click="$router.push('/settings')"
+        >
+          <!-- 顶部渐变装饰条 -->
+          <div
+            class="h-1.5 bg-gradient-to-r from-slate-600 to-slate-800"
+          ></div>
+
+          <div class="p-7">
+            <div class="flex items-start gap-5">
+              <!-- 图标 -->
+              <div
+                class="w-14 h-14 rounded-xl bg-gradient-to-br from-slate-600 to-slate-800 flex items-center justify-center flex-shrink-0 shadow-lg shadow-slate-500/20 group-hover:scale-110 transition-transform duration-300"
+              >
+                <svg
+                  class="w-7 h-7 text-white"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.5"
+                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                  />
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.5"
+                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                </svg>
+              </div>
+
+              <!-- 内容 -->
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-2">
+                  <h3 class="text-xl font-bold text-text-primary">系统设置</h3>
+                  <span
+                    class="px-2 py-0.5 text-[10px] font-medium bg-elevated text-text-secondary rounded-full"
+                  >
+                    公用
+                  </span>
+                </div>
+                <p class="text-sm text-text-secondary leading-relaxed mb-4">
+                  配置 AI 模型、提示词模板和微信公众号账号
+                </p>
+
+                <!-- 功能标签 -->
+                <div class="flex flex-wrap gap-2">
+                  <span
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
+                  >
+                    LLM模型
+                  </span>
+                  <span
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
+                  >
+                    图片模型
+                  </span>
+                  <span
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
+                  >
+                    公众号
+                  </span>
+                  <span
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
+                  >
+                    提示词
+                  </span>
+                </div>
+              </div>
+
+              <!-- 箭头 -->
+              <svg
+                class="w-5 h-5 text-text-muted group-hover:text-slate-600 group-hover:translate-x-1 transition-[color,transform] duration-300 flex-shrink-0 mt-2"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -207,6 +403,9 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { useTheme } from "@/theme/useTheme";
+
+const { theme, toggle: toggleTheme } = useTheme();
 
 const greeting = computed(() => {
   const hour = new Date().getHours();

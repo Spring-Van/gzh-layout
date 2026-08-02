@@ -1,4 +1,5 @@
 <template>
+  <Teleport to="body">
   <div
     v-if="visible"
     class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center"
@@ -93,7 +94,7 @@
             <div
               v-for="account in accountStore.accounts"
               :key="account.id"
-              class="flex items-center justify-between p-2.5 rounded-lg transition-all"
+              class="flex items-center justify-between p-2.5 rounded-lg transition-colors"
               :class="[
                 account.isActive
                   ? 'bg-blue-50 border border-blue-200'
@@ -323,6 +324,7 @@
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">

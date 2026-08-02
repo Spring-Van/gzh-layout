@@ -64,7 +64,10 @@ export const useWechatAccountStore = defineStore('wechatAccount', () => {
         isDefaultSync: existingAccount?.isDefaultSync || false,
       };
 
-      accounts.value.forEach(a => a.isActive = false);
+      const oldActive = accounts.value.find(a => a.isActive);
+      if (oldActive) {
+        oldActive.isActive = false;
+      }
       if (existingAccount) {
         const index = accounts.value.findIndex(a => a.id === existingAccount.id);
         accounts.value[index] = account;
@@ -91,7 +94,11 @@ export const useWechatAccountStore = defineStore('wechatAccount', () => {
     const account = accounts.value.find(a => a.id === accountId);
     if (!account) return;
 
-    accounts.value.forEach(a => a.isActive = a.id === accountId);
+    const oldActive = accounts.value.find(a => a.isActive && a.id !== accountId);
+    if (oldActive) {
+      oldActive.isActive = false;
+    }
+    account.isActive = true;
     activeAccount.value = account;
 
     await dbSetActiveWechatAccount(accountId);
@@ -166,8 +173,20 @@ export const useWechatAccountStore = defineStore('wechatAccount', () => {
     const account = accounts.value.find(a => a.id === accountId);
     if (!account) return;
 
-    accounts.value.forEach(a => a.isDefaultSync = a.id === accountId);
-    defaultSyncAccount.value = account;
+    // toggle 模式：如果该账号已是默认同步，则取消（允许全部取消）
+    if (account.isDefaultSync) {
+      // 仅当前默认账号需要取消
+      account.isDefaultSync = false;
+      defaultSyncAccount.value = null;
+    } else {
+      // 先取消旧默认账号，再置目标为 true
+      const oldDefault = accounts.value.find(a => a.isDefaultSync && a.id !== accountId);
+      if (oldDefault) {
+        oldDefault.isDefaultSync = false;
+      }
+      account.isDefaultSync = true;
+      defaultSyncAccount.value = account;
+    }
 
     await dbSetDefaultSyncWechatAccount(accountId);
   }

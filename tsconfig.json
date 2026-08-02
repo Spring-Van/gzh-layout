@@ -14,12 +14,23 @@
     "noEmit": true,
     "jsx": "preserve",
 
+    /* Path aliases（与 vite.config.ts 的 resolve.alias 保持一致） */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@comic/*": ["src/modules/comic/*"],
+      "monaco-editor/esm/vs/editor/editor.api": [
+        "./node_modules/monaco-editor/esm/vs/editor/editor.api.d.ts"
+      ]
+    },
+
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue", "electron"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue", "electron/**/*.ts"],
+  "exclude": ["node_modules", "dist", "dist-electron"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

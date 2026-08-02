@@ -86,6 +86,13 @@ interface WechatTokenCacheInfo {
 
 declare global {
   interface Window {
+    /** 由 electron/preload.ts 通过 contextBridge 暴露的精简 ipcRenderer */
+    ipcRenderer: {
+      on: (channel: string, listener: (event: unknown, ...args: unknown[]) => void) => void;
+      off: (channel: string, listener: (...args: unknown[]) => void) => void;
+      send: (channel: string, ...args: unknown[]) => void;
+      invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
+    };
     electronAPI: {
       selectFolder: () => Promise<string | null>;
       scanFolder: (folderPath: string) => Promise<ImageFile[]>;

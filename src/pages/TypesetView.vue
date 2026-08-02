@@ -22,7 +22,7 @@
           <button
             v-for="mode in previewModes"
             :key="mode.value"
-            class="px-3 py-1.5 text-xs font-medium rounded-md transition-all"
+            class="px-3 py-1.5 text-xs font-medium rounded-md transition-[background-color,color,box-shadow]"
             :class="[
               batchStore.previewMode === mode.value
                 ? 'bg-primary text-white shadow-sm'

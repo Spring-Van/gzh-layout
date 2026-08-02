@@ -1,4 +1,5 @@
 <template>
+  <Teleport to="body">
   <div v-if="visible" class="fixed inset-0 z-50 flex justify-end">
     <div class="absolute inset-0 bg-black/40" @click="handleClose"></div>
     <div
@@ -63,7 +64,7 @@
                 selectedIndices.length >= requiredImageCount
               "
               :class="[
-                'h-10 rounded-lg text-sm font-medium transition-all flex flex-col items-center justify-center leading-none',
+                'h-10 rounded-lg text-sm font-medium transition-[background-color,color,box-shadow] flex flex-col items-center justify-center leading-none',
                 selectedIndices.includes(index)
                   ? 'bg-primary text-white shadow-md'
                   : !selectedIndices.includes(index) &&
@@ -116,7 +117,7 @@
           @click="handleConfirm"
           :disabled="selectedIndices.length !== requiredImageCount"
           :class="[
-            'w-full py-3 rounded-xl font-medium transition-all',
+            'w-full py-3 rounded-xl font-medium transition-colors',
             selectedIndices.length === requiredImageCount
               ? 'bg-primary text-white hover:bg-primary/90'
               : 'bg-slate-200 text-slate-400 cursor-not-allowed',
@@ -127,6 +128,7 @@
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">

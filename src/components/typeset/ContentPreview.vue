@@ -28,6 +28,7 @@
               :alt="img.name"
               class="w-full rounded-[4px] object-cover"
               loading="lazy"
+              decoding="async"
               @error="(e) => { (e.target as HTMLImageElement).style.display = 'none'; }"
             />
           </div>
@@ -47,6 +48,7 @@
               :alt="img.name"
               class="w-full aspect-square rounded-[1rem] object-cover mb-3"
               loading="lazy"
+              decoding="async"
               @error="(e) => { (e.target as HTMLImageElement).style.display = 'none'; }"
             />
             <span class="text-[10px] text-slate-300 font-mono tracking-wider italic">
@@ -75,7 +77,7 @@
           <div
             v-for="(block, index) in contentBlocks"
             :key="block.id"
-            class="content-row transition-all duration-200"
+            class="content-row transition-[outline-color,outline-width,outline-offset,border-radius] duration-200"
             :class="{
               'content-row--selected': selectedIndex === index,
             }"
@@ -89,6 +91,7 @@
                   :alt="block.imageName || block.content"
                   class="w-full rounded-[4px] object-cover"
                   loading="lazy"
+                  decoding="async"
                   @error="(e) => { (e.target as HTMLImageElement).style.display = 'none'; }"
                 />
               </div>
@@ -1004,10 +1007,20 @@ watch(
 );
 
 // 监听storedContentBlocks变化，同步到本地contentBlocks
+// 浅监听：父组件替换数组引用时触发，避免 deep 递归遍历含 html 长字符串的每个 block
 watch(
   () => props.storedContentBlocks,
   (newBlocks) => {
-    if (!newBlocks || newBlocks.length === 0) return;
+    // 父组件清空了内容块（如切换模板时），本地也清空以重新渲染模板
+    if (!newBlocks || newBlocks.length === 0) {
+      if (!editingBlockId.value && contentBlocks.value.length > 0) {
+        contentBlocks.value = [];
+        containerStyleObj.value = {};
+        selectedIndex.value = null;
+        htmlBlockInitialized.clear();
+      }
+      return;
+    }
     // 如果正在编辑，不更新
     if (editingBlockId.value) return;
     // 同步外部传入的contentBlocks（包括样式块）
@@ -1019,13 +1032,23 @@ watch(
       syncHtmlBlocksToDom();
     });
   },
-  { deep: true }
 );
 
 // 记录上一次的样式配置，用于检测哪个位置变化了
 const lastHeaderConfig = ref('');
 const lastBetweenConfig = ref('');
 const lastFooterConfig = ref('');
+
+// 用序列化 key 代替 deep watch，避免递归遍历 styleInsertConfig
+const styleConfigKey = computed(() => {
+  const c = props.styleInsertConfig;
+  if (!c) return '';
+  return JSON.stringify({
+    h: { e: c.header.enabled, i: c.header.templateIds },
+    b: { e: c.between.enabled, i: c.between.templateIds },
+    f: { e: c.footer.enabled, i: c.footer.templateIds },
+  });
+});
 
 /**
  * 同步指定位置的样式到contentBlocks
@@ -1092,9 +1115,11 @@ function syncStylePosition(position: 'header' | 'between' | 'footer'): boolean {
 }
 
 // 监听样式配置变化，自动同步到contentBlocks（三个位置独立处理）
+// 用序列化 key 浅监听代替 deep watch，避免递归遍历
 watch(
-  () => props.styleInsertConfig,
-  (newConfig) => {
+  styleConfigKey,
+  () => {
+    const newConfig = props.styleInsertConfig;
     if (editingBlockId.value || !newConfig) return;
 
     // 序列化各位置的配置，检测变化
@@ -1125,22 +1150,21 @@ watch(
         contentBlocks.value = templateBlocks;
       }
     }
-    
+
     // 只同步变化的位置，根据结果更新记录
     let headerSuccess = true;
     let betweenSuccess = true;
     let footerSuccess = true;
-    
+
     if (headerChanged) headerSuccess = syncStylePosition('header');
     if (betweenChanged) betweenSuccess = syncStylePosition('between');
     if (footerChanged) footerSuccess = syncStylePosition('footer');
-    
+
     // 只有同步成功才更新记录，失败的下次会重试
     if (headerChanged && headerSuccess) lastHeaderConfig.value = headerKey;
     if (betweenChanged && betweenSuccess) lastBetweenConfig.value = betweenKey;
     if (footerChanged && footerSuccess) lastFooterConfig.value = footerKey;
   },
-  { deep: true }
 );
 
 watch(
@@ -1220,6 +1244,8 @@ watch(
  */
 let userEditedBlockId: string | null = null;
 
+// 浅监听 contentBlocks：数组引用变化（替换/增删项）时触发 DOM 同步
+// 避免 deep 递归遍历每个 block 的 html 长字符串
 watch(
   () => contentBlocks.value,
   (newBlocks) => {
@@ -1241,7 +1267,6 @@ watch(
       userEditedBlockId = null;
     });
   },
-  { deep: true }
 );
 
 watch(
@@ -1323,7 +1348,37 @@ onUnmounted(() => {
 }
 
 .template-container {
+  all: initial;
+  display: block;
   cursor: pointer;
+}
+
+.template-container :deep(p) {
+  margin: 1em 0;
+}
+.template-container :deep(h1),
+.template-container :deep(h2),
+.template-container :deep(h3),
+.template-container :deep(h4),
+.template-container :deep(h5),
+.template-container :deep(h6) {
+  margin: 0.67em 0;
+  font-weight: bold;
+}
+.template-container :deep(h1) { font-size: 2em; }
+.template-container :deep(h2) { font-size: 1.5em; }
+.template-container :deep(h3) { font-size: 1.17em; }
+.template-container :deep(h4) { font-size: 1em; }
+.template-container :deep(h5) { font-size: 0.83em; }
+.template-container :deep(h6) { font-size: 0.67em; }
+.template-container :deep(blockquote),
+.template-container :deep(figure),
+.template-container :deep(ul),
+.template-container :deep(ol),
+.template-container :deep(dl),
+.template-container :deep(dd),
+.template-container :deep(pre) {
+  margin: 1em 0;
 }
 
 .template-container > :deep(*) > :deep(*:hover:not([style*="outline"])) {

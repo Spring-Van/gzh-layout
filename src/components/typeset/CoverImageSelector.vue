@@ -138,7 +138,7 @@
           <div class="aspect-[2.35/1] w-16"></div>
           <button
             @click="$emit('update:ratio', '235')"
-            class="absolute inset-0 rounded overflow-hidden transition-all hover:border-primary"
+            class="absolute inset-0 rounded overflow-hidden transition-[border-color,box-shadow,transform,opacity] hover:border-primary"
             :class="[
               ratio === '235'
                 ? 'border-2 border-primary ring-2 ring-primary/30 scale-105'
@@ -155,7 +155,7 @@
           <div class="aspect-[2.35/1] w-16"></div>
           <button
             @click="$emit('update:ratio', '11')"
-            class="absolute bottom-0 left-1/2 -translate-x-1/2 rounded overflow-hidden transition-all hover:border-primary"
+            class="absolute bottom-0 left-1/2 -translate-x-1/2 rounded overflow-hidden transition-[border-color,box-shadow,transform,opacity] hover:border-primary"
             :class="[
               ratio === '11'
                 ? 'border-2 border-primary ring-2 ring-primary/30 scale-105'

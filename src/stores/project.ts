@@ -88,10 +88,16 @@ export const useProjectStore = defineStore('project', () => {
 
   async function setCoverImage(imageId: string) {
     if (currentProject.value) {
-      currentProject.value.images.forEach(img => {
-        img.isCover = img.id === imageId;
-      });
-      const coverImg = currentProject.value.images.find(img => img.id === imageId);
+      const imgs = currentProject.value.images;
+      // 仅处理旧 cover 与目标图，最多改 2 张
+      const oldCover = imgs.find(img => img.isCover && img.id !== imageId);
+      if (oldCover) {
+        oldCover.isCover = false;
+      }
+      const coverImg = imgs.find(img => img.id === imageId);
+      if (coverImg && !coverImg.isCover) {
+        coverImg.isCover = true;
+      }
       articleConfig.value.coverImage = coverImg?.path || '';
       currentProject.value.coverImage = coverImg?.path || '';
       await saveProject();
@@ -109,11 +115,13 @@ export const useProjectStore = defineStore('project', () => {
   async function reorderImages(newOrder: string[]) {
     if (currentProject.value) {
       const imgMap = new Map(images.value.map(img => [img.id, img]));
-      currentProject.value.images = newOrder
+      // 先构造好新数组，再让 currentProject.images 与 articleConfig.images 指向同一引用
+      const reordered = newOrder
         .map(id => imgMap.get(id))
         .filter(Boolean)
         .map((img, idx) => ({ ...img!, order: idx }));
-      articleConfig.value.images = currentProject.value.images;
+      currentProject.value.images = reordered;
+      articleConfig.value.images = reordered;
       await saveProject();
     }
   }

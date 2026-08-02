@@ -3,13 +3,12 @@ import type { CustomTemplate } from '../types';
 /**
  * 按行单元循环展开模板，填充所有图片
  *
- * 解析模板 HTML 结构：
- * - 外层容器（flex-direction: column 的 section）
- * - 静态元素（不包含 img 的子元素，如标题文本等）
- * - 行单元（包含 img 的子元素）
+ * 解析模板 HTML 结构，保留子元素的原始顺序：
+ * - 前导静态元素（第一个含 img 子元素之前的元素）→ 原样保留在顶部
+ * - 行单元（含 img 的子元素）→ 循环复制并填充图片
+ * - 尾部静态元素（最后一个含 img 子元素之后的元素）→ 原样保留在底部
  *
- * 当文章图片数 > 模板图片槽位数时，按行单元循环生成新行，
- * 保证模板的样式和布局一致，同时保留所有静态元素
+ * 这样能正确处理「序号+图片」分组模板：尾部文字/话题/标题不会被提到顶部。
  *
  * @param templateHtml 模板 HTML 字符串
  * @param images 文章图片列表
@@ -33,8 +32,29 @@ export function expandTemplateWithImages(
         return fallbackImageReplace(html, images, getImageUrl);
     }
 
-    // 分离静态元素和行单元
-    const { staticElements, rowUnits } = separateContainerElements(container);
+    const children = Array.from(container.children) as HTMLElement[];
+
+    // 定位第一个和最后一个含 img 的子元素
+    let firstImgIdx = -1;
+    let lastImgIdx = -1;
+    children.forEach((child, idx) => {
+        if (child.querySelector('img')) {
+            if (firstImgIdx === -1) firstImgIdx = idx;
+            lastImgIdx = idx;
+        }
+    });
+
+    if (firstImgIdx === -1) {
+        return fallbackImageReplace(html, images, getImageUrl);
+    }
+
+    // 三段划分：前导静态 / 行单元 / 尾部静态
+    const leadingStatic = children.slice(0, firstImgIdx);
+    const rowUnits = children
+        .slice(firstImgIdx, lastImgIdx + 1)
+        .filter((el) => el.querySelector('img'));
+    const trailingStatic = children.slice(lastImgIdx + 1);
+
     if (rowUnits.length === 0) {
         return fallbackImageReplace(html, images, getImageUrl);
     }
@@ -53,14 +73,13 @@ export function expandTemplateWithImages(
         container.removeChild(container.firstChild);
     }
 
-    // 先添加静态元素
-    staticElements.forEach((el) => {
+    // 1. 前导静态元素（保持原顺序）
+    leadingStatic.forEach((el) => {
         container.appendChild(el.cloneNode(true));
     });
 
-    // 循环生成行单元并填充图片
+    // 2. 循环行单元并填充图片
     let imgIdx = 0;
-
     while (imgIdx < images.length) {
         for (let r = 0; r < rowUnits.length && imgIdx < images.length; r++) {
             const clone = rowUnits[r].cloneNode(true) as HTMLElement;
@@ -79,34 +98,16 @@ export function expandTemplateWithImages(
         }
     }
 
+    // 3. 尾部静态元素（保持原顺序）
+    trailingStatic.forEach((el) => {
+        container.appendChild(el.cloneNode(true));
+    });
+
     return container.outerHTML;
 }
 
 /**
- * 分离容器中的静态元素（不含 img）和行单元（含 img）
- */
-function separateContainerElements(container: HTMLElement): {
-    staticElements: HTMLElement[];
-    rowUnits: HTMLElement[];
-} {
-    const staticElements: HTMLElement[] = [];
-    const rowUnits: HTMLElement[] = [];
-
-    for (const child of Array.from(container.children)) {
-        if (child instanceof HTMLElement) {
-            if (child.querySelector('img')) {
-                rowUnits.push(child);
-            } else {
-                staticElements.push(child);
-            }
-        }
-    }
-
-    return { staticElements, rowUnits };
-}
-
-/**
- * 填充行内所有 img 标签的 src 属性
+ * 填充行内所有 img 标签的 src 属性，并添加 lazy loading 和异步解码
  */
 function fillRowImages(
     row: HTMLElement,
@@ -119,6 +120,8 @@ function fillRowImages(
     imgs.forEach((img) => {
         if (idx < images.length) {
             img.setAttribute('src', getImageUrl(images[idx].path));
+            img.setAttribute('loading', 'lazy');
+            img.setAttribute('decoding', 'async');
             idx++;
         }
     });
@@ -147,9 +150,58 @@ function trimRowExcessCells(
 }
 
 /**
- * 回退方案：简单的逐个 img 标签 src 替换
+ * 回退方案：循环复制含 img 的顶层元素来渲染所有图片
+ * - 若 body 有多个顶层元素且其中含 img，以第一个含 img 的元素为模板行循环复制
+ * - 否则对每个 img 标签做 src 替换（图片数 > 槽位时多余的 img 用最后一张图填充）
  */
 function fallbackImageReplace(
+    html: string,
+    images: Array<{ path: string }>,
+    getImageUrl: (path: string) => string,
+): string {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html.replace(/`/g, ''), 'text/html');
+
+    // 收集所有顶层元素，分离静态和含 img 的
+    const topElements = Array.from(doc.body.children) as HTMLElement[];
+    const imgElements = topElements.filter((el) => el.querySelector('img'));
+    const staticElements = topElements.filter((el) => !el.querySelector('img'));
+
+    // 没有 img 元素：直接逐个替换 img src
+    if (imgElements.length === 0) {
+        return simpleImgReplace(html, images, getImageUrl);
+    }
+
+    // 清空 body
+    doc.body.innerHTML = '';
+
+    // 先放回静态元素
+    staticElements.forEach((el) => doc.body.appendChild(el));
+
+    // 以第一个含 img 的元素为模板行，循环复制
+    const templateRow = imgElements[0];
+    const imgPerRow = templateRow.querySelectorAll('img').length;
+    const rowsNeeded = Math.ceil(images.length / Math.max(imgPerRow, 1));
+
+    let imgIdx = 0;
+    for (let r = 0; r < rowsNeeded; r++) {
+        const clone = templateRow.cloneNode(true) as HTMLElement;
+        const remaining = images.length - imgIdx;
+        if (remaining < imgPerRow) {
+            trimRowExcessCells(clone, remaining);
+        }
+        fillRowImages(clone, images, imgIdx, getImageUrl);
+        imgIdx += Math.min(remaining, imgPerRow);
+        doc.body.appendChild(clone);
+    }
+
+    return doc.body.innerHTML;
+}
+
+/**
+ * 最简回退：逐个 img 标签 src 替换，并添加 loading="lazy" 和 decoding="async"
+ */
+function simpleImgReplace(
     html: string,
     images: Array<{ path: string }>,
     getImageUrl: (path: string) => string,
@@ -161,7 +213,15 @@ function fallbackImageReplace(
         if (imageIdx < images.length) {
             const imgUrl = getImageUrl(images[imageIdx].path);
             imageIdx++;
-            return imgTag.replace(/src\s*=\s*(['"])[^'"]*\1/, `src="${imgUrl}"`);
+            // 添加 loading="lazy" 和 decoding="async"
+            let result = imgTag;
+            if (!result.includes('loading=')) {
+                result = result.replace('<img', '<img loading="lazy"');
+            }
+            if (!result.includes('decoding=')) {
+                result = result.replace('<img', '<img decoding="async"');
+            }
+            return result.replace(/src\s*=\s*(['"])[^'"]*\1/, `src="${imgUrl}"`);
         }
         return imgTag;
     });

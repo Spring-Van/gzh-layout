@@ -4,7 +4,7 @@
       <div
         v-for="toast in toasts"
         :key="toast.id"
-        class="min-w-[300px] p-4 rounded-lg shadow-lg flex items-center gap-3 animate-slide-in transition-all duration-300"
+        class="min-w-[300px] p-4 rounded-lg shadow-lg flex items-center gap-3 animate-slide-in transition-colors duration-300"
         :class="toastClass(toast.type)"
       >
         <svg

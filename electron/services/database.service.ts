@@ -193,9 +193,17 @@ export class DatabaseService {
     }
 
     setDefaultSyncWechatAccount(accountId: string): void {
-        this.data.wechatAccounts.forEach(a => {
-            a.isDefaultSync = a.id === accountId;
-        });
+        const target = this.data.wechatAccounts.find(a => a.id === accountId);
+        // toggle 模式：如果该账号已是默认同步，则取消（允许全部取消）
+        if (target && target.isDefaultSync) {
+            this.data.wechatAccounts.forEach(a => {
+                a.isDefaultSync = false;
+            });
+        } else {
+            this.data.wechatAccounts.forEach(a => {
+                a.isDefaultSync = a.id === accountId;
+            });
+        }
         this.saveToFile();
     }
 

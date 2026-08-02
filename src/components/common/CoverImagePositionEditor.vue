@@ -38,7 +38,7 @@
                 v-for="(_, idx) in slotCount"
                 :key="idx"
                 @click="switchSlot(idx)"
-                class="px-4 py-2 text-sm font-medium rounded-t-lg transition-all whitespace-nowrap border-b-2"
+                class="px-4 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap border-b-2"
                 :class="[
                   activeSlot === idx
                     ? 'text-primary border-primary bg-primary/5'

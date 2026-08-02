@@ -144,7 +144,8 @@ export const useBatchTypesetStore = defineStore('batchTypeset', () => {
    * 设置全局配置
    */
   function setGlobalConfig(config: Partial<GlobalConfig>) {
-    globalConfig.value = { ...globalConfig.value, ...config };
+    // in-place 合并，只触发真正变化子字段的依赖
+    Object.assign(globalConfig.value, config);
   }
 
   /**

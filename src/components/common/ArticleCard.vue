@@ -1,6 +1,6 @@
 <template>
   <div
-    class="p-3 rounded-xl border-2 cursor-pointer transition-all duration-200 flex items-center gap-3"
+    class="p-3 rounded-xl border-2 cursor-pointer transition-[background-color,border-color,box-shadow] duration-200 flex items-center gap-3"
     :class="[
       isActive ? 'bg-blue-50/50 border-primary' : 'bg-white border-transparent hover:border-slate-200 shadow-sm'
     ]"
