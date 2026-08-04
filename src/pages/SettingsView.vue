@@ -179,10 +179,16 @@
               <div class="flex items-start justify-between mb-3">
                 <div class="flex items-center gap-2 min-w-0 cursor-pointer" @click="switchWechatAccount(account.id)">
                   <div
-                    class="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                    class="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
                     :class="account.isActive ? 'bg-accent' : 'bg-text-muted'"
                   >
-                    {{ account.nickname?.charAt(0) || "微" }}
+                    <img
+                      v-if="account.headImg"
+                      :src="account.headImg"
+                      :alt="`${account.nickname} 头像`"
+                      class="w-full h-full object-cover"
+                    />
+                    <span v-else>{{ account.nickname?.charAt(0) || "微" }}</span>
                   </div>
                   <div class="min-w-0">
                     <h3 class="text-sm font-semibold text-text-primary truncate">

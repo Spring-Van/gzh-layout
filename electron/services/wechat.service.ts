@@ -62,6 +62,7 @@ export interface AuthResult {
 }
 
 export interface WechatTokenCache {
+  appId: string;
   accessToken: string;
   expiresAt: number;
 }
@@ -120,7 +121,7 @@ class WechatService {
   private tokenCache: WechatTokenCache | null = null;
 
   async getAccessToken(appId: string, appSecret: string): Promise<string> {
-    if (this.tokenCache && this.tokenCache.expiresAt > Date.now()) {
+    if (this.tokenCache && this.tokenCache.appId === appId && this.tokenCache.expiresAt > Date.now()) {
       return this.tokenCache.accessToken;
     }
 
@@ -134,6 +135,7 @@ class WechatService {
     }
 
     this.tokenCache = {
+      appId,
       accessToken: data.access_token,
       expiresAt: Date.now() + (data.expires_in - TOKEN_EXPIRE_BUFFER) * 1000,
     };
