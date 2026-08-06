@@ -1386,9 +1386,10 @@ const goToExport = () => {
     router.push(`/comic/page-export/${projectId}`);
   }
 };
-const goToSync = () => {
+const goToSync = async () => {
   if (projectId) {
-    router.push(`/comic/page-sync/${projectId}`);
+    await flushSavePageData();
+    await router.push(`/comic/page-sync/${projectId}`);
   }
 };
 

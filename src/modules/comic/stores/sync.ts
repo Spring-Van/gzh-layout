@@ -118,6 +118,8 @@ export const useComicSyncStore = defineStore('comicSync', () => {
       syncData.value = {
         ...createDefaultSyncData(),
         ...savedSyncData,
+        contentBlocks: [],
+        containerStyle: {},
         cover: { ...createDefaultSyncData().cover, ...savedSyncData.cover },
         layout: { ...createDefaultSyncData().layout, ...savedSyncData.layout },
         styleInsert: {
