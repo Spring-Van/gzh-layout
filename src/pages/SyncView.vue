@@ -286,19 +286,27 @@
             </p>
           </div>
         </div>
-        <button
-          class="px-6 py-2.5 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-700 transition shadow-sm"
-          @click="router.push('/')"
-        >
-          返回工作台
-        </button>
+        <div class="flex gap-3">
+          <button
+            class="px-5 py-2.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
+            @click="handleResync"
+          >
+            再次同步
+          </button>
+          <button
+            class="px-6 py-2.5 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-700 transition shadow-sm"
+            @click="router.push('/')"
+          >
+            返回工作台
+          </button>
+        </div>
       </div>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import SyncItem from "../components/common/SyncItem.vue";
 import { useToast } from "../hooks/useToast";
@@ -308,6 +316,7 @@ import {
   buildContentHtmlFromTemplate,
   buildBuiltinTemplateHtml,
 } from "../composables/useWechatUpload";
+import { onWechatUploadProgress } from "../api/wechat";
 import { useBatchTypesetStore } from "../stores/batchTypeset";
 import { useWechatAccountStore } from "../stores/wechatAccount";
 import { useTemplateStore } from "../stores/template";
@@ -329,6 +338,7 @@ const {
   uploadResults,
   buildArticleParams,
   startBatchUpload,
+  reset,
 } = useWechatUpload();
 
 const shouldPublish = ref(false);
@@ -559,6 +569,61 @@ async function startBatchSync() {
     showError("同步失败，请检查配置后重试");
   }
 }
+
+/**
+ * 再次同步：重置 uploadSuccess 等状态，回到同步表单。
+ * 用于 keep-alive 复用组件时用户返回修改后想重新同步的场景。
+ */
+function handleResync() {
+  reset();
+}
+
+// 监听单篇同步完成事件，按文章标题重命名对应分组文件夹
+// 仅在 splitMode 项目下生效（提取的拆分下载 / 矩阵的备份拆分）
+let unsubscribeRename: (() => void) | null = null;
+onMounted(() => {
+  unsubscribeRename = onWechatUploadProgress(async (progress) => {
+    if (
+      progress.step !== "done" ||
+      progress.currentArticleIndex >= progress.totalArticles
+    ) {
+      return;
+    }
+
+    const project = projectStore.currentProject;
+    if (!project?.splitMode) return;
+
+    const idx = progress.currentArticleIndex;
+    const group = project.groups?.[idx];
+    if (!group?.folderPath) return;
+
+    const article = syncArticles.value[idx];
+    const title = article?.title || `文章${idx + 1}`;
+
+    try {
+      const newPath = await window.electronAPI.renameFolderToTitle(
+        group.folderPath,
+        title,
+      );
+      if (newPath) {
+        // 同步更新 group.folderPath，避免后续再次触发时旧路径已失效
+        group.folderPath = newPath;
+        consoleLogs.value.push(
+          `[重命名] 文章 ${idx + 1} 文件夹 → ${newPath}`,
+        );
+      }
+    } catch (e) {
+      consoleLogs.value.push(
+        `[重命名] 失败: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  });
+});
+
+onUnmounted(() => {
+  unsubscribeRename?.();
+  unsubscribeRename = null;
+});
 </script>
 
 <style scoped>

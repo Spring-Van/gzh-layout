@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteCoverImage: (filePath: string) => ipcRenderer.invoke('file:deleteCoverImage', filePath),
   convertWebpImages: (sourcePath: string, webpImages: Array<{ path: string; name: string }>, backupEnabled: boolean) =>
     ipcRenderer.invoke('file:convertWebpImages', sourcePath, webpImages, backupEnabled),
+  renameFolderToTitle: (oldFolderPath: string, newFolderName: string) =>
+    ipcRenderer.invoke('file:renameFolderToTitle', oldFolderPath, newFolderName),
   db: {
     init: () => ipcRenderer.invoke('db:init'),
     getAllProjects: () => ipcRenderer.invoke('db:getAllProjects'),

@@ -105,6 +105,7 @@ declare global {
       deleteCoverFolder: (coverFolder: string) => Promise<void>;
       deleteCoverImage: (filePath: string) => Promise<void>;
       convertWebpImages: (sourcePath: string, webpImages: Array<{ path: string; name: string }>, backupEnabled: boolean) => Promise<Record<string, string>>;
+      renameFolderToTitle: (oldFolderPath: string, newFolderName: string) => Promise<string>;
       db: {
         init: () => Promise<{ success: boolean }>;
         getAllProjects: () => Promise<ProjectConfig[]>;

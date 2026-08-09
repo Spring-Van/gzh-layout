@@ -250,4 +250,6 @@ export interface ComicSyncData {
   containerStyle: Record<string, string>
   /** 上次使用的公众号账号 ID */
   wechatAccountId?: string
+  /** 上次保存时的图片路径签名（用于检测重新解析/生图后图片是否变化） */
+  imageSignature?: string
 }

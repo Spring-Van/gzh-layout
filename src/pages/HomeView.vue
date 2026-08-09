@@ -44,6 +44,116 @@
 
       <!-- 工具网格 -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- 生图工作台 -->
+        <div
+          class="group relative bg-surface rounded-2xl border border-border-subtle overflow-hidden cursor-pointer transition-[border-color,box-shadow,transform] duration-300 hover:shadow-xl hover:shadow-purple-500/10 hover:border-purple-300 hover:-translate-y-1"
+          @click="$router.push('/image-studio')"
+        >
+          <!-- 顶部渐变装饰条 -->
+          <div
+            class="h-1.5 bg-gradient-to-r from-purple-500 to-pink-500"
+          ></div>
+
+          <div class="p-7">
+            <div class="flex items-start gap-5">
+              <!-- 图标 -->
+              <div
+                class="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-purple-500/20 group-hover:scale-110 transition-transform duration-300"
+              >
+                <svg
+                  class="w-7 h-7 text-white"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.5"
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
+                </svg>
+              </div>
+
+              <!-- 内容 -->
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-2">
+                  <h3 class="text-xl font-bold text-text-primary">生图工作台</h3>
+                  <span
+                    class="px-2 py-0.5 text-[10px] font-medium bg-purple-50 text-purple-600 rounded-full"
+                  >
+                    可用
+                  </span>
+                </div>
+                <p class="text-sm text-text-secondary leading-relaxed mb-4">
+                  AI 图像生成，支持多种模型，提示词驱动创作
+                </p>
+
+                <!-- 功能标签 -->
+                <div class="flex flex-wrap gap-2">
+                  <span
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
+                  >
+                    多模型支持
+                  </span>
+                  <span
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
+                  >
+                    提示词生成
+                  </span>
+                  <span
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
+                  >
+                    画夹管理
+                  </span>
+                  <span
+                    class="px-2.5 py-1 text-[11px] font-medium bg-elevated text-text-secondary rounded-md"
+                  >
+                    批量下载
+                  </span>
+                </div>
+
+                <!-- 快捷入口 -->
+                <div class="flex items-center gap-3 mt-4 pt-4 border-t border-border-subtle">
+                  <button
+                    class="flex items-center gap-1.5 text-xs text-text-secondary hover:text-accent transition-colors"
+                    @click.stop="$router.push('/gallery')"
+                  >
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                    </svg>
+                    画夹
+                  </button>
+                  <button
+                    class="flex items-center gap-1.5 text-xs text-text-secondary hover:text-accent transition-colors"
+                    @click.stop="$router.push('/prompt-templates')"
+                  >
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                    </svg>
+                    常用提示词
+                  </button>
+                </div>
+              </div>
+
+              <!-- 箭头 -->
+              <svg
+                class="w-5 h-5 text-text-muted group-hover:text-purple-500 group-hover:translate-x-1 transition-[color,transform] duration-300 flex-shrink-0 mt-2"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 5l7 7-7 7"
+                />
+              </svg>
+            </div>
+          </div>
+        </div>
+
         <!-- 漫画工作台 -->
         <div
           class="group relative bg-surface rounded-2xl border border-border-subtle overflow-hidden cursor-pointer transition-[border-color,box-shadow,transform] duration-300 hover:shadow-xl hover:shadow-cyan-500/10 hover:border-cyan-300 hover:-translate-y-1"

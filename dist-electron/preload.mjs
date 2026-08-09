@@ -30,6 +30,7 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   deleteCoverFolder: (coverFolder) => electron.ipcRenderer.invoke("file:deleteCoverFolder", coverFolder),
   deleteCoverImage: (filePath) => electron.ipcRenderer.invoke("file:deleteCoverImage", filePath),
   convertWebpImages: (sourcePath, webpImages, backupEnabled) => electron.ipcRenderer.invoke("file:convertWebpImages", sourcePath, webpImages, backupEnabled),
+  renameFolderToTitle: (oldFolderPath, newFolderName) => electron.ipcRenderer.invoke("file:renameFolderToTitle", oldFolderPath, newFolderName),
   db: {
     init: () => electron.ipcRenderer.invoke("db:init"),
     getAllProjects: () => electron.ipcRenderer.invoke("db:getAllProjects"),

@@ -202,6 +202,13 @@ export interface ImageGroup {
   groupId: string;
   name: string;
   images: ImageFile[];
+  /**
+   * 该分组对应的本地文件夹绝对路径。
+   * - 矩阵「备份拆分」场景：备份目录下的「{folderDate} - 第N组」文件夹
+   * - 提取「按文章拆分下载」场景：savePath 下的「分组N」子文件夹
+   * 同步成功后用于按文章标题重命名该文件夹。
+   */
+  folderPath?: string;
 }
 
 // 重复图片组
@@ -299,6 +306,13 @@ export interface ProjectConfig {
   images: ImageFile[];
   groups: ImageGroup[];
   webpConvertedMap?: Record<string, string>; // 原webp路径 -> 转换后png路径
+  /**
+   * 是否按分组拆分到子文件夹。
+   * - 矩阵场景：用户在 SetupView 勾选了「备份拆分」(createFolders) 且 groups 非空
+   * - 提取场景：用户在 ExtractView 选择「按文章拆分下载到子目录」策略
+   * 同步完成后会按文章标题重命名对应分组文件夹。
+   */
+  splitMode?: boolean;
   createdAt: string;
   updatedAt: string;
 }

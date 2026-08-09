@@ -349,12 +349,8 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { useRouter } from "vue-router";
 import { useProjectStore } from "../stores/project";
-import { useBatchTypesetStore } from "../stores/batchTypeset";
-import { useCoverTemplateStore } from "../stores/coverTemplate";
-import { useTemplateStore } from "../stores/template";
-import { useCoverManager } from "../composables/useCoverManager";
+import { useTypesetNavigation } from "../composables/useTypesetNavigation";
 import { useToast } from "../hooks/useToast";
 import {
   createProjectFromFolder,
@@ -371,18 +367,9 @@ import WebpConvertModal from "../components/common/WebpConvertModal.vue";
 const { success, error } = useToast();
 
 const projectStore = useProjectStore();
-const batchStore = useBatchTypesetStore();
-const coverTemplateStore = useCoverTemplateStore();
-const templateStore = useTemplateStore();
-const router = useRouter();
 
-// 初始化封面生成器
-const { getCoverTemplateImageCount, initialGenerateAllArticleCovers } =
-  useCoverManager({
-    coverTemplates: coverTemplateStore.coverTemplates,
-    getImageUrl: (path) => `file://${path.replace(/\\/g, "/")}`,
-    addLog: (msg) => console.log("[封面生成]", msg),
-  });
+// 排版跳转（核心流程抽离自 useTypesetNavigation）
+const { navigateToTypeset } = useTypesetNavigation();
 
 const selectedFolder = ref<string | null>(null);
 const processing = ref(false);
@@ -406,6 +393,11 @@ let pendingWorkingImages: ImageFile[] = [];
 const showWebpModal = ref(false);
 const webpImages = ref<ImageFile[]>([]);
 let pendingWebpWorkingImages: ImageFile[] = [];
+
+// 拆分模式创建的分组文件夹绝对路径数组（按分组顺序），
+// 在 finishProcessing 中回填到 project.groups[i].folderPath，
+// 供 SyncView 同步成功后按文章标题重命名
+const splitFolderPaths = ref<string[]>([]);
 
 function getTodayDate(): string {
   const today = new Date();
@@ -578,12 +570,15 @@ async function completeProcessing(
       path: img.path,
       name: img.name,
     }));
-    await splitIntoFolders(
+    // splitIntoFolders 返回创建的分组文件夹绝对路径数组（按分组顺序）
+    const createdFolders = await splitIntoFolders(
       project.sourceFolder,
       imagesForSplit,
       config.value.splitCount,
       config.value.folderDate,
     );
+    // 缓存到 ref，finishProcessing 时回填到 project.groups[i].folderPath
+    splitFolderPaths.value = createdFolders;
     success("拆分完成，分组文件夹已创建");
   } else {
     if (config.value.backupEnabled) {
@@ -621,6 +616,27 @@ function finishProcessing(
   };
 
   projectStore.createGroups(workingImages, config.value.splitCount);
+
+  // 标记 splitMode：勾选了「备份拆分」(createFolders) 且分组数 > 1，
+  // 同步完成后会把每个分组文件夹按文章标题重命名
+  if (projectStore.currentProject) {
+    const groups = projectStore.currentProject.groups ?? [];
+    projectStore.currentProject.splitMode =
+      config.value.createFolders && groups.length > 0;
+
+    // 回填每个分组的本地文件夹路径（仅拆分模式有值）
+    // splitFolderPaths 与 groups 顺序一一对应
+    if (splitFolderPaths.value.length > 0) {
+      groups.forEach((g, idx) => {
+        if (splitFolderPaths.value[idx]) {
+          g.folderPath = splitFolderPaths.value[idx];
+        }
+      });
+      // 用完即清，避免下次复用残留
+      splitFolderPaths.value = [];
+    }
+  }
+
   success("处理完成");
   processing.value = false;
 }
@@ -634,118 +650,41 @@ async function handleNavigateToTypeset() {
   navigating.value = true;
 
   try {
-    // 加载必要的模板数据
-    console.log("[排版跳转] 开始加载模板数据...");
-    await templateStore.loadTemplates();
-    await coverTemplateStore.loadCoverTemplates();
-    console.log("[排版跳转] 模板数据加载完成");
+    // 计算封面图保存基础路径（依据配置决定使用备份文件夹 / 拆分模式 / 源文件夹）
+    const project = projectStore.currentProject;
+    let coverBasePath: string;
 
-    // 生成文章数据
-    const articleData: Array<{
-      id: string;
-      images: Array<{ id: string; path: string; name: string }>;
-    }> = [];
-
-    if (
-      projectStore.currentProject.groups &&
-      projectStore.currentProject.groups.length > 0
-    ) {
-      projectStore.currentProject.groups.forEach((group) => {
-        articleData.push({
-          id: group.groupId,
-          images: group.images,
-        });
-      });
-    } else if (projectStore.currentProject.images) {
-      const countPerArticle = config.value.splitCount;
-      const images = projectStore.currentProject.images;
-
-      for (let i = 0; i < images.length; i += countPerArticle) {
-        const chunk = images.slice(i, i + countPerArticle);
-        articleData.push({
-          id: `article_${articleData.length + 1}`,
-          images: chunk,
-        });
-      }
-    }
-
-    console.log("[排版跳转] 初始化批量排版 store...");
-    batchStore.initArticles(articleData);
-    console.log(
-      "[排版跳转] 批量排版 store 初始化完成，文章数量:",
-      batchStore.articles.length,
-    );
-
-    // 获取封面模板
-    const firstCoverTemplateId =
-      coverTemplateStore.coverTemplates.length > 0
-        ? coverTemplateStore.coverTemplates[0].id
-        : "";
-
-    console.log("[排版跳转] 封面模板 ID:", firstCoverTemplateId);
-
-    if (firstCoverTemplateId) {
-      batchStore.setGlobalCoverConfig({
-        templateId: firstCoverTemplateId,
-      });
-
-      const imageCount = getCoverTemplateImageCount(firstCoverTemplateId);
-      console.log("[排版跳转] 封面模板需要图片数量:", imageCount);
-
-      const project = projectStore.currentProject;
-      let coverBasePath: string;
-
-      if (config.value.backupEnabled) {
-        const folderName = project.sourceFolder.split(/[\\/]/).pop() || "";
-        const lastSlashIndex = project.sourceFolder.lastIndexOf(
-          /[\\/]/.exec(project.sourceFolder)?.[0] || "/",
-        );
-        const parentDir =
-          lastSlashIndex > 0
-            ? project.sourceFolder.substring(0, lastSlashIndex)
-            : "";
-        coverBasePath = parentDir
-          ? `${parentDir}/${folderName}-备份`
-          : `${folderName}-备份`;
-        console.log(
-          "[排版跳转] 使用备份文件夹作为封面基础路径:",
-          coverBasePath,
-        );
-      } else if (
-        config.value.createFolders &&
-        project.groups &&
-        project.groups.length > 0
-      ) {
-        coverBasePath = "";
-        console.log(
-          "[排版跳转] 使用拆分文件夹，封面将分别存储在各个分组文件夹中",
-        );
-      } else {
-        coverBasePath = project.sourceFolder;
-        console.log("[排版跳转] 使用源文件夹作为封面基础路径:", coverBasePath);
-      }
-
-      const defaultIndices = Array.from(
-        { length: imageCount },
-        (_, i) => i + 1,
+    if (config.value.backupEnabled) {
+      const folderName = project.sourceFolder.split(/[\\/]/).pop() || "";
+      const lastSlashIndex = project.sourceFolder.lastIndexOf(
+        /[\\/]/.exec(project.sourceFolder)?.[0] || "/",
       );
-      await initialGenerateAllArticleCovers(
-        firstCoverTemplateId,
-        defaultIndices,
+      const parentDir =
+        lastSlashIndex > 0
+          ? project.sourceFolder.substring(0, lastSlashIndex)
+          : "";
+      coverBasePath = parentDir
+        ? `${parentDir}/${folderName}-备份`
+        : `${folderName}-备份`;
+      console.log(
+        "[排版跳转] 使用备份文件夹作为封面基础路径:",
         coverBasePath,
       );
-
-      console.log("[排版跳转] 所有文章封面图生成完成");
+    } else if (
+      config.value.createFolders &&
+      project.groups &&
+      project.groups.length > 0
+    ) {
+      coverBasePath = "";
+      console.log(
+        "[排版跳转] 使用拆分文件夹，封面将分别存储在各个分组文件夹中",
+      );
     } else {
-      console.warn("[排版跳转] 没有找到封面模板");
+      coverBasePath = project.sourceFolder;
+      console.log("[排版跳转] 使用源文件夹作为封面基础路径:", coverBasePath);
     }
 
-    // 等待一下确保数据已保存
-    await new Promise((resolve) => setTimeout(resolve, 300));
-
-    console.log("[排版跳转] 准备跳转到 /typeset");
-    // 跳转到批量排版页面
-    await router.push("/typeset");
+    await navigateToTypeset(coverBasePath);
     console.log("[排版跳转] 跳转成功");
   } catch (e) {
     console.error("[排版跳转] 失败:", e);

@@ -249,8 +249,14 @@ export function useWechatUpload() {
       }
 
       if (progress.step === 'done') {
-        if (progress.message.includes('失败')) {
-          articleStatuses.value[progress.currentArticleIndex] = 'failed';
+        // 主进程约定：
+        //   currentArticleIndex < totalArticles → 单篇同步完成（草稿创建成功，无论发布是否成功）
+        //   currentArticleIndex === totalArticles → 全部完成汇总
+        const isSingleArticleDone =
+          progress.currentArticleIndex < progress.totalArticles;
+
+        if (isSingleArticleDone) {
+          articleStatuses.value[progress.currentArticleIndex] = 'success';
         }
       }
     });

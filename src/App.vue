@@ -57,6 +57,9 @@ const isHomePage = computed(() => route.path === '/');
 const isExtractPage = computed(() => route.path === '/extract');
 const isSettingsPage = computed(() => route.path === '/settings');
 const isComicModule = computed(() => route.meta.module === 'comic');
+const isImageStudio = computed(() => route.path === '/image-studio');
+const isGallery = computed(() => route.path === '/gallery');
+const isPromptTemplates = computed(() => route.path === '/prompt-templates');
 
 const showTemplateModal = ref(false);
 const showCoverTemplateModal = ref(false);
@@ -79,7 +82,7 @@ function openModal(type: string) {
 <template>
   <div id="app" class="h-screen flex flex-col overflow-hidden">
     <AppHeader
-      v-if="!isHomePage && !isExtractPage && !isSettingsPage && !isComicModule"
+      v-if="!isHomePage && !isExtractPage && !isSettingsPage && !isComicModule && !isImageStudio && !isGallery && !isPromptTemplates"
       :current-step="currentStep"
       @go-to-step="
         (step: string) => $router.push(`/${step === 'home' ? '' : step}`)

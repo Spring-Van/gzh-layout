@@ -41,4 +41,8 @@ export function registerFileIpc() {
   ipcMain.handle('file:convertWebpImages', async (_, sourcePath: string, webpImages: Array<{ path: string; name: string }>, backupEnabled: boolean) => {
     return FileService.convertWebpImages(sourcePath, webpImages, backupEnabled);
   });
+
+  ipcMain.handle('file:renameFolderToTitle', async (_, oldFolderPath: string, newFolderName: string) => {
+    return FileService.renameFolderToTitle(oldFolderPath, newFolderName);
+  });
 }

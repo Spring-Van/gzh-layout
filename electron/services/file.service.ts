@@ -105,6 +105,61 @@ export class FileService {
         return coverFolder;
     }
 
+    /**
+     * 清洗字符串为合法文件夹名（去除 Windows/macOS 非法字符）
+     * - 替换 \ / : * ? " < > | 为 _
+     * - 去除首尾空格和点（Windows 不允许）
+     * - 截断到 80 字符，避免过长
+     */
+    static sanitizeFolderName(name: string): string {
+        const cleaned = (name || '')
+            .replace(/[\\/:*?"<>|]/g, '_')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .replace(/^\.+|\.+$/g, '');
+        const fallback = '未命名文章';
+        return cleaned.slice(0, 80) || fallback;
+    }
+
+    /**
+     * 把分组文件夹重命名为文章标题。
+     * 用于：同步完成单篇文章后，把 savePath/分组N 改为 savePath/{文章标题}。
+     *
+     * @param oldFolderPath 旧文件夹绝对路径
+     * @param newFolderName 期望的新文件夹名（会被自动 sanitize）
+     * @returns 新文件夹绝对路径；若旧路径不存在则返回空串
+     */
+    static async renameFolderToTitle(
+        oldFolderPath: string,
+        newFolderName: string
+    ): Promise<string> {
+        // 旧路径不存在直接返回空，避免误删
+        if (!(await fs.pathExists(oldFolderPath))) {
+            return '';
+        }
+
+        const parentDir = path.dirname(oldFolderPath);
+        const sanitized = this.sanitizeFolderName(newFolderName);
+        let targetPath = path.join(parentDir, sanitized);
+
+        // 目标已存在则追加序号：标题 / 标题_2 / 标题_3 ...
+        if (targetPath !== oldFolderPath && (await fs.pathExists(targetPath))) {
+            let seq = 2;
+            while (await fs.pathExists(path.join(parentDir, `${sanitized}_${seq}`))) {
+                seq++;
+            }
+            targetPath = path.join(parentDir, `${sanitized}_${seq}`);
+        }
+
+        // 旧路径与新路径相同，无需重命名
+        if (targetPath === oldFolderPath) {
+            return oldFolderPath;
+        }
+
+        await fs.rename(oldFolderPath, targetPath);
+        return targetPath;
+    }
+
     static async saveCoverImage(coverFolder: string, base64Data: string, filename: string): Promise<string> {
         await fs.ensureDir(coverFolder);
 

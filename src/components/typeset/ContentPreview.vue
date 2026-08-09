@@ -120,6 +120,7 @@
                 contenteditable="true"
                 @input="updateEmptyBlock(index, $event)"
                 @focus="focusEmptyBlock(index, $event)"
+                @blur="handleEmptyBlockBlur(index, $event)"
                 @compositionstart="onCompositionStart"
                 @compositionend="onCompositionEnd"
               >
@@ -329,7 +330,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount, onUnmounted, nextTick } from 'vue';
 import type { ContentBlock, StyleTemplate, GlobalStyleInsertConfig } from '../../types';
 import { useStyleTemplateStore } from '../../stores/styleTemplate';
 import { useBatchTypesetStore } from '../../stores/batchTypeset';
@@ -563,6 +564,10 @@ function handleTemplateClick(event: MouseEvent) {
 /**
  * 将当前编辑中的行的修改保存到行覆盖映射
  * 不修改 v-html 的源字符串（processedHtml），避免 DOM 序列化往返丢失内容
+ *
+ * 关键：编辑模板行后，立即构建 contentBlocks 并 emit 给父组件持久化。
+ * 否则组件卸载（切换 tab/返回）后 rowOverrides（内存 Map）丢失，编辑内容无法恢复。
+ * 构建后渲染会从 v-html 切换到 contentBlocks 模式，两套样式已对齐，不会丢失行高/margin。
  */
 function flushEditingRow() {
   if (!editingRowEl.value) return;
@@ -578,6 +583,16 @@ function flushEditingRow() {
   const newRowHtml = editingRowEl.value.outerHTML;
   rowOverrides.set(idx, newRowHtml);
   editingRowEl.value = null;
+
+  // 立即构建 contentBlocks 并 emit，确保持久化
+  // 此时 DOM 仍是编辑后的内容，buildContentBlocksFromTemplate 能读到最新 outerHTML
+  if (useTemplateRows.value && !hasContentBlocks.value) {
+    const blocks = buildContentBlocksFromTemplate();
+    if (blocks.length > 0) {
+      contentBlocks.value = blocks;
+      emitContentBlocksUpdate();
+    }
+  }
 }
 
 /**
@@ -895,6 +910,29 @@ function focusEmptyBlock(index: number, event: Event) {
   }
 }
 
+/**
+ * empty 块失焦时强制同步 DOM 内容到 contentBlocks
+ * 修复：拼音输入过程中或刚输入完就点击"同步至公众号"时，content 可能未及时同步
+ */
+function handleEmptyBlockBlur(index: number, event: Event) {
+  // compositionend 应在 blur 前触发，但为保险，强制读取 DOM
+  const target = event.target as HTMLElement;
+  const block = contentBlocks.value[index];
+  if (!block) return;
+  const newContent = target.innerText;
+  if (newContent !== (block.content || '')) {
+    const blocks = [...contentBlocks.value];
+    blocks[index] = { ...blocks[index], content: newContent };
+    contentBlocks.value = blocks;
+    if (props.articleId) {
+      batchTypesetStore.updateArticleContentBlocks(props.articleId, [...contentBlocks.value], { ...containerStyleObj.value });
+    }
+    // 重置 isComposing（blur 时若仍为 true，强制复位避免后续 emit 被阻塞）
+    if (isComposing.value) isComposing.value = false;
+    emitContentBlocksUpdate();
+  }
+}
+
 function updateHtmlBlock(index: number, event: Event) {
   if (isComposing.value) return;
   const target = event.target as HTMLElement;
@@ -1023,6 +1061,19 @@ watch(
     }
     // 如果正在编辑，不更新
     if (editingBlockId.value) return;
+    // 内容相同则跳过，避免保存后回传触发不必要的重渲染和 DOM 操作导致卡顿
+    if (newBlocks.length === contentBlocks.value.length) {
+      let same = true;
+      for (let i = 0; i < newBlocks.length; i++) {
+        if (newBlocks[i].id !== contentBlocks.value[i].id ||
+            newBlocks[i].html !== contentBlocks.value[i].html ||
+            newBlocks[i].content !== contentBlocks.value[i].content) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return;
+    }
     // 同步外部传入的contentBlocks（包括样式块）
     contentBlocks.value = newBlocks.map(b => ({ ...b }));
     if (props.storedContainerStyle) {
@@ -1297,6 +1348,34 @@ watch(
   }
 );
 
+// 组件卸载前强制提交所有未持久化的编辑（模板行/空行/html块）
+// 确保用户点击"返回"等离开页面操作时，编辑内容能同步到父组件并持久化
+onBeforeUnmount(() => {
+  // 重置输入法状态（用户可能在拼音输入中直接离开页面）
+  isComposing.value = false;
+  // 提交正在编辑的模板行到 rowOverrides，并同步到 contentBlocks
+  flushEditingRow();
+  // 提交正在编辑的 html 块（若有）
+  if (editingBlockId.value) {
+    const editingIndex = contentBlocks.value.findIndex(b => b.id === editingBlockId.value);
+    if (editingIndex !== -1) {
+      const el = document.querySelector(`[data-block-id="${editingBlockId.value}"]`) as HTMLElement;
+      if (el) {
+        const block = contentBlocks.value[editingIndex];
+        const newHtml = el.innerHTML;
+        if (newHtml !== (block.html || '')) {
+          const blocks = [...contentBlocks.value];
+          blocks[editingIndex] = { ...blocks[editingIndex], html: newHtml, content: el.innerText };
+          contentBlocks.value = blocks;
+        }
+      }
+    }
+    editingBlockId.value = null;
+  }
+  // 最终统一 emit 一次，确保父组件拿到最新 contentBlocks
+  emitContentBlocksUpdate();
+});
+
 onMounted(() => {
   document.addEventListener('click', handleClickOutside);
   window.addEventListener('scroll', updateToolbarPosition, true);
@@ -1378,6 +1457,35 @@ onUnmounted(() => {
 .template-container :deep(dl),
 .template-container :deep(dd),
 .template-container :deep(pre) {
+  margin: 1em 0;
+}
+
+/* contentBlocks 渲染模式：与 template-container 保持一致的默认样式，避免切换模式后行高/margin 丢失 */
+.content-blocks-container :deep(p) {
+  margin: 1em 0;
+}
+.content-blocks-container :deep(h1),
+.content-blocks-container :deep(h2),
+.content-blocks-container :deep(h3),
+.content-blocks-container :deep(h4),
+.content-blocks-container :deep(h5),
+.content-blocks-container :deep(h6) {
+  margin: 0.67em 0;
+  font-weight: bold;
+}
+.content-blocks-container :deep(h1) { font-size: 2em; }
+.content-blocks-container :deep(h2) { font-size: 1.5em; }
+.content-blocks-container :deep(h3) { font-size: 1.17em; }
+.content-blocks-container :deep(h4) { font-size: 1em; }
+.content-blocks-container :deep(h5) { font-size: 0.83em; }
+.content-blocks-container :deep(h6) { font-size: 0.67em; }
+.content-blocks-container :deep(blockquote),
+.content-blocks-container :deep(figure),
+.content-blocks-container :deep(ul),
+.content-blocks-container :deep(ol),
+.content-blocks-container :deep(dl),
+.content-blocks-container :deep(dd),
+.content-blocks-container :deep(pre) {
   margin: 1em 0;
 }
 

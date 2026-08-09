@@ -133,6 +133,50 @@
           {{ isDownloading ? "下载中..." : "下载全部" }}
         </button>
 
+        <!-- 前往排版按钮：下载图片并进入公众号矩阵批量排版 -->
+        <button
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gradient-to-r from-emerald-500 to-blue-500 hover:from-emerald-600 hover:to-blue-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          @click="openTypesetDialog"
+          :disabled="isProcessing || isDownloading || isTypesetting || downloadableCount === 0"
+          :title="downloadableCount === 0 ? '没有可排版的图片' : '下载图片并进入批量排版'"
+        >
+          <svg
+            v-if="isTypesetting"
+            class="w-4 h-4 animate-spin"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              class="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              stroke-width="4"
+            ></circle>
+            <path
+              class="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+            ></path>
+          </svg>
+          <svg
+            v-else
+            class="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M9 5l7 7-7 7"
+            />
+          </svg>
+          {{ isTypesetting ? "排版准备中..." : "前往排版" }}
+        </button>
+
         <!-- 过滤下拉 -->
         <div class="relative" ref="filterDropdownRef">
           <button
@@ -942,6 +986,53 @@
       </main>
     </div>
 
+    <!-- 前往排版配置弹窗 -->
+    <ExtractToTypesetDialog
+      :visible="showTypesetDialog"
+      :image-count="downloadableCount"
+      :initial-save-path="savePath"
+      @close="showTypesetDialog = false"
+      @confirm="proceedToTypeset"
+    />
+
+    <!-- 排版准备中遮罩 -->
+    <div
+      v-if="isTypesetting"
+      class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center"
+    >
+      <div
+        class="bg-white rounded-2xl shadow-2xl px-10 py-8 flex flex-col items-center gap-4 w-80"
+      >
+        <svg
+          class="w-10 h-10 text-emerald-500 animate-spin"
+          fill="none"
+          viewBox="0 0 24 24"
+        >
+          <circle
+            class="opacity-25"
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            stroke-width="4"
+          ></circle>
+          <path
+            class="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+          ></path>
+        </svg>
+        <p class="text-sm font-medium text-slate-700">{{ typesetProgressText }}</p>
+        <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+          <div
+            class="h-full bg-gradient-to-r from-emerald-500 to-blue-500 rounded-full transition-[width] duration-300"
+            :style="{ width: `${typesetProgress}%` }"
+          />
+        </div>
+        <p class="text-xs text-slate-400">{{ typesetProgress }}%</p>
+      </div>
+    </div>
+
     <div
       v-if="previewImageVisible"
       class="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-8"
@@ -1026,6 +1117,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive } from "vue";
 import { useToast } from "../hooks/useToast";
+import { useProjectStore } from "../stores/project";
+import { useTypesetNavigation } from "../composables/useTypesetNavigation";
+import ExtractToTypesetDialog, {
+  type ExtractTypesetConfig,
+} from "../components/extract/ExtractToTypesetDialog.vue";
+import type { ImageFile, ImageFormat, ProjectConfig } from "../types";
 
 interface ExtractedImage {
   id: string;
@@ -1072,6 +1169,15 @@ const {
   error: showError,
   warning: showWarning,
 } = useToast();
+
+const projectStore = useProjectStore();
+const { navigateToTypeset } = useTypesetNavigation();
+
+// === 前往排版相关状态 ===
+const showTypesetDialog = ref(false);
+const isTypesetting = ref(false);
+const typesetProgress = ref(0);
+const typesetProgressText = ref("");
 
 const urlInput = ref("");
 const savePath = ref("");
@@ -1219,6 +1325,17 @@ const downloadedCount = computed(() => {
 
 const canParse = computed(() => {
   return urlInput.value.trim().length > 0 && !isProcessing.value;
+});
+
+/**
+ * 当前可参与排版的图片数量（排除已标记过滤、预览过滤的）
+ * 与「下载全部」的过滤逻辑保持一致
+ */
+const downloadableCount = computed(() => {
+  const previewSet = previewFilteredIds.value;
+  return tasks.value
+    .flatMap((t) => t.images)
+    .filter((img) => !img.filtered && !previewSet.has(img.id)).length;
 });
 
 function platformName(platform: string): string {
@@ -1472,6 +1589,242 @@ function clearTasks() {
   Object.keys(imageLoadingState).forEach((key) => {
     delete imageLoadingState[key];
   });
+}
+
+// ========== 前往批量排版（与公众号矩阵联动） ==========
+
+/** 打开排版配置弹窗 */
+function openTypesetDialog() {
+  if (downloadableCount.value === 0) {
+    showWarning("没有可排版的图片");
+    return;
+  }
+  showTypesetDialog.value = true;
+}
+
+/**
+ * 从文件名/url 推断图片格式
+ */
+function detectImageFormat(filename: string, url: string): ImageFormat {
+  const lower = (filename + "|" + url).toLowerCase();
+  if (lower.includes(".png")) return "png";
+  if (lower.includes(".jpg") || lower.includes(".jpeg")) return "jpeg";
+  if (lower.includes(".webp")) return "webp";
+  if (lower.includes(".gif")) return "gif";
+  return "jpeg";
+}
+
+/**
+ * 把下载完成的 ExtractedImage 适配为矩阵的 ImageFile 结构
+ */
+function extractedToImageFile(
+  img: ExtractedImage,
+  order: number,
+): ImageFile | null {
+  // 必须已下载到本地（排版依赖本地文件路径）
+  if (!img.downloaded || !img.localPath) return null;
+  return {
+    id: img.id,
+    path: img.localPath,
+    name: img.filename,
+    size: img.fileSize ?? 0,
+    width: img.width ?? 0,
+    height: img.height ?? 0,
+    format: detectImageFormat(img.filename, img.url),
+    enabled: true,
+    isCover: false,
+    order,
+  };
+}
+
+/**
+ * 数组原地打乱（Fisher–Yates）
+ */
+function shuffleArray<T>(arr: T[]): void {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
+/**
+ * 前往排版主流程：
+ * 1. 收集可下载图片 → (可选)打乱 → 按 splitCount 分组
+ * 2. 下载落地（全部到一个目录 / 按分组到子目录）→ 回填 localPath
+ * 3. ExtractedImage → ImageFile 适配 → 构造 ProjectConfig → createGroups
+ * 4. 调 useTypesetNavigation.navigateToTypeset 跳转
+ */
+async function proceedToTypeset(config: ExtractTypesetConfig) {
+  showTypesetDialog.value = false;
+
+  if (isTypesetting.value) return;
+
+  // 收集可下载图片（与「下载全部」一致的过滤逻辑）
+  const previewSet = previewFilteredIds.value;
+  const allParsedImages: ExtractedImage[] = tasks.value.flatMap(
+    (t) => t.images,
+  );
+  let downloadable: ExtractedImage[] = allParsedImages.filter(
+    (img) => !img.filtered && !previewSet.has(img.id),
+  );
+
+  if (downloadable.length === 0) {
+    showWarning("没有可排版的图片");
+    return;
+  }
+
+  isTypesetting.value = true;
+  typesetProgress.value = 0;
+  typesetProgressText.value = "准备下载...";
+
+  try {
+    const splitCount = Math.max(1, config.splitCount);
+
+    // 1. 打乱顺序
+    if (config.shuffleBeforeSplit) {
+      shuffleArray(downloadable);
+    }
+
+    // 2. 分组（内存）
+    const groups: ExtractedImage[][] = [];
+    for (let i = 0; i < downloadable.length; i += splitCount) {
+      groups.push(downloadable.slice(i, i + splitCount));
+    }
+
+    const totalImages = downloadable.length;
+    let downloadedCount = 0;
+
+    /**
+     * 累加下载进度（覆盖在 extract:downloadProgress 监听之上的汇总）
+     * 这里直接在每次 downloadImages 返回后累加，简单可靠
+     */
+    const onGroupDownloaded = (groupResults: ExtractedImage[]) => {
+      downloadedCount += groupResults.length;
+      typesetProgress.value = Math.round(
+        (downloadedCount / totalImages) * 100,
+      );
+      typesetProgressText.value = `下载中 ${downloadedCount}/${totalImages}`;
+    };
+
+    // 3. 下载落地
+    const downloadedGroups: ExtractedImage[][] = [];
+
+    if (config.downloadStrategy === "all") {
+      // 全部下载到 savePath
+      typesetProgressText.value = `下载中 0/${totalImages}`;
+      const results = await window.electronAPI.extract.downloadImages(
+        JSON.parse(JSON.stringify(downloadable)),
+        config.savePath,
+      );
+      downloadedGroups.push(
+        ...rebuildGroupsFromResults(
+          groups,
+          results as ExtractedImage[],
+          splitCount,
+        ),
+      );
+      onGroupDownloaded(results as ExtractedImage[]);
+    } else {
+      // 按分组下到子目录：分组N
+      for (let gi = 0; gi < groups.length; gi++) {
+        const groupFolder = `${config.savePath}/分组${gi + 1}`;
+        const results = await window.electronAPI.extract.downloadImages(
+          JSON.parse(JSON.stringify(groups[gi])),
+          groupFolder,
+        );
+        downloadedGroups.push(results as ExtractedImage[]);
+        onGroupDownloaded(results as ExtractedImage[]);
+      }
+    }
+
+    // 4. 收集所有下载完成的图片，适配为 ImageFile
+    const flatDownloaded: ExtractedImage[] = downloadedGroups.flat();
+    const imageFiles: ImageFile[] = [];
+    flatDownloaded.forEach((img, idx) => {
+      const file = extractedToImageFile(img, idx);
+      if (file) imageFiles.push(file);
+    });
+
+    if (imageFiles.length === 0) {
+      showError("图片下载失败，无法进入排版");
+      return;
+    }
+
+    typesetProgressText.value = "初始化项目...";
+
+    // 5. 构造 ProjectConfig 并设置到 projectStore
+    const folderName =
+      config.savePath.split(/[\\/]/).pop() || "提取图片";
+    const now = new Date().toISOString();
+    const project: ProjectConfig = {
+      projectId: crypto.randomUUID(),
+      projectName: `提取-${folderName}`,
+      sourceFolder: config.savePath,
+      templateId: "minimal",
+      articleTitle: `提取-${folderName}`,
+      articleSummary: "",
+      status: "idle",
+      syncStatus: "idle",
+      images: imageFiles,
+      groups: [],
+      // split 策略下：每篇文章图片下到独立子文件夹，
+      // 同步完成后按文章标题重命名对应子文件夹
+      splitMode: config.downloadStrategy === "split",
+      createdAt: now,
+      updatedAt: now,
+    };
+    projectStore.setCurrentProject(project);
+
+    // 6. 按 splitCount 建立分组（复用矩阵的 createGroups）
+    projectStore.createGroups(imageFiles, splitCount);
+
+    // 6.1 拆分模式下回填每个分组的本地文件夹路径
+    //      用于 SyncView 同步成功后按文章标题重命名该文件夹
+    if (
+      config.downloadStrategy === "split" &&
+      projectStore.currentProject?.groups
+    ) {
+      projectStore.currentProject.groups.forEach((g, idx) => {
+        // 与下载时使用的子目录命名保持一致：savePath/分组N
+        g.folderPath = `${config.savePath}/分组${idx + 1}`;
+      });
+    }
+
+    // 7. 计算封面基础路径并跳转
+    //    - all 策略：所有图在 savePath，封面集中存到 savePath/封面
+    //    - split 策略：每篇图在各子目录，封面随文章各自存（传空串走拆分模式）
+    const coverBasePath =
+      config.downloadStrategy === "split" ? "" : config.savePath;
+
+    typesetProgressText.value = "生成封面并跳转...";
+    await navigateToTypeset(coverBasePath);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "未知错误";
+    logs.value.push(`[前往排版] 失败: ${msg}`);
+    showError("排版准备失败：" + msg);
+  } finally {
+    isTypesetting.value = false;
+  }
+}
+
+/**
+ * 「全部下载到一个目录」模式下，下载结果是一维数组，需要按原分组顺序重新切分回二维。
+ * downloadImages 保持输入顺序返回，所以直接按 splitCount 切片即可。
+ */
+function rebuildGroupsFromResults(
+  originalGroups: ExtractedImage[][],
+  flatResults: ExtractedImage[],
+  splitCount: number,
+): ExtractedImage[][] {
+  const resultGroups: ExtractedImage[][] = [];
+  for (let i = 0; i < flatResults.length; i += splitCount) {
+    resultGroups.push(flatResults.slice(i, i + splitCount));
+  }
+  // 兜底：若结果数与原分组对不上，至少返回空结构避免后续处理出错
+  if (resultGroups.length === 0 && originalGroups.length > 0) {
+    originalGroups.forEach(() => resultGroups.push([]));
+  }
+  return resultGroups;
 }
 
 /**

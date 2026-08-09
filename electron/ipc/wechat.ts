@@ -224,10 +224,11 @@ export function registerWechatIpc() {
           } catch (publishErr) {
             const publishMessage = publishErr instanceof Error ? publishErr.message : String(publishErr);
             result.publishError = publishMessage;
+            // 发布失败单独发 publish 事件，不影响后续重命名逻辑
             sendProgress({
               currentArticleIndex: i,
               totalArticles: articles.length,
-              step: 'done',
+              step: 'publish',
               message: `[${i + 1}/${articles.length}] 草稿已创建，但发布失败：${publishMessage}`,
             });
           }
@@ -235,11 +236,21 @@ export function registerWechatIpc() {
 
         results.push(result);
 
+        // 单篇同步完成（草稿创建成功，无论发布是否成功）
+        // 前端基于此事件触发分组文件夹重命名为文章标题
+        sendProgress({
+          currentArticleIndex: i,
+          totalArticles: articles.length,
+          step: 'done',
+          message: `[${i + 1}/${articles.length}] 同步成功：${article.title}`,
+        });
+
         if (i < articles.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 500));
         }
       }
 
+      // 全部完成的汇总事件（currentArticleIndex === totalArticles，前端据此区分单篇 vs 全部）
       sendProgress({
         currentArticleIndex: articles.length,
         totalArticles: articles.length,

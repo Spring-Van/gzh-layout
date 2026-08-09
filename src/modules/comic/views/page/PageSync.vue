@@ -70,16 +70,19 @@
 
     <!-- 三栏布局 -->
       <div class="flex-1 flex overflow-hidden gap-3 p-3">
-        <!-- 左栏：图片队列 -->
+        <!-- 左栏：图片队列 + 项目信息（tab 切换） -->
         <SyncImageQueue
           v-if="!isPreloadingImages"
           :images="comicSync.sourceImages"
           :get-image-url="getImageUrl"
+          :project-title="projectInfo.title"
+          :project-tags="projectInfo.tags"
+          :creative-notes="projectInfo.creativeNotes"
           @preview="handlePreviewImage"
         />
         <aside
           v-else
-          class="w-[15%] min-w-[200px] max-w-[260px] rounded-xl bg-surface border border-border-subtle shadow-lg shadow-black/20 overflow-hidden flex flex-col items-center justify-center"
+          class="w-[20%] min-w-[220px] max-w-[280px] rounded-xl bg-surface border border-border-subtle shadow-lg shadow-black/20 overflow-hidden flex flex-col items-center justify-center"
         >
           <svg class="w-5 h-5 text-[#07c160] animate-spin mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -332,7 +335,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { comicDb } from '@/api/comic'
 import { useToast } from '@comic/composables/useToast'
@@ -346,7 +349,7 @@ import { useWechatUpload, extractLocalImagePaths } from '@/composables/useWechat
 import { expandTemplateWithImages } from '@/composables/useTemplateRender'
 import { useImagePreload } from '@comic/composables/useImagePreload'
 import { getCoverSlotRatios } from '@/utils/coverSlotRatios'
-import type { ComicContentBlock } from '@comic/types'
+import type { ComicContentBlock, ComicProject } from '@comic/types'
 import type { ContentBlock } from '@/types'
 import PhoneMockup from '@/components/common/PhoneMockup.vue'
 import CoverPreview from '@/components/typeset/CoverPreview.vue'
@@ -407,6 +410,46 @@ const showSyncTerminal = ref(false)
 const syncTerminalRef = ref<HTMLElement | null>(null)
 const syncTerminalError = ref<string | null>(null)
 const syncTerminalFailed = computed(() => Boolean(syncTerminalError.value || uploadError.value))
+
+// === 项目信息（左侧"项目信息" tab 展示，同导出发布页） ===
+const projectInfo = ref<{ title: string; tags: string[]; creativeNotes: Record<string, string> }>({
+  title: '',
+  tags: [],
+  creativeNotes: {},
+})
+
+/** 从页面 JSON 数据中提取标签（与导出发布页逻辑一致） */
+function extractTagsFromPages(pages: Record<string, unknown>[]): string[] {
+  const tagKeys = ['标签', 'tags', '类型', '分类', '风格', 'genre']
+  for (const page of pages) {
+    for (const key of tagKeys) {
+      const val = page[key]
+      if (typeof val === 'string' && val.trim())
+        return val.split(/[,，、]/).map((s) => s.trim()).filter(Boolean)
+      if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'string')
+        return val.map(String)
+    }
+  }
+  return []
+}
+
+/** 加载项目信息：优先 publishData，其次从 pageData 提取（与导出发布页逻辑一致） */
+function loadProjectInfo(project: ComicProject) {
+  if (project.publishData) {
+    projectInfo.value = {
+      title: project.publishData.title || '',
+      tags: project.publishData.tags || [],
+      creativeNotes: project.publishData.creativeNotes || {},
+    }
+  } else if (project.pageData) {
+    const rawTags = extractTagsFromPages(project.pageData.pages || [])
+    projectInfo.value = {
+      title: project.pageData.title || '',
+      tags: rawTags,
+      creativeNotes: {},
+    }
+  }
+}
 
 const previewModes = [
   { label: '封面', value: 'cover' as const },
@@ -510,6 +553,9 @@ onMounted(async () => {
     return
   }
 
+  // 加载项目信息（标题、标签、创作备注），用于左侧"项目信息" tab 展示
+  loadProjectInfo(project)
+
   comicSync.init(
     projectId,
     project.name,
@@ -517,41 +563,135 @@ onMounted(async () => {
     project.syncData,
   )
 
+  // 右侧标题取解析项目 JSON 时的标题字段（优先 publishData.title，其次 pageData.title）
+  // 仅在首次进入（无 syncData）或标题为空时覆盖，避免覆盖用户已编辑的标题
+  const parsedTitle = project.publishData?.title || project.pageData?.title || ''
+  if (parsedTitle && !comicSync.title) {
+    comicSync.updateTitle(parsedTitle)
+  }
+
   // 预加载所有图片（限制并发，避免卡顿）
   preload(comicSync.sourceImages.map((img) => getImageUrl(img.path)))
 
-  // 开启自动保存
-  watch(
-    () => comicSync.syncData,
-    () => saveSyncData(),
-    { deep: true },
-  )
+  // 图片变化（重新解析/生图后）时，按封面模板要求补全选中图片，并自动重新生成封面
+  if (comicSync.imagesChanged) {
+    await maybeAutoRegenerateCover()
+  }
+
+  // 开启自动保存：用脏标记 + 定时器轮询，避免 deep watch 遍历含 html 长字符串的 syncData 导致卡顿
+  startAutoSave()
 })
 
-// === 持久化 ===
-let saveTimer: ReturnType<typeof setTimeout> | null = null
-function saveSyncData() {
-  if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(async () => {
-    isSaving.value = true
-    try {
-      const project = await comicDb.getProject(projectId)
-      if (project) {
-        await comicDb.saveProject({
-          ...project,
-          syncData: comicSync.exportData(),
-          updatedAt: Date.now(),
-        })
-        lastSavedAt.value = true
-        setTimeout(() => { lastSavedAt.value = false }, 2000)
-      }
-    } catch (e) {
-      console.error('保存同步数据失败:', e)
-    } finally {
-      isSaving.value = false
+/**
+ * 图片变化后自动重新生成封面：
+ * - 按当前封面模板需要的图片数量补全 selectedImageIds
+ * - 若已有封面模板和选中图片，静默调用封面生成
+ */
+async function maybeAutoRegenerateCover() {
+  const { templateId, selectedImageIds } = comicSync.coverConfig
+  if (!templateId) return
+  // 按模板要求补全选中图片（默认仅选了第一张）
+  const need = getCoverTemplateImageCount(templateId)
+  if (need > 0 && selectedImageIds.length < need) {
+    const ids = comicSync.sourceImages.slice(0, need).map((img) => img.id)
+    comicSync.updateCoverConfig({ selectedImageIds: ids })
+  }
+  if (comicSync.coverConfig.selectedImageIds.length === 0) return
+  isGeneratingCover.value = true
+  try {
+    const result = await generateCoverImage(
+      comicSync.coverConfig.templateId,
+      comicSync.coverConfig.selectedImageIds,
+      comicSync.sourceImages,
+      comicSync.coverConfig.imageCropRects,
+    )
+    if (result) {
+      const coverPath = await window.electronAPI.saveBase64Image(
+        result,
+        `comic-cover-${projectId}.png`,
+      )
+      comicSync.updateCoverConfig({
+        generatedCoverImage: result,
+        generatedCoverImagePath: coverPath,
+        pic_crop_235_1: '0_0_1_1',
+        pic_crop_1_1: '0.287234_0_0.712766_1',
+      })
     }
-  }, 500)
+  } catch (e) {
+    console.error('[comic-sync] 自动重新生成封面失败:', e)
+  } finally {
+    isGeneratingCover.value = false
+  }
 }
+
+// === 持久化 ===
+// 用脏标记 + 定时器轮询替代 deep watch syncData
+// 避免 deep watch 遍历含 html 长字符串的 contentBlocks 导致输入卡顿
+let isDirty = false
+let saveIntervalId: ReturnType<typeof setInterval> | null = null
+
+/** 标记数据已变化，需要保存 */
+function markDirty() {
+  isDirty = true
+}
+
+/** 启动自动保存定时器：每 2 秒检查一次脏标记，有变化才保存 */
+function startAutoSave() {
+  if (saveIntervalId) return
+  saveIntervalId = setInterval(async () => {
+    if (!isDirty) return
+    isDirty = false
+    await doSave()
+  }, 2000)
+}
+
+/** 执行保存 */
+async function doSave() {
+  isSaving.value = true
+  try {
+    const project = await comicDb.getProject(projectId)
+    if (project) {
+      await comicDb.saveProject({
+        ...project,
+        syncData: comicSync.exportData(),
+        updatedAt: Date.now(),
+      })
+      lastSavedAt.value = true
+      setTimeout(() => { lastSavedAt.value = false }, 2000)
+    }
+  } catch (e) {
+    console.error('保存同步数据失败:', e)
+  } finally {
+    isSaving.value = false
+  }
+}
+
+/**
+ * 组件卸载时兜底保存：
+ * ContentPreview 的 onBeforeUnmount 会 emit 最新 contentBlocks 更新 store，
+ * 此时定时器可能还没到点，所以在此直接保存一次，确保编辑不丢失。
+ * onUnmounted 在子组件卸载之后执行，store 数据已是最新的。
+ */
+onUnmounted(() => {
+  // 停止定时器
+  if (saveIntervalId) {
+    clearInterval(saveIntervalId)
+    saveIntervalId = null
+  }
+  // fire-and-forget：不阻塞卸载流程
+  comicDb.getProject(projectId).then((project) => {
+    if (project) {
+      return comicDb.saveProject({
+        ...project,
+        syncData: comicSync.exportData(),
+        updatedAt: Date.now(),
+      })
+    }
+    return null
+  }).catch((e) => {
+    console.error('[comic-sync] 卸载时兜底保存失败:', e)
+  })
+})
 
 // === 工具函数 ===
 /**
@@ -679,6 +819,7 @@ async function handleImagePositionConfirm(cropRects: Record<number, { x: number;
 
 function handleContentBlocksUpdate(blocks: ContentBlock[], containerStyle: Record<string, string>) {
   comicSync.updateContentBlocks(blocks as ComicContentBlock[], containerStyle)
+  markDirty()
 }
 
 function handleEditStyleTemplate(templateId: string) {

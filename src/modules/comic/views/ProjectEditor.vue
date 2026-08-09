@@ -695,6 +695,7 @@ const parseAndSavePages = async (data: Record<string, any>) => {
   // - pageModelOverrides：单页模型覆盖（页面内容已变）
   // - pageRefImages：每页参考图（按页面索引重新生成）
   // - generationTasks（DB）：生图任务记录（旧任务已无意义）
+  // - syncData：公众号同步页面编辑数据（图片/封面/正文均已失效，需重新生成）
   await comicDb.deleteGenerationTasksByProjectId(projectId);
   sessionStorage.removeItem(`pending-gen-tasks-${projectId}`);
   sessionStorage.removeItem(`page-editor-original-${projectId}`);
@@ -708,6 +709,7 @@ const parseAndSavePages = async (data: Record<string, any>) => {
       generatedImages: {},
       pageModelOverrides: {},
       pageRefImages: {},
+      syncData: undefined,
       updatedAt: Date.now(),
     });
   }

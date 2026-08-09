@@ -37,6 +37,21 @@ const routes: RouteRecordRaw[] = [
     name: 'StyleTemplates',
     component: () => import('../pages/StyleTemplateView.vue'),
   },
+  {
+    path: '/image-studio',
+    name: 'ImageStudio',
+    component: () => import('../pages/ImageStudioView.vue'),
+  },
+  {
+    path: '/gallery',
+    name: 'Gallery',
+    component: () => import('../pages/GalleryView.vue'),
+  },
+  {
+    path: '/prompt-templates',
+    name: 'PromptTemplates',
+    component: () => import('../pages/PromptTemplatesView.vue'),
+  },
   // ========== Comic 模块（漫画工作台） ==========
   {
     path: '/comic',
