@@ -13,6 +13,11 @@ import type {
   GenerationTask,
 } from '../modules/comic/types';
 
+export interface ComicAppSettings {
+  exportDir?: string;
+  picgoApiKey?: string;
+}
+
 /** 获取 electronAPI 的 comic 命名空间 */
 function getComicApi() {
   const api = (window as any).electronAPI?.comic;
@@ -60,8 +65,8 @@ export const comicDb = {
   deleteGenerationTasksByProjectId: (projectId: string): Promise<{ success: boolean }> => getComicApi().db.deleteGenerationTasksByProjectId(projectId),
 
   // AppSettings
-  getAppSettings: (): Promise<{ exportDir?: string }> => getComicApi().db.getAppSettings(),
-  saveAppSettings: (settings: { exportDir?: string }): Promise<{ success: boolean }> => getComicApi().db.saveAppSettings(settings),
+  getAppSettings: (): Promise<ComicAppSettings> => getComicApi().db.getAppSettings(),
+  saveAppSettings: (settings: ComicAppSettings): Promise<{ success: boolean }> => getComicApi().db.saveAppSettings(settings),
 };
 
 /** 图片上传封装 */

@@ -80,7 +80,7 @@ function openModal(type: string) {
 </script>
 
 <template>
-  <div id="app" class="h-screen flex flex-col overflow-hidden">
+  <div id="app-shell" class="h-screen flex flex-col overflow-hidden">
     <AppHeader
       v-if="!isHomePage && !isExtractPage && !isSettingsPage && !isComicModule && !isImageStudio && !isGallery && !isPromptTemplates"
       :current-step="currentStep"

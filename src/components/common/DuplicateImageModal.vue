@@ -175,6 +175,7 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import type { ImageFile } from "../../types";
+import { toDisplayImageUrl } from "../../shared/image/imageUrl";
 
 interface Props {
   visible: boolean;
@@ -199,9 +200,7 @@ const canConfirm = computed(() => {
   return true;
 });
 
-function getImageUrl(filePath: string): string {
-  return `file://${filePath.replace(/\\/g, "/")}`;
-}
+const getImageUrl = toDisplayImageUrl;
 
 function toggleSelection(imageId: string) {
   if (selectedToKeep.value[imageId]) {

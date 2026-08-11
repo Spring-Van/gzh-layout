@@ -767,9 +767,12 @@ watch(activeCategory, () => {
   loadMaterials();
 });
 
-onMounted(() => {
-  loadProjects();
-  loadMaterials();
+onMounted(async () => {
+  await Promise.all([
+    loadProjects(),
+    loadMaterials(),
+    imageStudioStore.loadHistory(),
+  ]);
 });
 
 defineExpose({ syncMaterial, loadMaterials });

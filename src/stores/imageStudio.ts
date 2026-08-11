@@ -85,7 +85,10 @@ export const useImageStudioStore = defineStore('imageStudio', () => {
   const selectedImageIndex = ref(0)
 
   // ===== 历史记录 =====
-  const history = ref<GeneratedImage[]>(loadFromStorage<GeneratedImage[]>(STORAGE_KEY_HISTORY, []))
+  const history = ref<GeneratedImage[]>([])
+  let historyLoadPromise: Promise<void> | null = null
+  let historySavePromise = Promise.resolve()
+  let historyRevision = 0
 
   // ===== 画夹分类 =====
   const categories = ref<GalleryCategory[]>(
@@ -123,8 +126,36 @@ export const useImageStudioStore = defineStore('imageStudio', () => {
   }
 
   /** 持久化历史记录 */
-  const persistHistory = () => {
-    saveToStorage(STORAGE_KEY_HISTORY, history.value)
+  const loadHistory = async () => {
+    if (historyLoadPromise) return historyLoadPromise
+
+    historyLoadPromise = (async () => {
+      const diskHistory = await window.electronAPI.imageHistory.load()
+      const legacyHistory = loadFromStorage<GeneratedImage[]>(STORAGE_KEY_HISTORY, [])
+      if (diskHistory.length === 0 && legacyHistory.length > 0) {
+        history.value = await window.electronAPI.imageHistory.save(legacyHistory)
+      } else {
+        history.value = diskHistory
+      }
+      localStorage.removeItem(STORAGE_KEY_HISTORY)
+    })().catch(error => {
+      historyLoadPromise = null
+      throw error
+    })
+
+    return historyLoadPromise
+  }
+
+  const persistHistory = async () => {
+    const revision = ++historyRevision
+    const snapshot = structuredClone(history.value)
+    let saved: GeneratedImage[] = []
+    historySavePromise = historySavePromise.then(async () => {
+      saved = await window.electronAPI.imageHistory.save(snapshot)
+      if (revision === historyRevision) history.value = saved
+    })
+    await historySavePromise
+    return saved
   }
 
   /** 持久化分类 */
@@ -183,7 +214,7 @@ export const useImageStudioStore = defineStore('imageStudio', () => {
         selectedImageIndex.value = 0
         // 添加到历史记录
         history.value = [...images, ...history.value]
-        persistHistory()
+        await persistHistory()
       } else {
         throw new Error(result.error || '生成失败')
       }
@@ -270,7 +301,7 @@ export const useImageStudioStore = defineStore('imageStudio', () => {
       categoryIds: img.categoryIds.filter(cid => cid !== id)
     }))
     persistCategories()
-    persistHistory()
+    void persistHistory()
   }
 
   const toggleImageCategory = (imageId: string, categoryId: string) => {
@@ -296,7 +327,7 @@ export const useImageStudioStore = defineStore('imageStudio', () => {
           : [...img.categoryIds, categoryId]
       }
     })
-    persistHistory()
+    void persistHistory()
   }
 
   const deleteImage = (imageId: string) => {
@@ -305,12 +336,12 @@ export const useImageStudioStore = defineStore('imageStudio', () => {
     if (selectedImageIndex.value >= currentImages.value.length) {
       selectedImageIndex.value = Math.max(0, currentImages.value.length - 1)
     }
-    persistHistory()
+    void persistHistory()
   }
 
   const clearHistory = () => {
     history.value = []
-    persistHistory()
+    void persistHistory()
   }
 
   /** 格式化相对时间 */
@@ -447,6 +478,7 @@ export const useImageStudioStore = defineStore('imageStudio', () => {
     recentHistory,
     // 方法
     loadModels,
+    loadHistory,
     generate,
     selectFromHistory,
     selectLatest,

@@ -1,9 +1,13 @@
-import fs from 'fs';
 import path from 'path';
-import { app } from 'electron';
+import { app, safeStorage } from 'electron';
 import type { ProjectConfig, CustomTemplate, CoverTemplate, WechatAccount, DraftRecord, StyleTemplate } from '../../src/types';
+import { JsonFileStore } from './json-file-store';
+import { SecretStorage } from './secret-storage';
+
+const WECHAT_SECRET_FIELDS = ['appSecret', 'accessToken'] as const;
 
 interface DatabaseData {
+    schemaVersion: number;
     projects: ProjectConfig[];
     templates: CustomTemplate[];
     coverTemplates: CoverTemplate[];
@@ -13,52 +17,62 @@ interface DatabaseData {
 }
 
 export class DatabaseService {
-    private dbPath: string;
+    private store: JsonFileStore<DatabaseData>;
     private data: DatabaseData;
+    private readonly secretStorage = new SecretStorage(safeStorage);
+    private loadedVersion = 2;
+    private initialized = false;
 
     constructor() {
         const userDataPath = app.getPath('userData');
-        this.dbPath = path.join(userDataPath, 'gzh-layout.json');
-        this.data = this.loadFromFile();
-    }
-
-    private loadFromFile(): DatabaseData {
-        if (fs.existsSync(this.dbPath)) {
-            try {
-                const content = fs.readFileSync(this.dbPath, 'utf-8');
-                const data = JSON.parse(content);
-                return {
-                    projects: data.projects || [],
-                    templates: data.templates || [],
-                    coverTemplates: data.coverTemplates || [],
-                    styleTemplates: data.styleTemplates || [],
-                    wechatAccounts: data.wechatAccounts || [],
-                    draftRecords: data.draftRecords || [],
-                };
-            } catch (error) {
-                console.error('读取数据库文件失败:', error);
-            }
-        }
-        return {
-            projects: [],
-            templates: [],
-            coverTemplates: [],
-            styleTemplates: [],
-            wechatAccounts: [],
-            draftRecords: [],
-        };
+        this.store = new JsonFileStore({
+            filePath: path.join(userDataPath, 'gzh-layout.json'),
+            currentVersion: 2,
+            createDefault: createDefaultDatabaseData,
+            migrate: (raw, fromVersion) => {
+                this.loadedVersion = fromVersion;
+                return normalizeDatabaseData(raw);
+            },
+            logger: console,
+        });
+        this.data = this.store.load();
     }
 
     private saveToFile(): void {
-        try {
-            fs.writeFileSync(this.dbPath, JSON.stringify(this.data, null, 2), 'utf-8');
-        } catch (error) {
-            console.error('保存数据库文件失败:', error);
-        }
+        this.store.save(this.protectCredentials(this.data));
     }
 
     async init(): Promise<void> {
+        if (this.initialized) return;
+        const persisted = this.data;
+        const needsMigration = this.loadedVersion < 2 || persisted.wechatAccounts.some((account) =>
+            this.secretStorage.hasUnprotectedFields(account, WECHAT_SECRET_FIELDS),
+        );
+        this.data = this.revealCredentials(persisted);
+        if (needsMigration) {
+            this.store.save(this.protectCredentials(this.data), { backupMode: 'current' });
+            this.loadedVersion = 2;
+        }
+        this.initialized = true;
         // 数据已在构造函数中加载
+    }
+
+    private protectCredentials(data: DatabaseData): DatabaseData {
+        return {
+            ...data,
+            wechatAccounts: data.wechatAccounts.map((account) =>
+                this.secretStorage.protectFields(account, WECHAT_SECRET_FIELDS),
+            ),
+        };
+    }
+
+    private revealCredentials(data: DatabaseData): DatabaseData {
+        return {
+            ...data,
+            wechatAccounts: data.wechatAccounts.map((account) =>
+                this.secretStorage.revealFields(account, WECHAT_SECRET_FIELDS),
+            ),
+        };
     }
 
     // ========== Projects ==========
@@ -211,6 +225,31 @@ export class DatabaseService {
         this.data.wechatAccounts = this.data.wechatAccounts.filter(a => a.id !== accountId);
         this.saveToFile();
     }
+}
+
+function createDefaultDatabaseData(): DatabaseData {
+    return {
+        schemaVersion: 2,
+        projects: [],
+        templates: [],
+        coverTemplates: [],
+        styleTemplates: [],
+        wechatAccounts: [],
+        draftRecords: [],
+    };
+}
+
+function normalizeDatabaseData(raw: unknown): DatabaseData {
+    const data = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    return {
+        schemaVersion: 2,
+        projects: Array.isArray(data.projects) ? data.projects as ProjectConfig[] : [],
+        templates: Array.isArray(data.templates) ? data.templates as CustomTemplate[] : [],
+        coverTemplates: Array.isArray(data.coverTemplates) ? data.coverTemplates as CoverTemplate[] : [],
+        styleTemplates: Array.isArray(data.styleTemplates) ? data.styleTemplates as StyleTemplate[] : [],
+        wechatAccounts: Array.isArray(data.wechatAccounts) ? data.wechatAccounts as WechatAccount[] : [],
+        draftRecords: Array.isArray(data.draftRecords) ? data.draftRecords as DraftRecord[] : [],
+    };
 }
 
 export const dbService = new DatabaseService();

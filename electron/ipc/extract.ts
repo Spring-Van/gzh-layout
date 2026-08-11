@@ -1,5 +1,6 @@
 import { ipcMain, BrowserWindow } from 'electron';
-import { ExtractService, ExtractedImage, ImageFilterOptions } from '../services/extract.service';
+import { ExtractService } from '../services/extract.service';
+import type { ExtractedImage, ImageFilterOptions } from '../../src/features/extract/types';
 
 export function registerExtractIpc() {
   ipcMain.handle('extract:parseUrl', async (event, url: string) => {

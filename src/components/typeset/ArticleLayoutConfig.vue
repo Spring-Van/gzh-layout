@@ -160,6 +160,7 @@ import { useTemplateStore } from "../../stores/template";
 import ModalTemplateSelector from "../layout/ModalTemplateSelector.vue";
 import StyleTemplateDrawer from "./StyleTemplateDrawer.vue";
 import type { ArticleLayoutConfig, ArticleStyleInsertConfig, StyleInsertPosition } from "../../types";
+import { toDisplayImageUrl } from "../../shared/image/imageUrl";
 
 interface ImageItem {
   id: string;
@@ -222,9 +223,7 @@ const currentTemplateDescription = computed(() => {
   return custom?.description || "自定义排版模板";
 });
 
-function getImageUrl(filePath: string): string {
-  return `file://${filePath.replace(/\\/g, "/")}`;
-}
+const getImageUrl = toDisplayImageUrl;
 
 function toggleInherit() {
   emit("update:config", {

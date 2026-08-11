@@ -1,4 +1,10 @@
 import type { ImageFile, ProjectConfig, CustomTemplate, CoverTemplate, StyleTemplate, WechatAccount } from './index';
+import type {
+  ExtractDownloadProgress,
+  ExtractedImage,
+  ExtractTask,
+  ImageFilterOptions,
+} from '../features/extract/types';
 
 export { };
 
@@ -6,7 +12,6 @@ interface CoverUploadResult {
   mediaId: string;
   url: string;
 }
-
 interface ContentImageResult {
   originalPath: string;
   url: string;
@@ -84,15 +89,21 @@ interface WechatTokenCacheInfo {
   expiresAt: number;
 }
 
+interface ImageHistoryRecord {
+  id: string;
+  url: string;
+  prompt: string;
+  referenceImages?: string[];
+  modelId: string;
+  modelName: string;
+  aspectRatio: string;
+  quality: string;
+  categoryIds: string[];
+  createdAt: number;
+}
+
 declare global {
   interface Window {
-    /** 由 electron/preload.ts 通过 contextBridge 暴露的精简 ipcRenderer */
-    ipcRenderer: {
-      on: (channel: string, listener: (event: unknown, ...args: unknown[]) => void) => void;
-      off: (channel: string, listener: (...args: unknown[]) => void) => void;
-      send: (channel: string, ...args: unknown[]) => void;
-      invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
-    };
     electronAPI: {
       selectFolder: () => Promise<string | null>;
       scanFolder: (folderPath: string) => Promise<ImageFile[]>;
@@ -106,6 +117,10 @@ declare global {
       deleteCoverImage: (filePath: string) => Promise<void>;
       convertWebpImages: (sourcePath: string, webpImages: Array<{ path: string; name: string }>, backupEnabled: boolean) => Promise<Record<string, string>>;
       renameFolderToTitle: (oldFolderPath: string, newFolderName: string) => Promise<string>;
+      imageHistory: {
+        load: () => Promise<ImageHistoryRecord[]>;
+        save: (history: ImageHistoryRecord[]) => Promise<ImageHistoryRecord[]>;
+      };
       db: {
         init: () => Promise<{ success: boolean }>;
         getAllProjects: () => Promise<ProjectConfig[]>;
@@ -158,56 +173,9 @@ declare global {
         ) => Promise<ExtractedImage[]>;
         detectPlatform: (url: string) => Promise<string>;
         proxyImage: (url: string) => Promise<string>;
-        onDownloadProgress: (callback: (progress: DownloadProgress) => void) => () => void;
+        onDownloadProgress: (callback: (progress: ExtractDownloadProgress) => void) => () => void;
         onLog: (callback: (message: string) => void) => () => void;
       };
     };
   }
-}
-
-interface ExtractedImage {
-  id: string;
-  url: string;
-  originalUrl: string;
-  filename: string;
-  platform: string;
-  downloaded: boolean;
-  localPath?: string;
-  error?: string;
-  /** 是否因过滤条件被跳过 */
-  filtered?: boolean;
-  /** 过滤跳过的原因 */
-  filterReason?: string;
-  /** 图片实际尺寸（像素） */
-  width?: number;
-  height?: number;
-  /** 文件大小（字节） */
-  fileSize?: number;
-}
-
-/** 图片下载过滤选项 */
-interface ImageFilterOptions {
-  enabled: boolean;
-  /** 最小宽度（px），0 表示不限制 */
-  minWidth?: number;
-  /** 最小高度（px），0 表示不限制 */
-  minHeight?: number;
-  /** 最小文件大小（KB），0 表示不限制 */
-  minSizeKB?: number;
-}
-
-interface ExtractTask {
-  id: string;
-  url: string;
-  platform: string;
-  status: 'pending' | 'parsing' | 'downloading' | 'completed' | 'failed';
-  images: ExtractedImage[];
-  error?: string;
-  logs?: string[];
-}
-
-interface DownloadProgress {
-  current: number;
-  total: number;
-  image: ExtractedImage;
 }

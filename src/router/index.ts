@@ -1,5 +1,4 @@
 import { createRouter, createWebHashHistory, RouteRecordRaw } from 'vue-router';
-import type { AppView } from '../types';
 
 const routes: RouteRecordRaw[] = [
   {
@@ -104,14 +103,3 @@ const router = createRouter({
 });
 
 export default router;
-
-export function navigateTo(view: AppView) {
-  const routeMap: Record<AppView, string> = {
-    home: '/project',
-    project: '/project',
-    templates: '/templates',
-    history: '/history',
-    settings: '/settings',
-  };
-  router.push(routeMap[view] || '/project');
-}

@@ -266,6 +266,7 @@ import type { ImageFile, ContentBlock } from "../types";
 import { expandTemplateWithImages } from "../composables/useTemplateRender";
 import DebugLogPanel from "../components/common/DebugLogPanel.vue";
 import { getCoverSlotRatios } from "../utils/coverSlotRatios";
+import { toDisplayImageUrl } from "../shared/image/imageUrl";
 
 const projectStore = useProjectStore();
 const templateStore = useTemplateStore();
@@ -620,12 +621,7 @@ async function handleImagePositionConfirm(cropRects: Record<number, { x: number;
   addLog("封面重新生成完成");
 }
 
-function getImageUrl(filePath: string): string {
-  const normalizedPath = filePath.replace(/\\/g, "/");
-  return normalizedPath.match(/^[a-zA-Z]:/)
-    ? `file:///${normalizedPath}`
-    : `file://${normalizedPath}`;
-}
+const getImageUrl = toDisplayImageUrl;
 
 function handleContentBlocksUpdate(blocks: ContentBlock[], containerStyle: Record<string, string>) {
   if (!currentArticle.value) return;

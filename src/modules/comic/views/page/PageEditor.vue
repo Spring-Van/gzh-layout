@@ -12,151 +12,19 @@
 
     <!-- 主内容区 -->
     <main class="flex-1 flex flex-col overflow-hidden relative">
-      <!-- 固定顶部 header -->
-      <div
-        class="shrink-0 h-14 px-6 border-b border-border-subtle flex items-center gap-4"
-      >
-        <!-- 返回上一步 -->
-        <button
-          class="flex items-center gap-1.5 text-text-secondary hover:text-text-primary transition-colors text-sm"
-          @click="goBack"
-        >
-          <svg
-            class="w-4 h-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M10 19l-7-7m0 0l7-7m-7 7h18"
-            />
-          </svg>
-          上一步
-        </button>
-
-        <div class="w-px h-4 bg-border-subtle" />
-
-        <!-- 项目 -->
-        <button
-          class="flex items-center gap-1.5 text-text-secondary hover:text-text-primary transition-colors text-sm"
-          @click="goToProject"
-        >
-          <svg
-            class="w-4 h-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-            />
-          </svg>
-          项目
-        </button>
-
-        <div class="w-px h-4 bg-border-subtle" />
-
-        <!-- 项目名称 -->
-        <h1 class="text-sm font-semibold text-text-primary leading-7">
-          {{ projectName }}
-        </h1>
-
-        <div class="flex-1" />
-
-        <!-- 绘图配置按钮 + 批量生成 -->
-        <div class="flex items-center gap-3">
-          <button
-            class="px-3 py-1.5 rounded-lg bg-surface border border-border-subtle text-text-secondary text-xs font-medium flex items-center gap-1.5 hover:bg-elevated hover:text-text-primary transition-colors"
-            @click="showConfigDrawer = true"
-          >
-            <svg
-              class="w-3.5 h-3.5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
-              />
-            </svg>
-            绘图配置
-          </button>
-
-          
-
-          <!-- 批量生成 -->
-          <button
-            class="px-4 py-1.5 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-xs font-medium flex items-center gap-1.5 hover:opacity-90 transition-opacity shadow-lg shadow-cyan-500/20"
-            @click="handleBatchGenerate"
-          >
-            <svg
-              class="w-3.5 h-3.5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M13 10V3L4 14h7v7l9-11h-7z"
-              />
-            </svg>
-            批量生成
-          </button>
-
-          <!-- 同步至公众号 -->
-          <button
-            class="px-4 py-1.5 rounded-lg bg-gradient-to-r from-sky-500/20 to-indigo-500/20 border border-sky-500/30 text-sky-300 text-xs font-medium flex items-center gap-1.5 hover:from-sky-500/30 hover:to-indigo-500/30 hover:text-sky-200 transition-colors shadow-lg shadow-sky-500/10"
-            @click="goToSync"
-          >
-            <svg
-              class="w-3.5 h-3.5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-              />
-            </svg>
-            同步至公众号
-          </button>
-
-          <!-- 导出发布 -->
-          <button
-            class="px-4 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-medium flex items-center gap-1.5 hover:from-emerald-500/30 hover:to-cyan-500/30 hover:text-emerald-200 transition-colors shadow-lg shadow-emerald-500/10"
-            @click="goToExport"
-          >
-            <svg
-              class="w-3.5 h-3.5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-              />
-            </svg>
-            导出发布
-          </button>
-        </div>
-      </div>
+      <PageEditorHeader
+        :project-name="projectName"
+        :batch-running="batchTask?.status === 'running'"
+        :batch-completed="batchTask?.completed || 0"
+        :batch-total="batchTask?.total || 0"
+        @back="goBack"
+        @project="goToProject"
+        @config="showConfigDrawer = true"
+        @batch="handleBatchGenerate"
+        @cancel-batch="taskManager.cancel(BATCH_TASK_ID)"
+        @sync="goToSync"
+        @export="goToExport"
+      />
 
       <!-- 三栏卡片布局 -->
       <div class="flex-1 flex overflow-hidden gap-3 p-3">
@@ -258,6 +126,8 @@ import { imageGenerationService } from "@comic/services/imageGenerationService";
 import { useToast } from "@comic/composables/useToast";
 import { useConcurrentQueue } from "@comic/composables/useConcurrentQueue";
 import { processPageData } from "@comic/composables/usePageDataProcessor";
+import { usePageEditorPersistence } from "@comic/composables/usePageEditorPersistence";
+import { useTaskManager } from "@/shared/tasks/useTaskManager";
 import {
   migrateLegacyImageGenConfig,
   getSharedRefImages,
@@ -268,6 +138,7 @@ import PagePreview from "./PagePreview.vue";
 import PageContentPanel from "./PageContentPanel.vue";
 import type { RefImageConfig } from "./PageContentPanel.vue";
 import ImageConfigDrawer from "@comic/components/ImageConfigDrawer.vue";
+import PageEditorHeader from "@comic/components/PageEditorHeader.vue";
 
 const toast = useToast();
 const router = useRouter();
@@ -291,7 +162,6 @@ const comicData = ref<ComicPageData | null>(props.initialData || null);
 const currentPageIndex = ref(0);
 const activeTab = ref("");
 const generatedImages = ref<Record<number, string>>({});
-const isBatchGenerating = ref(false);
 const generatingPageIndices = ref(new Set<number>());
 /** 单页模型覆盖：key=页面索引, value=模型ID */
 const pageModelOverrides = ref<Record<number, string>>({});
@@ -301,9 +171,6 @@ const pageRefImages = ref<
 >({});
 /** 每页独立视图模式，key=页面索引，value='json'|'prompt'，默认 json */
 const pageViewModes = ref<Record<number, "json" | "prompt">>({});
-/** 是否正在加载初始数据，防止 watcher 在加载期间触发自动保存 */
-const isLoadingData = ref(true);
-
 const projectName = ref("");
 const models = ref<ModelConfig[]>([]);
 
@@ -316,7 +183,9 @@ const sharedRefImages = computed(() =>
 );
 
 const MAX_REF_IMAGES = 14;
-const STORAGE_KEY = `page-editor-data-${projectId}`;
+const BATCH_TASK_ID = `page-generation:${projectId}`;
+const taskManager = useTaskManager();
+const batchTask = computed(() => taskManager.get(BATCH_TASK_ID));
 
 /** 正在执行「重新查询」任务的页面索引，用于按钮 loading 状态 */
 const recoveringIndex = ref<number | null>(null);
@@ -332,111 +201,18 @@ const recoverableTaskIds = computed<Set<number>>(() => {
   return result;
 });
 
-// ==================== 数据持久化 ====================
-
-/** 将页面数据保存到 IndexedDB（防抖调用，用于 watcher 自动触发） */
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
-
-const doSave = async () => {
-  if (!projectId || !comicData.value) return;
-  try {
-    const plainData = JSON.parse(JSON.stringify(comicData.value));
-    const plainImages = JSON.parse(JSON.stringify(generatedImages.value));
-    const plainOverrides = JSON.parse(JSON.stringify(pageModelOverrides.value));
-    const plainRefImages = JSON.parse(JSON.stringify(pageRefImages.value));
-    // 页面数据保存时同步带上绘图配置，避免仅内存态丢失
-    const plainImageConfig = JSON.parse(JSON.stringify(imageConfig.value));
-    const project = await comicDb.getProject(projectId);
-    if (project) {
-      await comicDb.saveProject({
-        ...project,
-        pageData: plainData,
-        generatedImages: plainImages,
-        pageModelOverrides: plainOverrides,
-        pageRefImages: plainRefImages,
-        imageGenConfig: plainImageConfig,
-        updatedAt: Date.now(),
-      });
-    }
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(plainData));
-  } catch (e) {
-    console.error("保存页面数据失败:", e);
-  }
-};
-
-/** 防抖保存（watcher 使用） */
-const savePageData = () => {
-  if (isLoadingData.value) return;
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(doSave, 300);
-};
-
-/** 立即保存（关键操作后使用，确保数据不丢失） */
-const flushSavePageData = async () => {
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = null;
-  await doSave();
-};
-
-/** 加载页面数据：优先从 DB 读取，回退到 sessionStorage */
-const loadPageData = async () => {
-  isLoadingData.value = true;
-  try {
-    if (projectId) {
-      const project = await comicDb.getProject(projectId);
-      if (project?.pageData) {
-        comicData.value = {
-          pages: project.pageData.pages || [],
-        } as ComicPageData;
-      }
-      if (project?.generatedImages) {
-        generatedImages.value = project.generatedImages as Record<number, string>;
-      }
-      if (project?.pageModelOverrides) {
-        pageModelOverrides.value = project.pageModelOverrides as Record<number, string>;
-      }
-      if (project?.pageRefImages) {
-        pageRefImages.value = project.pageRefImages;
-      }
-      if (comicData.value) return;
-    }
-    const stored = sessionStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      comicData.value = {
-        pages: parsed.pages || [],
-      } as ComicPageData;
-      // 新 JSON 解析进入，清除旧的生图任务和已生成图片
-      await clearProjectTasks();
-      generatedImages.value = {};
-    }
-  } catch (e) {
-    console.error("加载页面数据失败:", e);
-  } finally {
-    isLoadingData.value = false;
-  }
-};
+const {
+  savePageData,
+  flushSavePageData,
+  loadPageData,
+} = usePageEditorPersistence(
+  projectId,
+  { comicData, generatedImages, pageModelOverrides, pageRefImages, imageConfig },
+  () => clearProjectTasks(),
+);
 
 const pages = computed(() => comicData.value?.pages || []);
 const currentPage = computed(() => pages.value[currentPageIndex.value] || null);
-
-// 监听 comicData 深度变化，自动持久化到数据库
-watch(
-  () => comicData.value,
-  () => {
-    savePageData();
-  },
-  { deep: true },
-);
-
-// 监听 generatedImages 变化，自动持久化到数据库
-// 浅监听：所有修改点均为整体替换引用，无需 deep 递归遍历
-watch(
-  () => generatedImages.value,
-  () => {
-    savePageData();
-  },
-);
 
 watch(
   currentPage,
@@ -1342,7 +1118,11 @@ const handleBatchGenerate = async () => {
   }
 
   toast.info(`开始批量生成 ${pendingPages.length} 个页面...`);
-  isBatchGenerating.value = true;
+  const signal = taskManager.start({
+    id: BATCH_TASK_ID,
+    title: "批量生成漫画页面",
+    total: pendingPages.length,
+  });
 
   try {
     const isOpenAI = model.apiSource === "openai";
@@ -1354,24 +1134,23 @@ const handleBatchGenerate = async () => {
       };
     });
 
-    if (isOpenAI) {
-      // OpenAI 同步接口：并发队列，最多 15 个同时请求
-      const { execute } = useConcurrentQueue(15);
-      await execute(taskFactories, (done, total) => {
-        console.log(`[批量生成] 进度: ${done}/${total}`);
-      });
-    } else {
-      // 其他类型（轮询接口）：全部并行
-      await Promise.all(taskFactories.map((fn) => fn()));
-    }
+    const concurrency = isOpenAI ? 15 : taskFactories.length;
+    const { execute } = useConcurrentQueue(concurrency);
+    await execute(taskFactories, (completed, total) => {
+      taskManager.update(BATCH_TASK_ID, { completed, total });
+    }, signal);
 
     await flushSavePageData();
+    taskManager.complete(BATCH_TASK_ID);
     toast.success("批量生成完成");
   } catch (error) {
-    toast.error("批量生成失败");
-    console.error("批量生成错误:", error);
-  } finally {
-    isBatchGenerating.value = false;
+    if (signal.aborted) {
+      toast.info("已取消批量生成");
+    } else {
+      taskManager.fail(BATCH_TASK_ID, error);
+      toast.error("批量生成失败");
+      console.error("批量生成错误:", error);
+    }
   }
 };
 

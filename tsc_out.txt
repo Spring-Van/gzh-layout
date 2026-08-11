@@ -1,7 +1,0 @@
-npm warn Unknown project config "electron_mirror". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
-npm warn Unknown user config "shamefully-hoist". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
-npm warn Unknown user config "home". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
-src/components/common/CoverImageSelectorDrawer.vue(414,10): error TS6133: 'openCropModal' is declared but its value is never read.
-src/components/common/CoverImageSelectorDrawer.vue(431,10): error TS6133: 'isCropped' is declared but its value is never read.
-src/components/common/ImageCropModal.vue(253,9): error TS6133: 'scaledW' is declared but its value is never read.
-src/components/common/ImageCropModal.vue(254,9): error TS6133: 'scaledH' is declared but its value is never read.

@@ -1122,50 +1122,19 @@ import { useTypesetNavigation } from "../composables/useTypesetNavigation";
 import ExtractToTypesetDialog, {
   type ExtractTypesetConfig,
 } from "../components/extract/ExtractToTypesetDialog.vue";
-import type { ImageFile, ImageFormat, ProjectConfig } from "../types";
-
-interface ExtractedImage {
-  id: string;
-  url: string;
-  originalUrl: string;
-  filename: string;
-  platform: string;
-  downloaded: boolean;
-  localPath?: string;
-  error?: string;
-  /** 是否因过滤条件被跳过 */
-  filtered?: boolean;
-  /** 过滤跳过的原因 */
-  filterReason?: string;
-  /** 图片加载失败（控制自定义占位显隐） */
-  loadFailed?: boolean;
-  /** 图片实际尺寸（像素） */
-  width?: number;
-  height?: number;
-  /** 文件大小（字节） */
-  fileSize?: number;
-}
-
-interface ImageFilterOptions {
-  /** 最小宽度（px），0 表示不限 */
-  minWidth: number;
-  /** 最小高度（px），0 表示不限 */
-  minHeight: number;
-  /** 最小文件大小（KB），0 表示不限 */
-  minSizeKB: number;
-}
-
-interface ExtractTask {
-  id: string;
-  url: string;
-  platform: string;
-  status: "pending" | "parsing" | "downloading" | "completed" | "failed";
-  images: ExtractedImage[];
-  error?: string;
-}
+import type { ImageFile, ProjectConfig } from "../types";
+import { toDisplayImageUrl } from "../shared/image/imageUrl";
+import type { ExtractedImage } from "../features/extract/types";
+import {
+  extractUrlsFromText,
+  extractedToImageFile,
+  formatFileSize,
+  rebuildGroupsFromResults,
+  shuffleArray,
+} from "../features/extract/extractUtils";
+import { useExtractWorkflow } from "../features/extract/useExtractWorkflow";
 
 const {
-  success: showSuccess,
   error: showError,
   warning: showWarning,
 } = useToast();
@@ -1179,139 +1148,52 @@ const isTypesetting = ref(false);
 const typesetProgress = ref(0);
 const typesetProgressText = ref("");
 
-const urlInput = ref("");
-const savePath = ref("");
-const tasks = ref<ExtractTask[]>([]);
-const isProcessing = ref(false);
-const isDownloading = ref(false);
-const downloadProgress = ref(0);
+const {
+  urlInput,
+  savePath,
+  tasks,
+  isProcessing,
+  isDownloading,
+  downloadProgress,
+  showLogs,
+  logs,
+  filterOptions,
+  filterIsActive,
+  hideFiltered,
+  allImages,
+  totalImageCount,
+  filteredCount,
+  filterDescription,
+  previewFilteredIds,
+  downloadedCount,
+  canParse,
+  downloadableCount,
+  previewFilterReason,
+  resetFilterOptions,
+  selectFolder,
+  parseUrls,
+  downloadAll,
+  clearWorkflow,
+  platformName,
+  platformClass,
+} = useExtractWorkflow();
+
 const viewMode = ref<"masonry" | "list">("masonry");
 const previewImageVisible = ref(false);
 const previewImageIndex = ref(0);
-const showLogs = ref(false);
-const logs = ref<string[]>([]);
 
 // 过滤下拉浮层：只控制显隐，启用与否由条件本身决定
 const filterPanelOpen = ref(false);
 const filterDropdownRef = ref<HTMLElement | null>(null);
 
-// 图片过滤配置：输入即生效，不再有总开关
-const filterOptions = reactive<ImageFilterOptions>({
-  minWidth: 0,
-  minHeight: 0,
-  minSizeKB: 0,
-});
-
-/** 是否存在任意一项过滤阈值；用于高亮过滤按钮、激活徽标、重置按钮可用态等 */
-const filterIsActive = computed(() => {
-  return (
-    filterOptions.minWidth > 0 ||
-    filterOptions.minHeight > 0 ||
-    filterOptions.minSizeKB > 0
-  );
-});
-
-/** 是否在右侧列表中隐藏"已过滤/将过滤"的图片（仅过滤激活时才有意义） */
-const hideFiltered = ref(false);
-
-/** 重置：清空所有过滤阈值，同时关闭"隐藏已过滤"开关 */
-function resetFilterOptions() {
-  filterOptions.minWidth = 0;
-  filterOptions.minHeight = 0;
-  filterOptions.minSizeKB = 0;
-  hideFiltered.value = false;
-}
-
 const imageProxyCache = reactive<Record<string, string>>({});
 const imageLoadingState = reactive<Record<string, boolean>>({});
-
-let unsubscribeProgress: (() => void) | null = null;
-let unsubscribeLog: (() => void) | null = null;
-
-const allImages = computed(() => {
-  const images = tasks.value.flatMap((task) => task.images);
-  // 隐藏已过滤的图（仅当过滤激活 + 用户主动开启 hideFiltered）
-  if (!filterIsActive.value || !hideFiltered.value) return images;
-  const previewSet = previewFilteredIds.value;
-  return images.filter((img) => !img.filtered && !previewSet.has(img.id));
-});
-
-/** 解析阶段已拿到的图片总张数 */
-const totalImageCount = computed(() => {
-  return tasks.value.reduce((sum, t) => sum + t.images.length, 0);
-});
-
-/** 当前被过滤掉的图片数量（已过滤 + 预览过滤），用于 header 徽标展示 */
-const filteredCount = computed(() => {
-  const previewSet = previewFilteredIds.value;
-  return allImages.value.filter((img) => img.filtered || previewSet.has(img.id))
-    .length;
-});
-
-/** 把字节数格式化成可读字符串（B / KB / MB） */
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
-}
-
-/**
- * 实时预览：当前过滤规则下，已知 fileSize 的图中**将会被过滤**的 id 集合。
- * 仅基于解析阶段拿到的 fileSize；未知 fileSize 的图不会出现在这里（下载时再判断）。
- * 已下载成功的图也不出现在这里（不需要再过滤）。
- */
-const previewFilteredIds = computed<Set<string>>(() => {
-  if (!filterIsActive.value) return new Set();
-  const minSizeBytes = filterOptions.minSizeKB * 1024;
-  if (minSizeBytes <= 0) return new Set();
-  const set = new Set<string>();
-  for (const img of allImages.value) {
-    if (img.downloaded) continue;
-    if ((img.fileSize ?? 0) > 0 && img.fileSize! < minSizeBytes) {
-      set.add(img.id);
-    }
-  }
-  return set;
-});
-
-/** 给预览用的过滤原因文案（不依赖具体 image.filterReason，因为还没下载） */
-function previewFilterReason(img: ExtractedImage): string {
-  if (!img.fileSize) return "";
-  return `文件 ${formatFileSize(img.fileSize)} < 阈值 ${filterOptions.minSizeKB}KB`;
-}
-
-// 过滤规则描述（用于UI展示当前过滤条件）
-const filterDescription = computed(() => {
-  if (!filterIsActive.value) return "";
-  const parts: string[] = [];
-  if (filterOptions.minWidth > 0) parts.push(`宽≥${filterOptions.minWidth}px`);
-  if (filterOptions.minHeight > 0)
-    parts.push(`高≥${filterOptions.minHeight}px`);
-  if (filterOptions.minSizeKB > 0)
-    parts.push(`大小≥${filterOptions.minSizeKB}KB`);
-  if (parts.length === 0) return "提示：未设置任何阈值，不会过滤任何图片";
-
-  // 基于已解析数据，预估会被过滤的图片数量（仅 fileSize 已知的）
-  const minSizeBytes = filterOptions.minSizeKB * 1024;
-  const willFilter = allImages.value.filter(
-    (img) => (img.fileSize ?? 0) > 0 && img.fileSize! < minSizeBytes,
-  ).length;
-  const total = allImages.value.length;
-
-  if (willFilter > 0) {
-    return `将过滤 ${willFilter}/${total} 张不满足 [${parts.join(" / ")}] 的图片`;
-  }
-  if (filterOptions.minSizeKB > 0) {
-    return `当前阈值 ${minSizeBytes / 1024}KB，所有图（已知大小）均≥此值，将不会被过滤`;
-  }
-  return `将过滤不满足 [${parts.join(" / ")}] 的图片`;
-});
 
 const previewImageUrl = computed(() => {
   const image = allImages.value[previewImageIndex.value];
   if (!image) return "";
   if (image.downloaded && image.localPath) {
-    return "file://" + image.localPath;
+    return toDisplayImageUrl(image.localPath);
   }
   if (imageProxyCache[image.id]) {
     return imageProxyCache[image.id];
@@ -1319,50 +1201,9 @@ const previewImageUrl = computed(() => {
   return image.url;
 });
 
-const downloadedCount = computed(() => {
-  return allImages.value.filter((img) => img.downloaded).length;
-});
-
-const canParse = computed(() => {
-  return urlInput.value.trim().length > 0 && !isProcessing.value;
-});
-
-/**
- * 当前可参与排版的图片数量（排除已标记过滤、预览过滤的）
- * 与「下载全部」的过滤逻辑保持一致
- */
-const downloadableCount = computed(() => {
-  const previewSet = previewFilteredIds.value;
-  return tasks.value
-    .flatMap((t) => t.images)
-    .filter((img) => !img.filtered && !previewSet.has(img.id)).length;
-});
-
-function platformName(platform: string): string {
-  const names: Record<string, string> = {
-    wechat: "微信公众号",
-    xiaohongshu: "小红书",
-    douyin: "抖音",
-    weibo: "微博",
-    unknown: "其他",
-  };
-  return names[platform] || platform;
-}
-
-function platformClass(platform: string): string {
-  const classes: Record<string, string> = {
-    wechat: "bg-green-50 text-green-600",
-    xiaohongshu: "bg-red-50 text-red-600",
-    douyin: "bg-slate-100 text-slate-600",
-    weibo: "bg-orange-50 text-orange-600",
-    unknown: "bg-slate-100 text-slate-500",
-  };
-  return classes[platform] || classes.unknown;
-}
-
 function getProxiedImageSrc(image: ExtractedImage): string {
   if (image.downloaded && image.localPath) {
-    return "file://" + image.localPath;
+    return toDisplayImageUrl(image.localPath);
   }
 
   if (imageProxyCache[image.id]) {
@@ -1387,12 +1228,6 @@ async function loadProxiedImage(image: ExtractedImage) {
   }
 }
 
-function extractUrlsFromText(text: string): string[] {
-  const urlPattern = /https?:\/\/[^\s<>"{}|\\^`\[\]]+/g;
-  const matches = text.match(urlPattern);
-  return matches || [];
-}
-
 function handlePaste(event: ClipboardEvent) {
   event.preventDefault();
   const pastedText = event.clipboardData?.getData("text") || "";
@@ -1411,178 +1246,8 @@ function handlePaste(event: ClipboardEvent) {
   }
 }
 
-async function selectFolder() {
-  try {
-    const result = await window.electronAPI.selectFolder();
-    if (result) {
-      savePath.value = result;
-    }
-  } catch (error) {
-    showError("选择文件夹失败");
-  }
-}
-
-async function parseUrls() {
-  if (!canParse.value) return;
-
-  isProcessing.value = true;
-  const urls = urlInput.value
-    .split("\n")
-    .map((url) => url.trim())
-    .filter((url) => url.length > 0);
-
-  try {
-    const results = await window.electronAPI.extract.parseUrls(urls);
-    tasks.value = results;
-
-    const totalImages = results.reduce(
-      (sum: number, task: ExtractTask) => sum + task.images.length,
-      0,
-    );
-    if (totalImages > 0) {
-      showSuccess(`解析完成，共发现 ${totalImages} 张图片`);
-    } else {
-      showWarning("未找到可下载的图片");
-    }
-  } catch (error) {
-    showError(
-      "解析失败：" + (error instanceof Error ? error.message : "未知错误"),
-    );
-  } finally {
-    isProcessing.value = false;
-  }
-}
-
-async function downloadAll() {
-  if (totalImageCount.value === 0) {
-    showWarning("请先解析链接");
-    return;
-  }
-
-  if (!savePath.value) {
-    showWarning("请先选择保存目录");
-    return;
-  }
-
-  if (isDownloading.value) return;
-
-  isDownloading.value = true;
-  showLogs.value = true;
-  downloadProgress.value = 0;
-
-  try {
-    // 收集全部已解析图片
-    const allParsedImages: ExtractedImage[] = tasks.value.flatMap(
-      (t) => t.images,
-    );
-
-    // 计算"实际要下载"的图：过滤掉已过滤/预览过滤/已下载的
-    // 预览过滤包括：已标记 filtered 的，或当前规则下会被过滤的（previewFilteredIds）
-    const previewSet = previewFilteredIds.value;
-    const skippedPreview: ExtractedImage[] = [];
-    const downloadableImages: ExtractedImage[] = [];
-    for (const img of allParsedImages) {
-      if (img.filtered || previewSet.has(img.id)) {
-        // 复用预览过滤的原因（如果有 filterReason 用之，否则生成预览文案）
-        const reason = img.filterReason || previewFilterReason(img) || "已过滤";
-        skippedPreview.push({ ...img, filtered: true, filterReason: reason });
-      } else {
-        downloadableImages.push(img);
-      }
-    }
-
-    const filterDesc = filterIsActive.value
-      ? ` [过滤: ${filterDescription.value}]`
-      : "";
-    logs.value.push(
-      `[前端] 共 ${allParsedImages.length} 张，将过滤 ${skippedPreview.length} 张，实际下载 ${downloadableImages.length} 张到 ${savePath.value}${filterDesc}`,
-    );
-
-    if (downloadableImages.length === 0) {
-      // 全部被过滤掉，无需走后端
-      // 把所有图标记为 filtered（更新 UI）
-      for (const task of tasks.value) {
-        task.images = task.images.map((img) => {
-          const skipped = skippedPreview.find((s) => s.id === img.id);
-          if (skipped) return skipped;
-          if (img.filtered) return img;
-          return {
-            ...img,
-            filtered: true,
-            filterReason: previewFilterReason(img) || "已过滤",
-          };
-        });
-      }
-      showWarning(`全部 ${skippedPreview.length} 张都被过滤，无可下载图片`);
-      return;
-    }
-
-    const plainImages = JSON.parse(JSON.stringify(downloadableImages));
-
-    // 根据是否设置过滤条件选择不同的下载接口
-    let results: ExtractedImage[];
-    if (filterIsActive.value) {
-      results = await window.electronAPI.extract.filterAndDownloadImages(
-        plainImages,
-        savePath.value,
-        {
-          enabled: true,
-          minWidth: filterOptions.minWidth,
-          minHeight: filterOptions.minHeight,
-          minSizeKB: filterOptions.minSizeKB,
-        },
-      );
-    } else {
-      results = await window.electronAPI.extract.downloadImages(
-        plainImages,
-        savePath.value,
-      );
-    }
-    logs.value.push(`[前端] 下载完成，结果: ${results?.length ?? "null"} 张`);
-
-    // 把下载结果合并回去：下载的用 results 的状态，被前端跳过的保留 skippedPreview
-    for (const task of tasks.value) {
-      task.images = task.images.map((img) => {
-        const result = results.find((r: ExtractedImage) => r.id === img.id);
-        if (result) return result;
-        const skipped = skippedPreview.find((s) => s.id === img.id);
-        if (skipped) return skipped;
-        return img;
-      });
-    }
-
-    const successCount = results.filter(
-      (r: ExtractedImage) => r.downloaded,
-    ).length;
-    const skippedCount =
-      results.filter((r: ExtractedImage) => r.filtered).length +
-      skippedPreview.length;
-    const failCount = results.filter(
-      (r: ExtractedImage) => !r.downloaded && !r.filtered,
-    ).length;
-
-    if (failCount === 0 && skippedCount === 0) {
-      showSuccess(`全部下载完成，共 ${successCount} 张图片`);
-    } else if (skippedCount > 0 && failCount === 0) {
-      showSuccess(`下载完成：${successCount} 成功，过滤 ${skippedCount} 张`);
-    } else {
-      showWarning(
-        `下载完成：${successCount} 成功，${skippedCount} 过滤，${failCount} 失败`,
-      );
-    }
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : "未知错误";
-    logs.value.push(`[前端] 下载出错: ${msg}`);
-    showError("下载失败：" + msg);
-  } finally {
-    isDownloading.value = false;
-  }
-}
-
 function clearTasks() {
-  tasks.value = [];
-  urlInput.value = "";
-  logs.value = [];
+  clearWorkflow();
   Object.keys(imageProxyCache).forEach((key) => {
     delete imageProxyCache[key];
   });
@@ -1600,51 +1265,6 @@ function openTypesetDialog() {
     return;
   }
   showTypesetDialog.value = true;
-}
-
-/**
- * 从文件名/url 推断图片格式
- */
-function detectImageFormat(filename: string, url: string): ImageFormat {
-  const lower = (filename + "|" + url).toLowerCase();
-  if (lower.includes(".png")) return "png";
-  if (lower.includes(".jpg") || lower.includes(".jpeg")) return "jpeg";
-  if (lower.includes(".webp")) return "webp";
-  if (lower.includes(".gif")) return "gif";
-  return "jpeg";
-}
-
-/**
- * 把下载完成的 ExtractedImage 适配为矩阵的 ImageFile 结构
- */
-function extractedToImageFile(
-  img: ExtractedImage,
-  order: number,
-): ImageFile | null {
-  // 必须已下载到本地（排版依赖本地文件路径）
-  if (!img.downloaded || !img.localPath) return null;
-  return {
-    id: img.id,
-    path: img.localPath,
-    name: img.filename,
-    size: img.fileSize ?? 0,
-    width: img.width ?? 0,
-    height: img.height ?? 0,
-    format: detectImageFormat(img.filename, img.url),
-    enabled: true,
-    isCover: false,
-    order,
-  };
-}
-
-/**
- * 数组原地打乱（Fisher–Yates）
- */
-function shuffleArray<T>(arr: T[]): void {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
 }
 
 /**
@@ -1808,26 +1428,6 @@ async function proceedToTypeset(config: ExtractTypesetConfig) {
 }
 
 /**
- * 「全部下载到一个目录」模式下，下载结果是一维数组，需要按原分组顺序重新切分回二维。
- * downloadImages 保持输入顺序返回，所以直接按 splitCount 切片即可。
- */
-function rebuildGroupsFromResults(
-  originalGroups: ExtractedImage[][],
-  flatResults: ExtractedImage[],
-  splitCount: number,
-): ExtractedImage[][] {
-  const resultGroups: ExtractedImage[][] = [];
-  for (let i = 0; i < flatResults.length; i += splitCount) {
-    resultGroups.push(flatResults.slice(i, i + splitCount));
-  }
-  // 兜底：若结果数与原分组对不上，至少返回空结构避免后续处理出错
-  if (resultGroups.length === 0 && originalGroups.length > 0) {
-    originalGroups.forEach(() => resultGroups.push([]));
-  }
-  return resultGroups;
-}
-
-/**
  * 手动切换图片的"已过滤"标记
  * - 标记后：图片会在 UI 上以 60% 透明 + 琥珀色徽章展示，下载时会被跳过
  * - 取消标记：恢复为可下载状态（不修改 downloaded/localPath/error）
@@ -1898,39 +1498,11 @@ function onImageLoad(event: Event) {
 }
 
 onMounted(() => {
-  unsubscribeProgress = window.electronAPI.extract.onDownloadProgress(
-    (progress: any) => {
-      downloadProgress.value = Math.round(
-        (progress.current / progress.total) * 100,
-      );
-
-      const image = allImages.value.find((img) => img.id === progress.image.id);
-      if (image) {
-        image.downloaded = progress.image.downloaded;
-        image.localPath = progress.image.localPath;
-        image.error = progress.image.error;
-      }
-    },
-  );
-
-  unsubscribeLog = window.electronAPI.extract.onLog((message: string) => {
-    logs.value.push(message);
-    if (logs.value.length > 200) {
-      logs.value.shift();
-    }
-  });
-
   window.addEventListener("keydown", handleKeydown);
   window.addEventListener("mousedown", handleClickOutside);
 });
 
 onUnmounted(() => {
-  if (unsubscribeProgress) {
-    unsubscribeProgress();
-  }
-  if (unsubscribeLog) {
-    unsubscribeLog();
-  }
   window.removeEventListener("keydown", handleKeydown);
   window.removeEventListener("mousedown", handleClickOutside);
 });

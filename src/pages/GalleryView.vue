@@ -582,7 +582,7 @@ const deleteCategory = (id: string) => {
   }
 }
 
-onMounted(() => {
-  store.loadModels()
+onMounted(async () => {
+  await Promise.all([store.loadModels(), store.loadHistory()])
 })
 </script>

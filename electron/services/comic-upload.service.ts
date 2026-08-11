@@ -6,11 +6,19 @@
 
 import axios from 'axios';
 import FormData from 'form-data';
+import { comicDbService } from './comic-database.service';
 
 /** PicGo API 配置 */
 const PICGO_API_URL = 'https://www.picgo.net/api/1/upload';
-const PICGO_API_KEY =
-  'chv_S6XBh_0285d849632041e151a0ea2a657ff70587f09171227ad033894ca8e46c9099e0_d03916762cfa46d3e5057761603636b584fbeb285440a3d7f2ca07504a8d120d';
+
+function getPicgoApiKey(): string {
+  const apiKey = comicDbService.getAppSettings().picgoApiKey?.trim()
+    || process.env.PICGO_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error('未配置 PicGo API Key，请先在系统设置的“存储与上传”中配置');
+  }
+  return apiKey;
+}
 
 /** 上传选项 */
 export interface ComicUploadOptions {
@@ -83,7 +91,7 @@ export class ComicUploadService {
       const response = await axios.post(PICGO_API_URL, formData, {
         headers: {
           ...formData.getHeaders(),
-          'X-API-Key': PICGO_API_KEY,
+          'X-API-Key': getPicgoApiKey(),
         },
         maxContentLength: Infinity,
         maxBodyLength: Infinity,
@@ -150,7 +158,7 @@ export class ComicUploadService {
       const response = await axios.post(PICGO_API_URL, formData, {
         headers: {
           ...formData.getHeaders(),
-          'X-API-Key': PICGO_API_KEY,
+          'X-API-Key': getPicgoApiKey(),
         },
         maxContentLength: Infinity,
         maxBodyLength: Infinity,

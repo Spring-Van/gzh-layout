@@ -109,8 +109,8 @@ const handleSelectHistory = (image: GeneratedImage) => {
   store.selectFromHistory(image)
 }
 
-onMounted(() => {
-  store.loadModels()
+onMounted(async () => {
+  await Promise.all([store.loadModels(), store.loadHistory()])
   store.selectLatest()
 })
 </script>

@@ -1,5 +1,5 @@
-import { app, BrowserWindow } from 'electron'
-import { fileURLToPath } from 'node:url'
+import { app, BrowserWindow, net, protocol } from 'electron'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import path from 'node:path'
 import { registerFileIpc } from './ipc/file'
 import { registerImageIpc } from './ipc/image'
@@ -8,6 +8,8 @@ import { registerWechatIpc } from './ipc/wechat'
 import { registerExtractIpc } from './ipc/extract'
 import { registerComicIpc } from './ipc/comic'
 import { dbService } from './services/database.service'
+import { comicDbService } from './services/comic-database.service'
+import { imageHistoryService } from './services/image-history.service'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -21,6 +23,39 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 
 let win: BrowserWindow | null
 
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'app-image',
+  privileges: {
+    secure: true,
+    standard: true,
+    supportFetchAPI: true,
+    corsEnabled: true,
+  },
+}])
+
+const IMAGE_EXTENSION_RE = /\.(?:avif|gif|jpe?g|png|svg|webp)$/i
+
+function registerImageProtocol() {
+  protocol.handle('app-image', async request => {
+    try {
+      const url = new URL(request.url)
+      const decodedPath = decodeURIComponent(url.pathname.slice(1))
+      const filePath = url.hostname === 'history'
+        ? imageHistoryService.resolveImagePath(decodedPath)
+        : url.hostname === 'local' && path.isAbsolute(decodedPath)
+          ? path.normalize(decodedPath)
+          : null
+
+      if (!filePath || !IMAGE_EXTENSION_RE.test(filePath)) {
+        return new Response('Not found', { status: 404 })
+      }
+      return net.fetch(pathToFileURL(filePath).toString())
+    } catch {
+      return new Response('Not found', { status: 404 })
+    }
+  })
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1400,
@@ -28,12 +63,10 @@ function createWindow() {
     icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
-      webSecurity: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
     },
-  })
-
-  win.webContents.on('did-finish-load', () => {
-    win?.webContents.send('main-process-message', (new Date).toLocaleString())
   })
 
   if (VITE_DEV_SERVER_URL) {
@@ -57,7 +90,8 @@ app.on('activate', () => {
 })
 
 app.whenReady().then(async () => {
-  await dbService.init()
+  registerImageProtocol()
+  await Promise.all([dbService.init(), comicDbService.init()])
   createWindow()
   registerFileIpc()
   registerImageIpc()

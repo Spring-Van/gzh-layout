@@ -119,6 +119,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { ImageFile } from "../../types";
+import { toDisplayImageUrl } from "../../shared/image/imageUrl";
 
 interface Props {
   visible: boolean;
@@ -141,7 +142,5 @@ const outputDirHint = computed(() => {
   return `${folderName}/webp-converted`;
 });
 
-function getImageUrl(filePath: string): string {
-  return `file://${filePath.replace(/\\/g, "/")}`;
-}
+const getImageUrl = toDisplayImageUrl;
 </script>

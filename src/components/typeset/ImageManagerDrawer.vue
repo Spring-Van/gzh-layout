@@ -102,6 +102,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { toDisplayImageUrl } from '../../shared/image/imageUrl';
 
 interface ImageItem {
   id: string;
@@ -141,7 +142,7 @@ watch(() => props.images, (val) => {
 
 function getImageUrl(filePath: string): string {
   if (props.getImageUrlFn) return props.getImageUrlFn(filePath);
-  return `file://${filePath.replace(/\\/g, '/')}`;
+  return toDisplayImageUrl(filePath);
 }
 
 function handleDragStart(e: DragEvent, index: number) {

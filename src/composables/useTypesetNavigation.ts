@@ -4,6 +4,7 @@ import { useBatchTypesetStore } from "../stores/batchTypeset";
 import { useCoverTemplateStore } from "../stores/coverTemplate";
 import { useTemplateStore } from "../stores/template";
 import { useCoverManager } from "./useCoverManager";
+import { toDisplayImageUrl } from "../shared/image/imageUrl";
 
 /**
  * 批量排版跳转 composable
@@ -76,7 +77,7 @@ export function useTypesetNavigation() {
       const { getCoverTemplateImageCount, initialGenerateAllArticleCovers } =
         useCoverManager({
           coverTemplates: coverTemplateStore.coverTemplates,
-          getImageUrl: (path) => `file://${path.replace(/\\/g, "/")}`,
+          getImageUrl: toDisplayImageUrl,
           addLog: (msg) => console.log("[排版跳转]", msg),
         });
 

@@ -1,23 +1,5 @@
 "use strict";
 const electron = require("electron");
-electron.contextBridge.exposeInMainWorld("ipcRenderer", {
-  on(...args) {
-    const [channel, listener] = args;
-    return electron.ipcRenderer.on(channel, (event, ...args2) => listener(event, ...args2));
-  },
-  off(...args) {
-    const [channel, ...omit] = args;
-    return electron.ipcRenderer.off(channel, ...omit);
-  },
-  send(...args) {
-    const [channel, ...omit] = args;
-    return electron.ipcRenderer.send(channel, ...omit);
-  },
-  invoke(...args) {
-    const [channel, ...omit] = args;
-    return electron.ipcRenderer.invoke(channel, ...omit);
-  }
-});
 electron.contextBridge.exposeInMainWorld("electronAPI", {
   selectFolder: () => electron.ipcRenderer.invoke("file:selectFolder"),
   scanFolder: (folderPath) => electron.ipcRenderer.invoke("image:scanFolder", folderPath),
@@ -31,6 +13,10 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   deleteCoverImage: (filePath) => electron.ipcRenderer.invoke("file:deleteCoverImage", filePath),
   convertWebpImages: (sourcePath, webpImages, backupEnabled) => electron.ipcRenderer.invoke("file:convertWebpImages", sourcePath, webpImages, backupEnabled),
   renameFolderToTitle: (oldFolderPath, newFolderName) => electron.ipcRenderer.invoke("file:renameFolderToTitle", oldFolderPath, newFolderName),
+  imageHistory: {
+    load: () => electron.ipcRenderer.invoke("image-history:load"),
+    save: (history) => electron.ipcRenderer.invoke("image-history:save", history)
+  },
   db: {
     init: () => electron.ipcRenderer.invoke("db:init"),
     getAllProjects: () => electron.ipcRenderer.invoke("db:getAllProjects"),

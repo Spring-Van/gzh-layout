@@ -2,15 +2,7 @@ import { defineConfig } from 'vite'
 import path from 'node:path'
 import electron from 'vite-plugin-electron/simple'
 import vue from '@vitejs/plugin-vue'
-import monacoEditorPluginImport from 'vite-plugin-monaco-editor'
 
-// CJS 互操作：vite-plugin-monaco-editor 以 module.exports.default 导出，
-// esbuild bundle vite.config.ts 时 default 未自动解包，需手动取 default
-const monacoEditorPlugin: any =
-  (monacoEditorPluginImport as unknown as { default?: any }).default ??
-  monacoEditorPluginImport
-
-// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
     vue(),
@@ -20,7 +12,7 @@ export default defineConfig({
         vite: {
           build: {
             rollupOptions: {
-              external: ['sharp', '@img/sharp-win32-x64', 'fs-extra'],
+              external: ['sharp', '@img/sharp-win32-x64', 'fs-extra', 'cheerio'],
             },
           },
         },
@@ -32,9 +24,6 @@ export default defineConfig({
         ? undefined
         : {},
     }),
-    monacoEditorPlugin({
-      languageWorkers: ['json'],
-    }),
   ],
   resolve: {
     alias: {
@@ -45,11 +34,10 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        // 将 monaco-editor 核心拆为独立 chunk，避免打入 PageEditor，
-        // 便于浏览器独立缓存与并行加载。
+        // The JSON editor is cached separately and loaded with PageEditor.
         manualChunks(id) {
-          if (id.includes('node_modules/monaco-editor/')) {
-            return 'monaco-editor'
+          if (id.includes('node_modules/@codemirror/') || id.includes('node_modules/codemirror/')) {
+            return 'json-editor'
           }
         },
       },

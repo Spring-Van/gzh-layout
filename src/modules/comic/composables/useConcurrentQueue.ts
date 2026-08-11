@@ -13,6 +13,7 @@ export function useConcurrentQueue(concurrency: number) {
   const execute = async <T>(
     tasks: (() => Promise<T>)[],
     onProgress?: (completed: number, total: number) => void,
+    signal?: AbortSignal,
   ): Promise<T[]> => {
     const total = tasks.length;
     const results: T[] = new Array(total);
@@ -21,6 +22,7 @@ export function useConcurrentQueue(concurrency: number) {
 
     const worker = async (): Promise<void> => {
       while (index < total) {
+        signal?.throwIfAborted();
         const currentIndex = index++;
         results[currentIndex] = await tasks[currentIndex]();
         completed++;

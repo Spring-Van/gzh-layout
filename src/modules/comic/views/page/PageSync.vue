@@ -349,6 +349,8 @@ import { useWechatUpload, extractLocalImagePaths } from '@/composables/useWechat
 import { expandTemplateWithImages } from '@/composables/useTemplateRender'
 import { useImagePreload } from '@comic/composables/useImagePreload'
 import { getCoverSlotRatios } from '@/utils/coverSlotRatios'
+import { toDisplayImageUrl } from '@/shared/image/imageUrl'
+import { buildContentBlocksHtml } from '@/shared/typeset/contentBlocksHtml'
 import type { ComicContentBlock, ComicProject } from '@comic/types'
 import type { ContentBlock } from '@/types'
 import PhoneMockup from '@/components/common/PhoneMockup.vue'
@@ -694,20 +696,7 @@ onUnmounted(() => {
 })
 
 // === 工具函数 ===
-/**
- * 将图片路径转为可用的 URL
- * 漫画模块的 generatedImages 可能已是完整 URL（data:/blob:/file:/http:），
- * 仅对裸文件路径追加 file:// 协议
- */
-function getImageUrl(filePath: string): string {
-  if (!filePath) return ''
-  // 已有协议（data:, blob:, file:, http:, https:）直接返回
-  if (/^(data:|blob:|file:|https?:)/i.test(filePath)) return filePath
-  const normalizedPath = filePath.replace(/\\/g, '/')
-  return normalizedPath.match(/^[a-zA-Z]:/)
-    ? `file:///${normalizedPath}`
-    : `file://${normalizedPath}`
-}
+const getImageUrl = toDisplayImageUrl
 
 function goBack() {
   router.push(`/comic/page-editor/${projectId}`)
@@ -841,7 +830,7 @@ function handleSelectAccount(id: string) {
 function buildContentHtml(): string {
   const blocks = comicSync.contentBlocks
   if (blocks && blocks.length > 0) {
-    return buildHtmlFromContentBlocks(blocks)
+    return buildContentBlocksHtml(blocks, comicSync.containerStyle)
   }
   // 无自定义模板时用 flow 模式（简单图片堆叠）
   if (!currentTemplate.value) {
@@ -855,31 +844,6 @@ function buildContentHtml(): string {
     comicSync.sourceImages,
     (p) => p, // 发布时用原始路径，后续 extractLocalImagePaths 会处理
   )
-}
-
-function buildHtmlFromContentBlocks(blocks: ComicContentBlock[]): string {
-  const parts: string[] = []
-  for (const block of blocks) {
-    if (block.type === 'image') {
-      parts.push(`<p><img src="${block.imagePath}" style="max-width:100%;display:block;margin:0 auto;"/></p>`)
-    } else if (block.type === 'html') {
-      parts.push(block.html || '')
-    } else if (block.type === 'empty') {
-      const align = block.align || 'left'
-      parts.push(`<p style="text-align:${align}">${block.content || '<br/>'}</p>`)
-    } else if (block.type === 'text') {
-      parts.push(`<p>${block.content || ''}</p>`)
-    }
-  }
-  let html = parts.join('\n')
-  const containerStyle = comicSync.containerStyle
-  if (containerStyle && Object.keys(containerStyle).length > 0) {
-    const styleStr = Object.entries(containerStyle)
-      .map(([k, v]) => `${k.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase())}:${v}`)
-      .join(';')
-    html = `<section style="${styleStr}">${html}</section>`
-  }
-  return html
 }
 
 async function resolveWechatUploadablePath(source: string, filename: string): Promise<string> {

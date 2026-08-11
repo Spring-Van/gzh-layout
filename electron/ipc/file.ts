@@ -1,7 +1,10 @@
 import { ipcMain } from 'electron';
 import { FileService } from '../services/file.service';
+import { imageHistoryService } from '../services/image-history.service';
 
 export function registerFileIpc() {
+  ipcMain.handle('image-history:load', () => imageHistoryService.load());
+  ipcMain.handle('image-history:save', (_event, history) => imageHistoryService.save(history));
   ipcMain.handle('file:selectFolder', async () => {
     return FileService.selectFolder();
   });

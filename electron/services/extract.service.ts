@@ -2,57 +2,37 @@ import fs from 'fs-extra';
 import path from 'path';
 import http from 'http';
 import https from 'https';
+import type { ClientRequest, IncomingMessage, RequestOptions } from 'http';
 import { net } from 'electron';
 import { nanoid } from 'nanoid';
 import * as cheerio from 'cheerio';
 import sharp from 'sharp';
+import type {
+  ExtractedImage,
+  ExtractPlatform as Platform,
+  ExtractTask,
+  ImageFilterOptions,
+} from '../../src/features/extract/types';
 
-/**
- * 图片下载过滤选项
- * - enabled: 是否启用过滤
- * - minWidth: 最小宽度（px），0 表示不限制
- * - minHeight: 最小高度（px），0 表示不限制
- * - minSizeKB: 最小文件大小（KB），0 表示不限制
- */
-export interface ImageFilterOptions {
-  enabled: boolean;
-  minWidth?: number;
-  minHeight?: number;
-  minSizeKB?: number;
+function getByProtocol(
+  url: string,
+  options: RequestOptions,
+  callback: (response: IncomingMessage) => void,
+): ClientRequest {
+  return url.startsWith('https:')
+    ? https.get(url, options, callback)
+    : http.get(url, options, callback);
 }
 
-export interface ExtractedImage {
-  id: string;
-  url: string;
-  originalUrl: string;
-  filename: string;
-  platform: string;
-  downloaded: boolean;
-  localPath?: string;
-  error?: string;
-  /** 是否因过滤条件被跳过 */
-  filtered?: boolean;
-  /** 过滤跳过的原因 */
-  filterReason?: string;
-  /** 图片实际尺寸（像素），过滤时探测得到 */
-  width?: number;
-  /** 图片实际尺寸（像素），过滤时探测得到 */
-  height?: number;
-  /** 文件大小（字节），过滤时探测得到 */
-  fileSize?: number;
+function requestByProtocol(
+  url: string,
+  options: RequestOptions,
+  callback: (response: IncomingMessage) => void,
+): ClientRequest {
+  return url.startsWith('https:')
+    ? https.request(url, options, callback)
+    : http.request(url, options, callback);
 }
-
-export interface ExtractTask {
-  id: string;
-  url: string;
-  platform: string;
-  status: 'pending' | 'parsing' | 'downloading' | 'completed' | 'failed';
-  images: ExtractedImage[];
-  error?: string;
-  logs?: string[];
-}
-
-export type Platform = 'wechat' | 'xiaohongshu' | 'douyin' | 'weibo' | 'unknown';
 
 export type LogCallback = (message: string) => void;
 
@@ -158,9 +138,6 @@ export class ExtractService {
     log?.(`[getRedirectUrl] 检查重定向: ${url}`);
 
     return new Promise((resolve) => {
-      const urlObj = new URL(url);
-      const requestModule = urlObj.protocol === 'https:' ? https : http;
-
       let resolved = false;
       let timeoutId: NodeJS.Timeout | null = null;
 
@@ -179,7 +156,7 @@ export class ExtractService {
         }
       };
 
-      const request = requestModule.get(url, {
+      const request = getByProtocol(url, {
         headers: {
           'User-Agent': DEFAULT_HEADERS['User-Agent'],
         },
@@ -836,7 +813,6 @@ export class ExtractService {
   static async fetchImageContentLength(url: string, log?: LogCallback): Promise<number> {
     return new Promise((resolve) => {
       const urlObj = new URL(url);
-      const requestModule = urlObj.protocol === 'https:' ? https : http;
 
       const headers: Record<string, string> = {
         'User-Agent': DEFAULT_HEADERS['User-Agent'],
@@ -856,7 +832,7 @@ export class ExtractService {
         // ignore
       }
 
-      const request = requestModule.request(url, { method: 'HEAD', headers, timeout: 8000 }, (response) => {
+      const request = requestByProtocol(url, { method: 'HEAD', headers, timeout: 8000 }, (response) => {
         // 部分服务器对 HEAD 不支持，自动重定向到 GET
         if (response.statusCode === 405 || response.statusCode === 403) {
           resolve(0);
@@ -1082,7 +1058,6 @@ export class ExtractService {
 
     return new Promise((resolve, reject) => {
       const urlObj = new URL(url);
-      const requestModule = urlObj.protocol === 'https:' ? https : http;
 
       const headers: Record<string, string> = {
         'User-Agent': DEFAULT_HEADERS['User-Agent'],
@@ -1107,7 +1082,7 @@ export class ExtractService {
 
       let timer: ReturnType<typeof setTimeout>;
 
-      const request = requestModule.get(url, { headers }, (response) => {
+      const request = getByProtocol(url, { headers }, (response) => {
         log?.(`[fetchImageAsBuffer] 响应状态: ${response.statusCode}`);
 
         if (response.statusCode === 301 || response.statusCode === 302 ||

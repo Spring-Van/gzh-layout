@@ -4,9 +4,10 @@
  * 存储路径：userData/comic-gen.json
  */
 
-import fs from 'fs';
 import path from 'path';
-import { app } from 'electron';
+import { app, safeStorage } from 'electron';
+import { JsonFileStore } from './json-file-store';
+import { SecretStorage } from './secret-storage';
 import type {
   ComicProject,
   ModelConfig,
@@ -20,9 +21,11 @@ import type {
 export interface AppSettings {
   /** 导出路径，未配置时使用系统下载目录 */
   exportDir?: string;
+  picgoApiKey?: string;
 }
 
 interface ComicDatabaseData {
+  schemaVersion: number;
   projects: ComicProject[];
   modelConfigs: ModelConfig[];
   promptTemplates: PromptTemplate[];
@@ -33,53 +36,43 @@ interface ComicDatabaseData {
 }
 
 export class ComicDatabaseService {
-  private dbPath: string;
+  private store: JsonFileStore<ComicDatabaseData>;
   private data: ComicDatabaseData;
+  private readonly secretStorage = new SecretStorage(safeStorage);
+  private loadedVersion = 2;
+  private initialized = false;
 
   constructor() {
     const userDataPath = app.getPath('userData');
-    this.dbPath = path.join(userDataPath, 'comic-gen.json');
-    this.data = this.loadFromFile();
-  }
-
-  private loadFromFile(): ComicDatabaseData {
-    if (fs.existsSync(this.dbPath)) {
-      try {
-        const content = fs.readFileSync(this.dbPath, 'utf-8');
-        const data = JSON.parse(content);
-        return {
-          projects: data.projects || [],
-          modelConfigs: data.modelConfigs || [],
-          promptTemplates: data.promptTemplates || [],
-          projectAssets: data.projectAssets || [],
-          materials: data.materials || [],
-          generationTasks: data.generationTasks || [],
-          appSettings: data.appSettings || {},
-        };
-      } catch (error) {
-        console.error('读取 comic 数据库文件失败:', error);
-      }
-    }
-    return {
-      projects: [],
-      modelConfigs: [],
-      promptTemplates: [],
-      projectAssets: [],
-      materials: [],
-      generationTasks: [],
-      appSettings: {},
-    };
+    this.store = new JsonFileStore({
+      filePath: path.join(userDataPath, 'comic-gen.json'),
+      currentVersion: 2,
+      createDefault: createDefaultComicDatabaseData,
+      migrate: (raw, fromVersion) => {
+        this.loadedVersion = fromVersion;
+        return normalizeComicDatabaseData(raw);
+      },
+      logger: console,
+    });
+    this.data = this.store.load();
   }
 
   private saveToFile(): void {
-    try {
-      fs.writeFileSync(this.dbPath, JSON.stringify(this.data, null, 2), 'utf-8');
-    } catch (error) {
-      console.error('保存 comic 数据库文件失败:', error);
-    }
+    this.store.save(this.protectCredentials(this.data));
   }
 
   async init(): Promise<void> {
+    if (this.initialized) return;
+    const persisted = this.data;
+    const needsMigration = this.loadedVersion < 2
+      || persisted.modelConfigs.some((config) => this.secretStorage.hasUnprotectedFields(config, ['apiKey']))
+      || this.secretStorage.hasUnprotectedFields(persisted.appSettings, ['picgoApiKey']);
+    this.data = this.revealCredentials(persisted);
+    if (needsMigration) {
+      this.store.save(this.protectCredentials(this.data), { backupMode: 'current' });
+      this.loadedVersion = 2;
+    }
+    this.initialized = true;
     // 数据已在构造函数中加载
   }
 
@@ -90,7 +83,7 @@ export class ComicDatabaseService {
   }
 
   saveAppSettings(settings: AppSettings): void {
-    this.data.appSettings = { ...settings };
+    this.data.appSettings = { ...this.data.appSettings, ...settings };
     this.saveToFile();
   }
 
@@ -256,11 +249,61 @@ export class ComicDatabaseService {
    * 对应原 Dexie 的级联删除逻辑
    */
   deleteProjectCascade(projectId: string): void {
-    this.deleteGenerationTasksByProjectId(projectId);
-    this.deleteProjectAssetsByProjectId(projectId);
-    this.deleteMaterialsByProjectId(projectId);
-    this.deleteProject(projectId);
+    this.data.generationTasks = this.data.generationTasks.filter((task) => task.projectId !== projectId);
+    this.data.projectAssets = this.data.projectAssets.filter((asset) => asset.projectId !== projectId);
+    this.data.materials = this.data.materials.filter((material) => material.projectId !== projectId);
+    this.data.projects = this.data.projects.filter((project) => project.id !== projectId);
+    this.saveToFile();
   }
+
+  private protectCredentials(data: ComicDatabaseData): ComicDatabaseData {
+    return {
+      ...data,
+      modelConfigs: data.modelConfigs.map((config) =>
+        this.secretStorage.protectFields(config, ['apiKey']),
+      ),
+      appSettings: this.secretStorage.protectFields(data.appSettings, ['picgoApiKey']),
+    };
+  }
+
+  private revealCredentials(data: ComicDatabaseData): ComicDatabaseData {
+    return {
+      ...data,
+      modelConfigs: data.modelConfigs.map((config) =>
+        this.secretStorage.revealFields(config, ['apiKey']),
+      ),
+      appSettings: this.secretStorage.revealFields(data.appSettings, ['picgoApiKey']),
+    };
+  }
+}
+
+function createDefaultComicDatabaseData(): ComicDatabaseData {
+  return {
+    schemaVersion: 2,
+    projects: [],
+    modelConfigs: [],
+    promptTemplates: [],
+    projectAssets: [],
+    materials: [],
+    generationTasks: [],
+    appSettings: {},
+  };
+}
+
+function normalizeComicDatabaseData(raw: unknown): ComicDatabaseData {
+  const data = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  return {
+    schemaVersion: 2,
+    projects: Array.isArray(data.projects) ? data.projects as ComicProject[] : [],
+    modelConfigs: Array.isArray(data.modelConfigs) ? data.modelConfigs as ModelConfig[] : [],
+    promptTemplates: Array.isArray(data.promptTemplates) ? data.promptTemplates as PromptTemplate[] : [],
+    projectAssets: Array.isArray(data.projectAssets) ? data.projectAssets as ProjectAsset[] : [],
+    materials: Array.isArray(data.materials) ? data.materials as MaterialItem[] : [],
+    generationTasks: Array.isArray(data.generationTasks) ? data.generationTasks as GenerationTask[] : [],
+    appSettings: data.appSettings && typeof data.appSettings === 'object'
+      ? data.appSettings as AppSettings
+      : {},
+  };
 }
 
 export const comicDbService = new ComicDatabaseService();

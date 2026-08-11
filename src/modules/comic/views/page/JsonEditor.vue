@@ -82,8 +82,11 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
 // 按需导入 monaco：只加载 editor 核心 + JSON 语言，避免全量打包
-import * as monaco from "monaco-editor/esm/vs/editor/editor.api";
-import "monaco-editor/esm/vs/language/json/monaco.contribution";
+import { basicSetup } from "codemirror";
+import { Compartment, EditorState } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+import { json } from "@codemirror/lang-json";
+import { oneDark } from "@codemirror/theme-one-dark";
 import { useTheme } from "@/theme/useTheme";
 
 interface Props {
@@ -104,7 +107,8 @@ const currentCol = ref(1);
 
 const { theme } = useTheme();
 
-let editor: monaco.editor.IStandaloneCodeEditor | null = null;
+let editor: EditorView | null = null;
+const themeCompartment = new Compartment();
 
 const lineCount = computed(() => {
   if (!props.modelValue) return 1;
@@ -114,12 +118,12 @@ const lineCount = computed(() => {
 watch(
   () => props.modelValue,
   (val) => {
-    if (editor && val !== editor.getValue()) {
-      const position = editor.getPosition();
-      editor.setValue(val);
-      if (position) {
-        editor.setPosition(position);
-      }
+    if (editor && val !== editor.state.doc.toString()) {
+      const cursor = Math.min(editor.state.selection.main.head, val.length);
+      editor.dispatch({
+        changes: { from: 0, to: editor.state.doc.length, insert: val },
+        selection: { anchor: cursor },
+      });
       validate(val);
     }
   },
@@ -144,11 +148,11 @@ function validate(value: string): boolean {
 
 function formatJson() {
   if (!editor) return;
-  const value = editor.getValue();
+  const value = editor.state.doc.toString();
   try {
     const parsed = JSON.parse(value);
     const formatted = JSON.stringify(parsed, null, 2);
-    editor.setValue(formatted);
+    editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: formatted } });
     emit("update:modelValue", formatted);
     error.value = "";
   } catch (_e) {
@@ -158,11 +162,11 @@ function formatJson() {
 
 function compressJson() {
   if (!editor) return;
-  const value = editor.getValue();
+  const value = editor.state.doc.toString();
   try {
     const parsed = JSON.parse(value);
     const compressed = JSON.stringify(parsed);
-    editor.setValue(compressed);
+    editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: compressed } });
     emit("update:modelValue", compressed);
     error.value = "";
   } catch (_e) {
@@ -172,55 +176,50 @@ function compressJson() {
 
 function updateCursorPosition() {
   if (!editor) return;
-  const position = editor.getPosition();
-  if (position) {
-    currentLine.value = position.lineNumber;
-    currentCol.value = position.column;
-  }
+  const position = editor.state.selection.main.head;
+  const line = editor.state.doc.lineAt(position);
+  currentLine.value = line.number;
+  currentCol.value = position - line.from + 1;
 }
 
 onMounted(() => {
   if (!editorContainer.value) return;
 
-  editor = monaco.editor.create(editorContainer.value, {
-    value: props.modelValue,
-    language: "json",
-    theme: theme.value === "dark" ? "vs-dark" : "vs",
-    minimap: { enabled: false },
-    scrollBeyondLastLine: false,
-    fontSize: 12,
-    fontFamily:
-      "'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'SF Mono', Consolas, monospace",
-    lineHeight: 19,
-    lineNumbers: "on",
-    renderLineHighlight: "line",
-    automaticLayout: true,
-    tabSize: 2,
-    wordWrap: "off",
-    scrollbar: {
-      verticalScrollbarSize: 6,
-      horizontalScrollbarSize: 6,
-    },
-    padding: { top: 12, bottom: 12 },
-    contextmenu: true,
-    quickSuggestions: false,
-    suggestOnTriggerCharacters: false,
+  editor = new EditorView({
+    parent: editorContainer.value,
+    state: EditorState.create({
+      doc: props.modelValue,
+      extensions: [
+        basicSetup,
+        json(),
+        EditorState.tabSize.of(2),
+        themeCompartment.of(theme.value === "dark" ? oneDark : []),
+        EditorView.theme({
+          "&": { height: "100%", fontSize: "12px" },
+          ".cm-scroller": {
+            overflow: "auto",
+            fontFamily: "'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'SF Mono', Consolas, monospace",
+            lineHeight: "19px",
+          },
+          ".cm-content": { padding: "12px 0" },
+        }),
+        EditorView.updateListener.of(update => {
+          if (update.docChanged) {
+            const value = update.state.doc.toString();
+            emit("update:modelValue", value);
+            validate(value);
+          }
+          if (update.docChanged || update.selectionSet) updateCursorPosition();
+        }),
+      ],
+    }),
   });
 
   // 主题切换时更新 monaco 主题
   watch(theme, (t) => {
-    monaco.editor.setTheme(t === "dark" ? "vs-dark" : "vs");
-  });
-
-  editor.onDidChangeModelContent(() => {
-    const value = editor!.getValue();
-    emit("update:modelValue", value);
-    validate(value);
-    updateCursorPosition();
-  });
-
-  editor.onDidChangeCursorPosition(() => {
-    updateCursorPosition();
+    editor?.dispatch({
+      effects: themeCompartment.reconfigure(t === "dark" ? oneDark : []),
+    });
   });
 
   validate(props.modelValue);
@@ -228,7 +227,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (editor) {
-    editor.dispose();
+    editor.destroy();
     editor = null;
   }
 });
@@ -236,49 +235,39 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* 滚动条等通用样式（与主题无关） */
-.json-editor :deep(.monaco-editor .monaco-scrollable-element) {
+.json-editor :deep(.cm-scroller) {
   scrollbar-width: thin;
 }
 
-.json-editor
-  :deep(.monaco-editor .monaco-scrollable-element)::-webkit-scrollbar {
+.json-editor :deep(.cm-scroller)::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
-.json-editor
-  :deep(.monaco-editor .monaco-scrollable-element)::-webkit-scrollbar-thumb {
+.json-editor :deep(.cm-scroller)::-webkit-scrollbar-thumb {
   border-radius: 3px;
 }
 </style>
 
 <!-- dark 模式下覆盖 monaco 配色，light 模式用 monaco 内置 vs 主题 -->
 <style>
-html.dark .json-editor .monaco-editor {
-  --vscode-editor-background: #0a0a0f;
-  --vscode-editorGutter-background: #0a0a0f;
-  --vscode-editorLineNumber-foreground: #4a5568;
-  --vscode-editorLineNumber-activeForeground: #94a3b8;
-  --vscode-editorCursor-foreground: #22d3ee;
-  --vscode-editor-selectionBackground: rgba(34, 211, 238, 0.15);
-  --vscode-editor-lineHighlightBackground: rgba(255, 255, 255, 0.03);
-  --vscode-editorWidget-background: #0f172a;
-  --vscode-editorWidget-border: rgba(255, 255, 255, 0.08);
+html.dark .json-editor .cm-editor {
+  background: #0a0a0f;
 }
 
-html.dark .json-editor .monaco-editor .margin {
+html.dark .json-editor .cm-gutters {
   border-right: 1px solid rgba(255, 255, 255, 0.04);
 }
 
-html.dark .json-editor .monaco-editor .monaco-scrollable-element {
+html.dark .json-editor .cm-scroller {
   scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
 }
 
-html.dark .json-editor .monaco-editor .monaco-scrollable-element::-webkit-scrollbar-thumb {
+html.dark .json-editor .cm-scroller::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.1);
 }
 
-html.dark .json-editor .monaco-editor .monaco-scrollable-element::-webkit-scrollbar-thumb:hover {
+html.dark .json-editor .cm-scroller::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.15);
 }
 </style>
