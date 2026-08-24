@@ -70,6 +70,12 @@ const routes: RouteRecordRaw[] = [
         meta: { module: 'comic', title: '项目编辑' },
       },
       {
+        path: 'long-project/:projectId',
+        name: 'ComicLongProject',
+        component: () => import('../modules/comic/views/LongProject.vue'),
+        meta: { module: 'comic', title: '长篇项目' },
+      },
+      {
         path: 'project-assets/:projectId',
         name: 'ComicProjectAssets',
         component: () => import('../modules/comic/views/ProjectAssets.vue'),

@@ -137,7 +137,7 @@
             <!-- 新建项目卡片 -->
             <div
               class="group bg-surface border border-dashed border-border-default rounded-xl p-5 flex flex-col items-center justify-center gap-3 cursor-pointer hover:bg-white/8 hover:border-cyan-500/30 transition-colors min-h-[200px]"
-              @click="createNewProject"
+              @click="showCreateDialog = true"
             >
               <div
                 class="w-10 h-10 rounded-full bg-cyan-500/10 flex items-center justify-center group-hover:bg-cyan-500/20 transition-colors"
@@ -167,7 +167,7 @@
               v-for="project in filteredProjects"
               :key="project.id"
               class="group bg-surface border border-border-subtle rounded-xl p-5 flex flex-col cursor-pointer hover:bg-elevated hover:border-border-default hover:shadow-lg hover:shadow-cyan-500/5 transition-[background-color,border-color,box-shadow] duration-300 min-h-[200px] relative"
-              @click="router.push(`/comic/project-editor/${project.id}`)"
+              @click="openProject(project)"
             >
               <!-- 删除按钮：hover 显示 -->
               <button
@@ -196,12 +196,8 @@
                 <div
                   class="w-8 h-8 rounded-full bg-surface flex items-center justify-center mb-2"
                 >
-                  <svg
-                    class="w-4 h-4 text-text-secondary"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
+                  <BookOpen v-if="getProjectType(project) === 'long'" :size="16" class="text-text-secondary" />
+                  <svg v-else class="w-4 h-4 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
                       stroke-linecap="round"
                       stroke-linejoin="round"
@@ -210,14 +206,21 @@
                     />
                   </svg>
                 </div>
-                <p class="text-xs text-text-secondary">步骤 1/4</p>
+                <p class="text-xs text-text-secondary">
+                  {{ getProjectType(project) === "long" ? "尚未添加章节" : "步骤 1/4" }}
+                </p>
               </div>
 
               <!-- 项目信息 -->
               <div>
-                <h3 class="text-sm font-medium text-text-primary truncate mb-2">
-                  {{ project.name }}
-                </h3>
+                <div class="mb-2 flex items-center gap-2">
+                  <h3 class="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">
+                    {{ project.name }}
+                  </h3>
+                  <span class="shrink-0 rounded bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-400">
+                    {{ getProjectType(project) === "long" ? "长篇" : "短篇" }}
+                  </span>
+                </div>
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-1 text-xs text-text-secondary">
                     <svg
@@ -254,6 +257,12 @@
       </div>
     </main>
 
+    <CreateProjectDialog
+      v-model="showCreateDialog"
+      :submitting="isCreating"
+      @create="handleCreateProject"
+    />
+
     <!-- 删除确认弹窗 -->
     <ConfirmDialog
       v-model="showDeleteDialog"
@@ -269,18 +278,22 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
-import { v4 as uuidv4 } from "uuid";
+import { BookOpen } from "lucide-vue-next";
 import { useProjectStore } from "@comic/stores/project";
-import { comicDb } from "@/api/comic";
-import type { ComicProject } from "@comic/types";
+import type { ComicProject, ComicProjectType } from "@comic/types";
 import ConfirmDialog from "@comic/components/ConfirmDialog.vue";
+import CreateProjectDialog from "@comic/components/CreateProjectDialog.vue";
+import { useToast } from "@comic/composables/useToast";
 import { useTheme } from "@/theme/useTheme";
 
 const router = useRouter();
 const { theme, toggle: toggleTheme } = useTheme();
 const projectStore = useProjectStore();
+const toast = useToast();
 const projects = ref<ComicProject[]>([]);
 const searchKeyword = ref("");
+const showCreateDialog = ref(false);
+const isCreating = ref(false);
 
 const showDeleteDialog = ref(false);
 const deletingProject = ref<ComicProject | null>(null);
@@ -314,19 +327,33 @@ const formatTime = (ts: number): string => {
   return `${Math.floor(diff / day)} 天前`;
 };
 
-const createNewProject = async () => {
-  const now = new Date();
-  const timeStr = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+const getProjectType = (project: ComicProject): ComicProjectType => {
+  return project.projectType === "long" ? "long" : "short";
+};
 
-  const project: ComicProject = {
-    id: uuidv4(),
-    name: `新项目 ${timeStr}`,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
+const getProjectPath = (project: ComicProject): string => {
+  return getProjectType(project) === "long"
+    ? `/comic/long-project/${project.id}`
+    : `/comic/project-editor/${project.id}`;
+};
 
-  await comicDb.saveProject(project);
-  router.push(`/comic/project-editor/${project.id}`);
+const openProject = (project: ComicProject) => {
+  router.push(getProjectPath(project));
+};
+
+const handleCreateProject = async (payload: { name: string; projectType: ComicProjectType }) => {
+  if (isCreating.value) return;
+  isCreating.value = true;
+  try {
+    const project = await projectStore.createProject(payload.name, payload.projectType);
+    showCreateDialog.value = false;
+    await router.push(getProjectPath(project));
+  } catch (error) {
+    console.error("创建漫画项目失败", error);
+    toast.error("项目创建失败，请重试");
+  } finally {
+    isCreating.value = false;
+  }
 };
 
 const handleDeleteClick = (project: ComicProject) => {

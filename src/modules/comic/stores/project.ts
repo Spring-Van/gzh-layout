@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
 import { comicDb } from '@/api/comic'
-import type { ComicProject } from '@comic/types'
+import type { ComicProject, ComicProjectType } from '@comic/types'
 
 /**
  * Comic 模块项目 Store
@@ -17,10 +17,15 @@ export const useProjectStore = defineStore('comicProject', () => {
     projects.value = await comicDb.getAllProjects()
   }
 
-  const createProject = async (name: string, description?: string) => {
+  const createProject = async (
+    name: string,
+    projectType: ComicProjectType = 'short',
+    description?: string
+  ) => {
     const project: ComicProject = {
       id: uuidv4(),
       name,
+      projectType,
       description,
       createdAt: Date.now(),
       updatedAt: Date.now()

@@ -69,6 +69,14 @@
             </button>
           </div>
         </div>
+        <button
+          v-if="form.type === 'extract'"
+          type="button"
+          class="w-fit text-xs text-cyan-400 hover:text-cyan-300"
+          @click="applyRecommendedExtractionTemplate"
+        >
+          填入推荐资产提取模板
+        </button>
         <SettingsFieldInput v-model="form.description" label="模板描述" placeholder="简要描述该模板的用途" />
         <label class="block text-xs text-text-secondary">
           <span class="block mb-1.5">提示词内容</span>
@@ -110,12 +118,55 @@ const draggedId = ref<string | null>(null);
 const form = reactive({ name: '', type: 'extract' as TemplateType, description: '', content: '' });
 const typeOptions: Array<{ value: TemplateType; label: string }> = [
   { value: 'style', label: '风格模板' },
-  { value: 'extract', label: '提取模板' },
+  { value: 'extract', label: '资产提取模板' },
   { value: 'story', label: '故事模板' },
+  { value: 'storyboard', label: '分镜模板' },
 ];
+const recommendedExtractionPrompt = `你是一名小说漫画化的资产分析师。请从当前章节中提取后续漫画创作需要保持视觉一致性的核心资产。
+
+提取目标仅限以下三类：
+1. 人物（character）：有姓名、明确身份、持续出现、推动剧情，或需要稳定视觉形象的人物。
+2. 场景（scene）：会重复使用、承载关键剧情、或具有明确视觉识别度的地点与空间。
+3. 道具（prop）：推动剧情、反复出现、具有独特外观，或会在分镜中被重点呈现的物品。
+
+提取规则：
+- 只提取当前章节中有明确依据的资产，不要补写原文未提供的人物外貌、环境细节或道具设定。
+- 不要提取无关路人、泛称群众、一次性无视觉必要的普通物品。
+- 同一对象的不同称谓应合并为一个候选项，并放入 aliases。
+- 人物服装、状态、年龄阶段；场景昼夜、天气；道具不同形态，均作为 visualVersion 返回，不是新的资产。
+- importance 仅可为 major 或 minor。major 表示需要重点保持一致。
+- evidence 必须摘录支撑结论的原文短句，每项 1 至 3 条。
+- description 仅总结原文明确的视觉和叙事信息；信息不足时写“原文未说明”。
+- imagePrompt 只能基于 description 中已有信息生成；视觉信息不足时返回空字符串。
+- 不需要输出 Markdown、解释文字或代码块。
+
+严格按以下 JSON 结构输出：
+{
+  "summary": { "chapterOverview": "本章节的简短剧情概述", "assetCount": 0 },
+  "assets": [
+    {
+      "type": "character",
+      "name": "资产主名称",
+      "aliases": ["别名或其他称谓"],
+      "importance": "major",
+      "description": "已明确的资产信息",
+      "evidence": ["原文依据"],
+      "visualVersion": {
+        "name": "视觉版本名称",
+        "description": "当前章节中明确的外观或状态变化",
+        "imagePrompt": "仅基于原文信息的绘画提示词"
+      }
+    }
+  ]
+}
+
+若没有可提取资产，assets 返回空数组。
+
+【章节原文】
+{{chapter_content}}`;
 
 function typeLabel(type: TemplateType): string {
-  return ({ style: '风格', extract: '提取', story: '故事' })[type];
+  return ({ style: '风格', extract: '资产提取', story: '故事', storyboard: '分镜' })[type];
 }
 
 async function load() {
@@ -126,6 +177,12 @@ async function load() {
 function resetForm() {
   Object.assign(form, { name: '', type: 'extract', description: '', content: '' });
   editingId.value = null;
+}
+
+function applyRecommendedExtractionTemplate() {
+  form.name = form.name.trim() || '长篇章节资产提取';
+  form.description = form.description.trim() || '从章节原文中识别人物、场景、道具，并输出可审核的结构化资产。';
+  form.content = recommendedExtractionPrompt;
 }
 
 function openCreate() {

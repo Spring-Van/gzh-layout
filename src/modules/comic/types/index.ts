@@ -46,9 +46,99 @@ export interface ImageGenConfig {
   promptSuffix?: string
 }
 
+export type ComicProjectType = 'short' | 'long'
+
+export type LongProjectNodeType = 'folder' | 'chapter'
+export type LongChapterStage = 'empty' | 'source-ready' | 'assets-ready' | 'storyboard-ready' | 'prompts-ready' | 'completed'
+export type LongProjectAssetType = 'character' | 'scene' | 'prop'
+
+export interface LongProjectAssetVariant {
+  id: string
+  name: string
+  description?: string
+  referenceImageIds: string[]
+  sourceChapterIds: string[]
+  createdAt: number
+  updatedAt: number
+}
+
+export interface LongProjectAsset {
+  id: string
+  type: LongProjectAssetType
+  name: string
+  aliases: string[]
+  description?: string
+  fixedTraits: string[]
+  sourceChapterIds: string[]
+  variants: LongProjectAssetVariant[]
+  status: 'pending' | 'confirmed' | 'conflict'
+  createdAt: number
+  updatedAt: number
+}
+
+export type AssetExtractionCandidateDecision = 'pending' | 'create' | 'merge' | 'ignore'
+export type AssetExtractionRunStatus = 'running' | 'completed' | 'failed' | 'confirmed'
+
+/** AI 从单个章节中识别出的资产候选项，确认前不会进入项目资产库。 */
+export interface LongProjectAssetExtractionCandidate {
+  id: string
+  type: LongProjectAssetType
+  name: string
+  aliases: string[]
+  importance: 'major' | 'minor'
+  description?: string
+  evidence: string[]
+  visualVersion?: {
+    name: string
+    description?: string
+    imagePrompt?: string
+  }
+  suggestedAssetId?: string
+  decision: AssetExtractionCandidateDecision
+}
+
+/** 章节资产提取任务：保留输入快照，便于内容变更后重新核对。 */
+export interface LongProjectAssetExtractionRun {
+  id: string
+  chapterId: string
+  sourceContent: string
+  sourceWordCount: number
+  modelId: string
+  templateId: string
+  status: AssetExtractionRunStatus
+  candidates: LongProjectAssetExtractionCandidate[]
+  rawResponse?: string
+  error?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface LongProjectNode {
+  id: string
+  type: LongProjectNodeType
+  name: string
+  parentId: string | null
+  order: number
+  content?: string
+  stage?: LongChapterStage
+  createdAt: number
+  updatedAt: number
+}
+
+export interface LongProjectData {
+  nodes: LongProjectNode[]
+  /** 项目级资产库，章节解析结果最终汇总到这里 */
+  assets?: LongProjectAsset[]
+  /** 各章节待审核或已确认的资产提取任务 */
+  assetExtractionRuns?: LongProjectAssetExtractionRun[]
+}
+
 export interface ComicProject {
   id: string
   name: string
+  /** 旧项目没有该字段时按短篇处理 */
+  projectType?: ComicProjectType
+  longProjectData?: LongProjectData
   description?: string
   coverImage?: string
   comicConfig?: {
@@ -112,7 +202,7 @@ export interface OpenAIImageParams {
   compatibleMode?: boolean
 }
 
-export type TemplateType = 'style' | 'extract' | 'story'
+export type TemplateType = 'style' | 'extract' | 'story' | 'storyboard'
 
 export interface PromptTemplate {
   id: string
