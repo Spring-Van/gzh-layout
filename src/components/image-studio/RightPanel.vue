@@ -191,7 +191,21 @@
         </button>
       </div>
 
-      <div v-if="store.recentHistory.length > 0" class="flex gap-2.5 overflow-x-auto pb-1 scrollbar-thin">
+      <div
+        v-if="store.recentHistory.length > 0 || store.isGenerating"
+        class="flex gap-2.5 overflow-x-auto pb-1 scrollbar-thin"
+      >
+        <!-- 生成中的占位卡片：提示即将产生新历史记录 -->
+        <div
+          v-if="store.isGenerating"
+          class="relative shrink-0 w-24 h-24 rounded-lg border-2 border-dashed border-cyan-500/40 bg-cyan-500/5 flex flex-col items-center justify-center gap-1.5"
+        >
+          <svg class="w-5 h-5 text-accent animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <p class="text-[10px] text-accent">生成中</p>
+        </div>
         <div
           v-for="img in store.recentHistory"
           :key="img.id"
@@ -298,8 +312,10 @@ const downloadImage = (url: string) => {
 const deleteCurrentImage = () => {
   if (!store.currentImage) return
   store.deleteImage(store.currentImage.id)
+  // 先清空再选中剩余的最新一张，保持「默认选中第一个」的交互
   store.currentImages = []
   store.selectedImageIndex = 0
+  store.selectLatest()
 }
 
 /** 复用当前图片的提示词与参考图 */

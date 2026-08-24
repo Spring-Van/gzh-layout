@@ -62,5 +62,12 @@
     "vitest": "^2.1.9",
     "vue-tsc": "^2.0.26"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild",
+      "sharp"
+    ]
+  },
   "main": "dist-electron/main.js"
 }

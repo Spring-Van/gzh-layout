@@ -148,7 +148,9 @@ export const useImageStudioStore = defineStore('imageStudio', () => {
 
   const persistHistory = async () => {
     const revision = ++historyRevision
-    const snapshot = structuredClone(history.value)
+    // history.value 是 Vue 响应式 Proxy，structuredClone 无法克隆 Proxy，
+    // 这里用 JSON 深拷贝得到纯数据快照（数据本身均为可序列化的字符串/数字/数组）
+    const snapshot = JSON.parse(JSON.stringify(history.value)) as GeneratedImage[]
     let saved: GeneratedImage[] = []
     historySavePromise = historySavePromise.then(async () => {
       saved = await window.electronAPI.imageHistory.save(snapshot)
