@@ -51,11 +51,33 @@ export type ComicProjectType = 'short' | 'long'
 export type LongProjectNodeType = 'folder' | 'chapter'
 export type LongChapterStage = 'empty' | 'source-ready' | 'assets-ready' | 'storyboard-ready' | 'prompts-ready' | 'completed'
 export type LongProjectAssetType = 'character' | 'scene' | 'prop'
+export type AssetAttributeValueType = 'text' | 'tags' | 'number' | 'select'
+
+/** 工作流为资产补充的业务字段。核心身份与视觉字段不在这里定义。 */
+export interface AssetCustomFieldDefinition {
+  key: string
+  label: string
+  appliesTo: LongProjectAssetType[]
+  valueType: AssetAttributeValueType
+  options?: string[]
+  showInSummary?: boolean
+}
+
+export interface AssetExtractionConfig {
+  enabledTypes: LongProjectAssetType[]
+  includeVisualVersion: boolean
+  customFields: AssetCustomFieldDefinition[]
+}
 
 export interface LongProjectAssetVariant {
   id: string
   name: string
   description?: string
+  /** 当前视觉状态首次在何处确认，适用范围用于按章节生成分镜时自动推荐。 */
+  firstAppearanceChapterId?: string
+  chapterRange?: { startChapterId: string; endChapterId?: string }
+  tags?: string[]
+  imagePrompt?: string
   referenceImageIds: string[]
   sourceChapterIds: string[]
   createdAt: number
@@ -69,9 +91,28 @@ export interface LongProjectAsset {
   aliases: string[]
   description?: string
   fixedTraits: string[]
+  /** 由提取工作流定义的扩展信息，例如门派、职业、身份谜团。 */
+  attributes?: Record<string, string | string[] | number>
+  attributeSchema?: AssetCustomFieldDefinition[]
   sourceChapterIds: string[]
   variants: LongProjectAssetVariant[]
   status: 'pending' | 'confirmed' | 'conflict'
+  /** 章节提取结果默认是 chapter，显式同步后才进入 project 公共库。 */
+  scope?: 'chapter' | 'project'
+  createdAt: number
+  updatedAt: number
+}
+
+/** 章节对项目资产及其视觉状态的引用。章节不复制资产本体，只记录本章采用的状态和原文依据。 */
+export interface LongProjectChapterAsset {
+  id: string
+  chapterId: string
+  assetId: string
+  variantId?: string
+  appearance: 'introduced' | 'reused' | 'changed'
+  evidence: string[]
+  chapterNote?: string
+  sourceExtractionRunId?: string
   createdAt: number
   updatedAt: number
 }
@@ -92,9 +133,49 @@ export interface LongProjectAssetExtractionCandidate {
     name: string
     description?: string
     imagePrompt?: string
+    tags?: string[]
   }
+  attributes?: Record<string, string | string[] | number>
   suggestedAssetId?: string
+  /** 同一次提取中，拆分出的视觉状态归属到哪个候选资产。 */
+  stateParentCandidateId?: string
+  /** 将本候选状态合并到本次结果的目标状态，确认时不会创建重复状态。 */
+  stateMergeTargetCandidateId?: string
   decision: AssetExtractionCandidateDecision
+}
+
+export interface LongProjectStoryboardAssetBinding {
+  assetId?: string
+  assetName: string
+  visualVersionId?: string
+  visualVersionName?: string
+  /** 由模型、章节范围或用户选择得出的建议。 */
+  matchSource: 'model' | 'chapter-range' | 'manual' | 'unmatched'
+  referenceImageIds?: string[]
+}
+
+export interface LongProjectStoryboardPanel {
+  id: string
+  order: number
+  content: string
+  shot?: string
+  imagePrompt?: string
+  assetBindings: LongProjectStoryboardAssetBinding[]
+}
+
+export interface LongProjectStoryboardRun {
+  id: string
+  chapterId: string
+  sourceContent: string
+  modelId: string
+  templateId: string
+  prompt: string
+  status: 'running' | 'completed' | 'failed'
+  panels: LongProjectStoryboardPanel[]
+  rawResponse?: string
+  error?: string
+  createdAt: number
+  updatedAt: number
 }
 
 /** 章节资产提取任务：保留输入快照，便于内容变更后重新核对。 */
@@ -105,6 +186,9 @@ export interface LongProjectAssetExtractionRun {
   sourceWordCount: number
   modelId: string
   templateId: string
+  extractionConfig?: AssetExtractionConfig
+  /** 实际发送给模型的最终提示词，可能在发送前确认时被临时修改。 */
+  prompt: string
   status: AssetExtractionRunStatus
   candidates: LongProjectAssetExtractionCandidate[]
   rawResponse?: string
@@ -129,8 +213,11 @@ export interface LongProjectData {
   nodes: LongProjectNode[]
   /** 项目级资产库，章节解析结果最终汇总到这里 */
   assets?: LongProjectAsset[]
+  /** 每章实际采用的资产和视觉状态，用于章节管理与分镜生成。 */
+  chapterAssets?: LongProjectChapterAsset[]
   /** 各章节待审核或已确认的资产提取任务 */
   assetExtractionRuns?: LongProjectAssetExtractionRun[]
+  storyboardRuns?: LongProjectStoryboardRun[]
 }
 
 export interface ComicProject {
@@ -210,6 +297,8 @@ export interface PromptTemplate {
   type: TemplateType
   description: string
   content: string
+  /** 仅资产提取模板使用。核心资产协议由系统固定，模板只配置提取范围与扩展字段。 */
+  assetExtractionConfig?: AssetExtractionConfig
   sortOrder: number
   createdAt: number
   updatedAt: number

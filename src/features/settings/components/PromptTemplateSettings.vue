@@ -46,11 +46,12 @@
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
     @click.self="closeModal"
   >
-    <form class="bg-surface border border-border-subtle rounded-lg w-[560px] max-w-full p-6" @submit.prevent="save">
-      <h3 class="text-base font-semibold text-text-primary mb-4">
+    <form class="flex max-h-[calc(100vh-2rem)] w-[560px] max-w-full flex-col overflow-hidden rounded-lg border border-border-subtle bg-surface" @submit.prevent="save">
+      <h3 class="shrink-0 px-6 pt-6 text-base font-semibold text-text-primary">
         {{ editingId ? '编辑' : '添加' }}提示词模板
       </h3>
-      <div class="space-y-4">
+      <div class="custom-scrollbar mt-4 min-h-0 flex-1 overflow-y-auto px-6">
+        <div class="space-y-4 pb-2">
         <SettingsFieldInput v-model="form.name" label="模板名称" placeholder="例如：角色提取模板" />
         <div>
           <label class="block text-xs text-text-secondary mb-1.5">模板类型</label>
@@ -69,17 +70,9 @@
             </button>
           </div>
         </div>
-        <button
-          v-if="form.type === 'extract'"
-          type="button"
-          class="w-fit text-xs text-cyan-400 hover:text-cyan-300"
-          @click="applyRecommendedExtractionTemplate"
-        >
-          填入推荐资产提取模板
-        </button>
         <SettingsFieldInput v-model="form.description" label="模板描述" placeholder="简要描述该模板的用途" />
         <label class="block text-xs text-text-secondary">
-          <span class="block mb-1.5">提示词内容</span>
+          <span class="mb-1.5 flex items-center justify-between gap-3"><span>提示词内容</span><button v-if="form.type === 'extract'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedExtractionTemplate">填入推荐资产提取模板</button><button v-else-if="form.type === 'storyboard'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedStoryboardTemplate">填入推荐分镜模板</button></span>
           <textarea
             v-model="form.content"
             rows="7"
@@ -87,8 +80,9 @@
             placeholder="输入提示词内容"
           />
         </label>
+        </div>
       </div>
-      <div class="flex justify-end gap-2 mt-6">
+      <div class="mt-4 flex shrink-0 justify-end gap-2 border-t border-border-subtle px-6 py-4">
         <button type="button" class="px-4 py-2 text-sm text-text-secondary hover:text-text-primary" @click="closeModal">取消</button>
         <button
           type="submit"
@@ -122,45 +116,41 @@ const typeOptions: Array<{ value: TemplateType; label: string }> = [
   { value: 'story', label: '故事模板' },
   { value: 'storyboard', label: '分镜模板' },
 ];
-const recommendedExtractionPrompt = `你是一名小说漫画化的资产分析师。请从当前章节中提取后续漫画创作需要保持视觉一致性的核心资产。
+const recommendedExtractionPrompt = `你是一名专业的小说漫画化资产分析师。请从当前章节中识别后续漫画创作需要反复引用、并保持视觉一致性的核心资产。
 
-提取目标仅限以下三类：
-1. 人物（character）：有姓名、明确身份、持续出现、推动剧情，或需要稳定视觉形象的人物。
-2. 场景（scene）：会重复使用、承载关键剧情、或具有明确视觉识别度的地点与空间。
-3. 道具（prop）：推动剧情、反复出现、具有独特外观，或会在分镜中被重点呈现的物品。
+【提取范围】
+仅提取人物、场景、道具三类。
+- 人物：有姓名或明确身份、推动剧情、持续出现，或需要稳定视觉形象的角色。不要提取泛称路人、群众或无画面必要的一次性人物。
+- 场景：承载关键事件、可能重复使用，或具有明确空间与视觉识别度的地点。不要把普通“路上”“房间里”等缺少特征的泛化地点独立成资产。
+- 道具：推动剧情、反复出现、具有独特外观，或会成为镜头重点的物品。不要提取日常且无视觉重点的普通物件。
 
-提取规则：
-- 只提取当前章节中有明确依据的资产，不要补写原文未提供的人物外貌、环境细节或道具设定。
-- 不要提取无关路人、泛称群众、一次性无视觉必要的普通物品。
-- 同一对象的不同称谓应合并为一个候选项，并放入 aliases。
-- 人物服装、状态、年龄阶段；场景昼夜、天气；道具不同形态，均作为 visualVersion 返回，不是新的资产。
-- importance 仅可为 major 或 minor。major 表示需要重点保持一致。
-- evidence 必须摘录支撑结论的原文短句，每项 1 至 3 条。
-- description 仅总结原文明确的视觉和叙事信息；信息不足时写“原文未说明”。
-- imagePrompt 只能基于 description 中已有信息生成；视觉信息不足时返回空字符串。
-- 不需要输出 Markdown、解释文字或代码块。
+【合并与连续性】
+- 同一对象的姓名、称谓、代号和代词指代应合并为同一资产；将其他称谓写入“别名”。
+- 人物的年龄阶段、服装、身份、伤势、情绪外显、变身或特殊形态，不是新人物，写为“视觉状态”。
+- 场景的昼夜、季节、天气、破损、节庆布置等，不是新场景，写为“视觉状态”。
+- 道具的使用前后、展开/收起、损坏/修复等，不是新道具，写为“视觉状态”。
+- 视觉状态必须是原文已明确的稳定形象或形态；镜头正侧背面、景别和构图不属于视觉状态。
 
-严格按以下 JSON 结构输出：
-{
-  "summary": { "chapterOverview": "本章节的简短剧情概述", "assetCount": 0 },
-  "assets": [
-    {
-      "type": "character",
-      "name": "资产主名称",
-      "aliases": ["别名或其他称谓"],
-      "importance": "major",
-      "description": "已明确的资产信息",
-      "evidence": ["原文依据"],
-      "visualVersion": {
-        "name": "视觉版本名称",
-        "description": "当前章节中明确的外观或状态变化",
-        "imagePrompt": "仅基于原文信息的绘画提示词"
-      }
-    }
-  ]
-}
+【信息要求】
+- 每项写明“重要性”：会在当前或后续分镜中重点保持一致的写“主要”，其余写“次要”。
+- 每项写“描述”和 1 至 3 条“原文依据”。描述只归纳原文已经明确的信息；原文未说明的外貌、材质、环境和关系不得补写。
+- 有明确外观信息时，为视觉状态写“视觉描述”和“绘画提示词”；绘画提示词只能使用本项描述中已有的信息。信息不足时留空，不要猜测。
+- 可按原文补充有价值的中文属性。人物优先考虑身份、阵营/门派、职业、关系、年龄阶段、能力/境界；场景优先考虑地点类型、时代、氛围、时间/天气；道具优先考虑用途、材质、持有者、能力/状态。没有依据的属性不要输出。
 
-若没有可提取资产，assets 返回空数组。
+【输出原则】
+- 宁缺毋滥：只提取真正会影响后续画面一致性的资产。
+- 不要输出原文中没有根据的设定、外貌细节、背景故事或绘画风格。
+- 系统会自动处理输出结构；请严格遵守系统附加的格式要求。
+
+【章节原文】
+{{chapter_content}}`;
+const recommendedStoryboardPrompt = `你是一名小说漫画分镜设计师。请将当前章节拆分为可直接绘制的关键分镜。
+
+保留推动剧情、情绪转折、角色行动和重要信息的画面；删除重复叙述与不能画面化的内心独白。每个分镜只呈现一个清晰的主要动作或画面重点，并根据项目资产库选择正确的人物、场景、道具和视觉状态。
+
+“出场资产”必须引用资产库中的资产名称；角色服装、年龄、伤势、身份阶段等必须填写对应视觉状态。若原文是回忆、倒叙、变身或特殊状态，以原文为准，不要机械按章节推断。
+
+绘画提示词只描述本镜头明确的构图、动作、情绪、环境和已绑定资产状态，不要补写原文没有的细节。
 
 【章节原文】
 {{chapter_content}}`;
@@ -183,6 +173,12 @@ function applyRecommendedExtractionTemplate() {
   form.name = form.name.trim() || '长篇章节资产提取';
   form.description = form.description.trim() || '从章节原文中识别人物、场景、道具，并输出可审核的结构化资产。';
   form.content = recommendedExtractionPrompt;
+}
+
+function applyRecommendedStoryboardTemplate() {
+  form.name = form.name.trim() || '长篇章节分镜';
+  form.description = form.description.trim() || '根据章节原文与项目资产库生成可审核的漫画分镜。';
+  form.content = recommendedStoryboardPrompt;
 }
 
 function openCreate() {
@@ -217,6 +213,7 @@ async function save() {
     type: form.type,
     description: form.description.trim(),
     content: form.content,
+    assetExtractionConfig: undefined,
     sortOrder: existing?.sortOrder ?? maxOrder + 1,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
@@ -269,3 +266,8 @@ async function dropOn(event: DragEvent, targetId: string) {
 defineExpose({ openCreate });
 onMounted(load);
 </script>
+
+<style scoped>
+.settings-input { min-width: 0; border: 1px solid var(--border-subtle); border-radius: 0.375rem; background: var(--bg-app); padding: 0.4rem 0.55rem; color: var(--text-primary); font-size: 0.75rem; outline: none; }
+.settings-input:focus { border-color: rgba(34, 211, 238, 0.55); }
+</style>
