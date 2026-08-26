@@ -88,6 +88,8 @@ export interface LongProjectAsset {
   id: string
   type: LongProjectAssetType
   name: string
+  /** 资产完整信息，保留提取结果中的 Markdown 内容。 */
+  content?: string
   aliases: string[]
   description?: string
   fixedTraits: string[]
@@ -125,6 +127,8 @@ export interface LongProjectAssetExtractionCandidate {
   id: string
   type: LongProjectAssetType
   name: string
+  /** 资产完整信息，保留模型返回的 Markdown 内容。 */
+  content: string
   aliases: string[]
   importance: 'major' | 'minor'
   description?: string

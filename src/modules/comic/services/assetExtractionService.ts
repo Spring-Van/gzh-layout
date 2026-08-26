@@ -63,8 +63,13 @@ function splitValue(value: string): string[] { return value.split(/[、,，；;\
 function parseChineseAssetReport(content: string): LongProjectAssetExtractionCandidate[] {
   let currentType: LongProjectAssetType | undefined
   let current: LongProjectAssetExtractionCandidate | undefined
+  let contentLines: string[] = []
   const result: LongProjectAssetExtractionCandidate[] = []
-  const flush = () => { if (current && currentType) result.push(current); current = undefined }
+  const flush = () => {
+    if (current && currentType) result.push({ ...current, content: contentLines.join('\n').trim() })
+    current = undefined
+    contentLines = []
+  }
   for (const rawLine of content.replace(/\r/g, '').split('\n')) {
     const line = rawLine.trim()
     const heading = line.match(/^#\s+(.+)$/)
@@ -72,9 +77,10 @@ function parseChineseAssetReport(content: string): LongProjectAssetExtractionCan
     const item = line.match(/^##\s+(.+)$/)
     if (item && currentType) {
       flush()
-      current = { id: uuidv4(), type: currentType, name: item[1].trim(), aliases: [], importance: 'major', description: '', evidence: [], attributes: {}, decision: 'create' }
+      current = { id: uuidv4(), type: currentType, name: item[1].trim(), content: '', aliases: [], importance: 'major', description: '', evidence: [], attributes: {}, decision: 'create' }
       continue
     }
+    if (current) contentLines.push(rawLine)
     const field = line.match(/^[-*]\s*([^：:]+)[：:]\s*(.*)$/)
     if (!field || !current) continue
     const key = field[1].trim(); const value = field[2].trim()
@@ -107,6 +113,7 @@ function parseLegacyJson(content: string): LongProjectAssetExtractionCandidate[]
       id: uuidv4(),
       type,
       name,
+      content: typeof (asset as ModelAsset & { content?: unknown }).content === 'string' ? (asset as ModelAsset & { content: string }).content.trim() : '',
       aliases: toStrings(asset.aliases),
       importance: asset.importance === 'minor' ? 'minor' : 'major',
       description: typeof asset.description === 'string' ? asset.description.trim() : '',
@@ -140,7 +147,7 @@ export function buildAssetExtractionPrompt(templateContent: string, chapterConte
   const template = templateContent.includes('{{chapter_content}}')
     ? templateContent.replace(/\{\{chapter_content\}\}/g, chapterContent)
     : `${templateContent}\n\n【章节原文】\n${chapterContent}`
-  return `${template}\n\n【系统固定输出协议】\n只输出中文 Markdown，不要解释、代码块或 JSON。\n一级标题只能是 # 人物、# 场景、# 道具；没有该类资产则不输出该标题。\n每项资产必须以 ## 资产名称 开始；其余信息每行写为 - 属性名：属性内容。\n系统识别字段：别名、重要性（主要/次要）、描述、原文依据、视觉状态、视觉描述、状态标签、绘画提示词。\n除系统识别字段外，你可根据模板规则自由输出中文属性，例如门派、身份关系、境界、材质、时代、氛围。\n视觉状态表示该资产在当前剧情中的稳定外观或形态，如“少年期·布衣”“宗门弟子服”“战损”；正面、侧面、背面属于同一状态的参考图，不要单列为状态。\n只基于原文明确内容，不要编造。`
+  return `${template}\n\n【系统固定输出协议】\n只输出中文 Markdown，不要解释、代码块或 JSON。\n一级标题只能是 # 人物、# 场景、# 道具；没有该类资产则不输出该标题。\n每项资产必须以 ## 资产名称 开始；其余信息每行写为 - 属性名：属性内容。\n系统识别字段：姓名、别名、重要性（主要/次要）、描述、原文依据、视觉状态、视觉描述、状态标签、绘画提示词。\n除系统识别字段外，你可根据模板规则自由输出中文属性，例如门派、身份关系、境界、材质、时代、氛围。\n视觉状态表示该资产在当前剧情中的稳定外观或形态，如“少年期·布衣”“宗门弟子服”“战损”；正面、侧面、背面属于同一状态的参考图，不要单列为状态。\n只基于原文明确内容，不要编造。`
 }
 
 export async function extractChapterAssets(options: {

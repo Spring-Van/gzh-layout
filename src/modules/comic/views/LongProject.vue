@@ -79,7 +79,7 @@
 
       <section v-else-if="activeExtractionRun" class="flex h-full flex-col">
         <LongProjectAssetExtractionReview
-          v-if="activeExtractionRun.status === 'completed'"
+          v-if="activeExtractionRun.status === 'completed' || activeExtractionRun.status === 'confirmed'"
           :chapter-name="selectedChapter.name"
           :source-word-count="activeExtractionRun.sourceWordCount"
           :candidates="activeExtractionRun.candidates"
@@ -150,7 +150,7 @@
                 <span class="shrink-0 text-text-secondary">资产提取</span>
                 <span class="truncate" :class="sourceExtractionStatus.tone">{{ sourceExtractionStatus.message }}</span>
               </div>
-              <button v-if="sourceExtractionStatus.actionLabel" class="shrink-0 text-xs text-cyan-400 hover:text-cyan-300" @click="handleSourceExtractionAction(sourceExtractionStatus.run)">{{ sourceExtractionStatus.actionLabel }}</button>
+              <button v-if="continueEditingRun" class="shrink-0 text-xs text-cyan-400 hover:text-cyan-300" title="继续编辑最近一次资产提取结果" @click="continueEditingExtraction">继续编辑</button>
             </div>
             <textarea v-model="draftContent" class="custom-scrollbar min-h-0 flex-1 resize-none bg-transparent p-5 text-sm leading-7 text-text-primary outline-none placeholder:text-text-muted" placeholder="粘贴或输入当前小说章节内容..." />
             <div class="flex shrink-0 items-center gap-3 border-t border-border-subtle px-4 py-3">
@@ -175,12 +175,12 @@
                 <input v-model="confirmPromptBeforeRun" type="checkbox" class="h-3.5 w-3.5 accent-cyan-400" @change="saveConfirmPromptPreference" />
                 发送前确认
               </label>
-              <button class="primary-button task-run-button ml-auto shrink-0 px-4" :disabled="!canRunAiTask" @click="runAiTask">{{ currentAiTask.label }}<ArrowRight :size="16" /></button>
+              <button class="primary-button task-run-button ml-auto shrink-0 px-4" :disabled="!canRunAiTask" @click="runAiTask">{{ currentAiTask.key === 'assets' ? extractionButtonLabel : currentAiTask.label }}<ArrowRight :size="16" /></button>
             </div>
           </div>
         </div>
 
-        <LongProjectChapterAssets v-else-if="activeTab === 'assets'" :entries="selectedChapterAssets" :assets="projectAssets" @merge-variants="mergeAssetVariants" @split-variant="splitAssetVariant" />
+        <LongProjectChapterAssets v-else-if="activeTab === 'assets'" :entries="selectedChapterAssets" :assets="projectAssets" />
 
         <div v-else-if="activeTab === 'storyboard'" class="custom-scrollbar flex-1 overflow-y-auto p-6">
           <div class="mx-auto max-w-4xl">
@@ -304,19 +304,21 @@ const activeExtractionRun = computed(() => assetExtractionRuns.value.find((run) 
 const chapterExtractionRuns = computed(() => selectedChapter.value
   ? assetExtractionRuns.value.filter((run) => run.chapterId === selectedChapter.value?.id).sort((a, b) => b.updatedAt - a.updatedAt)
   : []);
+const continueEditingRun = computed(() => chapterExtractionRuns.value.find((run) => run.status === "completed" || run.status === "confirmed") ?? null);
+const extractionButtonLabel = computed(() => chapterExtractionRuns.value.length ? "重新提取" : "提取资产");
 const sourceExtractionStatus = computed(() => {
   const runs = chapterExtractionRuns.value;
   const latestRunning = runs.find((run) => run.status === "running");
-  if (latestRunning) return { run: latestRunning, tone: "text-cyan-400", message: "正在提取中", actionLabel: "查看进度" };
+  if (latestRunning) return { run: latestRunning, tone: "text-cyan-400", message: "正在提取中" };
   const latestPending = runs.find((run) => run.status === "completed");
   if (latestPending) {
     const outdated = latestPending.sourceContent !== draftContent.value;
-    return { run: latestPending, tone: outdated ? "text-amber-300" : "text-cyan-400", message: outdated ? `待审核 ${latestPending.candidates.length} 项 · 原文已变更` : `待审核 ${latestPending.candidates.length} 项`, actionLabel: "继续审核" };
+    return { run: latestPending, tone: outdated ? "text-amber-300" : "text-cyan-400", message: outdated ? `待审核 ${latestPending.candidates.length} 项 · 原文已变更` : `待审核 ${latestPending.candidates.length} 项` };
   }
   const latestConfirmed = runs.find((run) => run.status === "confirmed");
-  if (latestConfirmed) return { run: latestConfirmed, tone: "text-emerald-400", message: `已确认 ${latestConfirmed.candidates.length} 项资产`, actionLabel: "查看章节资产" };
+  if (latestConfirmed) return { run: latestConfirmed, tone: "text-emerald-400", message: `已确认 ${latestConfirmed.candidates.length} 项资产` };
   const latestFailed = runs.find((run) => run.status === "failed");
-  if (latestFailed) return { run: latestFailed, tone: "text-red-400", message: "上次提取失败", actionLabel: "查看原因" };
+  if (latestFailed) return { run: latestFailed, tone: "text-red-400", message: "上次提取失败" };
   return null;
 });
 const chapters = computed(() => nodes.value.filter((node) => node.type === "chapter").sort(sortNodes));
@@ -360,7 +362,7 @@ const extractionLoadingSteps = [
 ];
 const chapterTabs = [
   { key: "source", label: "原文", icon: FileText },
-  { key: "assets", label: "章节资产", icon: Boxes },
+  { key: "assets", label: "资产", icon: Boxes },
   { key: "storyboard", label: "分镜", icon: ListTree },
 ];
 const activeTabInfo = computed(() => chapterTabs.find((tab) => tab.key === activeTab.value) ?? chapterTabs[0]);
@@ -385,9 +387,8 @@ const openExtractionRun = (run: LongProjectAssetExtractionRun) => {
   activeTab.value = "source";
   activeExtractionRunId.value = run.id;
 };
-const handleSourceExtractionAction = (run: LongProjectAssetExtractionRun) => {
-  if (run.status === "confirmed") { activeTab.value = "assets"; return; }
-  openExtractionRun(run);
+const continueEditingExtraction = () => {
+  if (continueEditingRun.value) openExtractionRun(continueEditingRun.value);
 };
 const runAiTask = async () => {
   if (!canRunAiTask.value) return;
@@ -516,35 +517,12 @@ const addExtractionCandidate = (candidate: LongProjectAssetExtractionCandidate) 
   if (!activeExtractionRun.value) return;
   void updateExtractionRun(activeExtractionRun.value.id, { candidates: [...activeExtractionRun.value.candidates, candidate] });
 };
-const mergeAssetVariants = async ({ assetId, sourceVariantIds, targetVariantId }: { assetId: string; sourceVariantIds: string[]; targetVariantId: string }) => {
-  const sourceIds = new Set(sourceVariantIds.filter((id) => id !== targetVariantId));
-  if (!sourceIds.size) return;
-  const asset = projectAssets.value.find((item) => item.id === assetId);
-  const target = asset?.variants.find((item) => item.id === targetVariantId);
-  const sources = asset?.variants.filter((item) => sourceIds.has(item.id)) ?? [];
-  if (!asset || !sources.length || !target) return;
-  const now = Date.now();
-  const sourceReferenceIds = sources.flatMap((source) => source.referenceImageIds); const sourceChapterIds = sources.flatMap((source) => source.sourceChapterIds);
-  const nextAssets = projectAssets.value.map((item) => item.id !== assetId ? item : { ...item, variants: item.variants.filter((variant) => !sourceIds.has(variant.id)).map((variant) => variant.id !== targetVariantId ? variant : { ...variant, referenceImageIds: uniqueStrings([...variant.referenceImageIds, ...sourceReferenceIds]), sourceChapterIds: uniqueStrings([...variant.sourceChapterIds, ...sourceChapterIds]), updatedAt: now }), updatedAt: now });
-  const nextChapterAssets = chapterAssets.value.map((entry) => entry.assetId === assetId && entry.variantId && sourceIds.has(entry.variantId) ? { ...entry, variantId: targetVariantId, appearance: "changed" as const, updatedAt: now } : entry);
-  const nextRuns = storyboardRuns.value.map((run) => ({ ...run, panels: run.panels.map((panel) => ({ ...panel, assetBindings: panel.assetBindings.map((binding) => binding.assetId === assetId && binding.visualVersionId && sourceIds.has(binding.visualVersionId) ? { ...binding, visualVersionId: targetVariantId, visualVersionName: target.name, referenceImageIds: uniqueStrings([...target.referenceImageIds, ...sourceReferenceIds]), matchSource: "manual" as const } : binding) })) }));
-  await persistLongProjectData({ assets: nextAssets, chapterAssets: nextChapterAssets, storyboardRuns: nextRuns });
-  toast.success(`已合并到「${target.name}」`);
-};
-const splitAssetVariant = async ({ assetId, variantId, name, description, imagePrompt }: { assetId: string; variantId: string; name: string; description: string; imagePrompt: string }) => {
-  const asset = projectAssets.value.find((item) => item.id === assetId);
-  const variant = asset?.variants.find((item) => item.id === variantId);
-  if (!asset || !variant || !selectedChapter.value) return;
-  const now = Date.now(); const split = { ...variant, id: uuidv4(), name, description, imagePrompt, firstAppearanceChapterId: selectedChapter.value.id, chapterRange: { startChapterId: selectedChapter.value.id }, sourceChapterIds: uniqueStrings([...variant.sourceChapterIds, selectedChapter.value.id]), createdAt: now, updatedAt: now };
-  await persistLongProjectData({ assets: projectAssets.value.map((item) => item.id === assetId ? { ...item, variants: [...item.variants, split], updatedAt: now } : item) });
-  toast.success(`已创建状态「${name}」`);
-};
 const uniqueStrings = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 const createAssetFromCandidate = (candidate: LongProjectAssetExtractionCandidate, chapterId: string): LongProjectAsset => {
   const now = Date.now();
   return {
-    id: uuidv4(), type: candidate.type, name: candidate.name, aliases: uniqueStrings(candidate.aliases),
-    description: candidate.description, fixedTraits: [], attributes: candidate.attributes,
+    id: uuidv4(), type: candidate.type, name: candidate.name, content: candidate.content || candidate.description, aliases: uniqueStrings(candidate.aliases),
+    description: candidate.description || candidate.content, fixedTraits: [], attributes: candidate.attributes,
     sourceChapterIds: [chapterId], status: "confirmed", scope: "chapter",
     variants: candidate.visualVersion?.name.trim() ? [{
       id: uuidv4(), name: candidate.visualVersion.name.trim(), description: candidate.visualVersion.description,
@@ -563,6 +541,7 @@ const mergeCandidateIntoAsset = (asset: LongProjectAsset, candidate: LongProject
   }
   return {
     ...asset,
+    content: candidate.content || asset.content || candidate.description,
     aliases: uniqueStrings([...asset.aliases, ...candidate.aliases]),
     description: asset.description || candidate.description,
     attributes: { ...candidate.attributes, ...asset.attributes },
@@ -579,8 +558,17 @@ const confirmAssetExtraction = async () => {
     toast.error("请为所有“合并已有资产”的候选项选择目标资产");
     return;
   }
-  let nextAssets = projectAssets.value.map((asset) => ({ ...asset, variants: [...asset.variants] }));
-  const nextChapterAssets = chapterAssets.value.filter((entry) => entry.sourceExtractionRunId !== run.id);
+  // 每次确认都以本次审核结果作为当前章节唯一生效版本；历史提取任务仍保留。
+  const currentChapterEntries = chapterAssets.value.filter((entry) => entry.chapterId === chapter.id);
+  const currentChapterAssetIds = new Set(currentChapterEntries.map((entry) => entry.assetId));
+  const referencedByOtherChapters = new Set(chapterAssets.value
+    .filter((entry) => entry.chapterId !== chapter.id)
+    .map((entry) => entry.assetId));
+  const suggestedAssetIds = new Set(run.candidates.map((candidate) => candidate.suggestedAssetId).filter(Boolean) as string[]);
+  let nextAssets = projectAssets.value
+    .filter((asset) => asset.scope !== "chapter" || !currentChapterAssetIds.has(asset.id) || referencedByOtherChapters.has(asset.id) || suggestedAssetIds.has(asset.id))
+    .map((asset) => ({ ...asset, variants: [...asset.variants] }));
+  const nextChapterAssets = chapterAssets.value.filter((entry) => entry.chapterId !== chapter.id);
   const resolvedAssetIds = new Map<string, string>();
   for (const candidate of run.candidates) {
     if (candidate.decision === "ignore" || candidate.decision === "pending") continue;
@@ -611,7 +599,7 @@ const confirmAssetExtraction = async () => {
   await persistLongProjectData({ assets: nextAssets, chapterAssets: nextChapterAssets, assetExtractionRuns: nextRuns, nodes: nextNodes });
   activeExtractionRunId.value = null;
   activeTab.value = "assets";
-  toast.success("已写入项目资产库，并建立本章引用");
+  toast.success("已确认本章资产");
 };
 
 const handleNodeDialogSubmit = async ({ name, content }: { name: string; content: string }) => {
