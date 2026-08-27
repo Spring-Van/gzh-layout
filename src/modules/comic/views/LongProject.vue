@@ -85,7 +85,6 @@
           :candidates="activeExtractionRun.candidates"
           :assets="projectAssets"
           @update="updateExtractionCandidate"
-          @add="addExtractionCandidate"
           @back="activeExtractionRunId = null"
           @confirm="confirmAssetExtraction"
         />
@@ -245,7 +244,7 @@ import LongProjectAssetExtractionReview from "@comic/components/LongProjectAsset
 import LongProjectAssetLibrary from "@comic/components/LongProjectAssetLibrary.vue";
 import LongProjectChapterAssets from "@comic/components/LongProjectChapterAssets.vue";
 import { useToast } from "@comic/composables/useToast";
-import { buildAssetExtractionPrompt, extractChapterAssets } from "@comic/services/assetExtractionService";
+import { buildAssetExtractionPrompt, extractChapterAssets, getCandidateStates } from "@comic/services/assetExtractionService";
 import { buildStoryboardPrompt, generateStoryboard } from "@comic/services/storyboardService";
 import type { ComicProject, LongProjectAsset, LongProjectAssetExtractionCandidate, LongProjectAssetExtractionRun, LongProjectNode, LongProjectNodeType, LongProjectStoryboardRun, ModelConfig, PromptTemplate } from "@comic/types";
 
@@ -404,7 +403,7 @@ const runAiTask = async () => {
   const model = llmModels.value.find((item) => item.id === selectedModelByTask.value.assets);
   const template = promptTemplates.value.find((item) => item.id === selectedTemplateByTask.value.assets);
   if (!model || !template || !selectedChapter.value || !project.value) return;
-  const prompt = buildAssetExtractionPrompt(template.content, draftContent.value);
+  const prompt = buildAssetExtractionPrompt(template.content, draftContent.value, projectAssets.value);
   if (confirmPromptBeforeRun.value) {
     promptPreviewTask.value = "assets";
     promptPreviewContent.value = prompt;
@@ -459,8 +458,8 @@ const sendAssetExtraction = async (prompt: string) => {
   await persistLongProjectData({ assetExtractionRuns: [...assetExtractionRuns.value, run] });
   activeExtractionRunId.value = run.id;
   try {
-    // 章节提取先保存为本章资产，不在提取阶段自动匹配或写入项目公共资产库。
-    const result = await extractChapterAssets({ model, template, chapterContent: draftContent.value, existingAssets: [], prompt });
+    // 章节提取先保存为本章资产；传入已有资产用于状态名沿用与归属建议，不自动写入公共资产库。
+    const result = await extractChapterAssets({ model, template, chapterContent: draftContent.value, existingAssets: projectAssets.value, prompt });
     await updateExtractionRun(run.id, { status: "completed", candidates: result.candidates, rawResponse: result.rawResponse, error: undefined });
   } catch (error) {
     const message = error instanceof Error ? error.message : "资产提取失败，请重试";
@@ -513,10 +512,6 @@ const updateExtractionCandidate = (candidate: LongProjectAssetExtractionCandidat
     candidates: activeExtractionRun.value.candidates.map((item) => item.id === candidate.id ? candidate : item),
   });
 };
-const addExtractionCandidate = (candidate: LongProjectAssetExtractionCandidate) => {
-  if (!activeExtractionRun.value) return;
-  void updateExtractionRun(activeExtractionRun.value.id, { candidates: [...activeExtractionRun.value.candidates, candidate] });
-};
 const uniqueStrings = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 const createAssetFromCandidate = (candidate: LongProjectAssetExtractionCandidate, chapterId: string): LongProjectAsset => {
   const now = Date.now();
@@ -524,20 +519,29 @@ const createAssetFromCandidate = (candidate: LongProjectAssetExtractionCandidate
     id: uuidv4(), type: candidate.type, name: candidate.name, content: candidate.content || candidate.description, aliases: uniqueStrings(candidate.aliases),
     description: candidate.description || candidate.content, fixedTraits: [], attributes: candidate.attributes,
     sourceChapterIds: [chapterId], status: "confirmed", scope: "chapter",
-    variants: candidate.visualVersion?.name.trim() ? [{
-      id: uuidv4(), name: candidate.visualVersion.name.trim(), description: candidate.visualVersion.description,
-      firstAppearanceChapterId: chapterId, chapterRange: { startChapterId: chapterId }, tags: candidate.visualVersion.tags, imagePrompt: candidate.visualVersion.imagePrompt,
+    variants: getCandidateStates(candidate).filter((state) => state.name.trim()).map((state) => ({
+      id: uuidv4(), name: state.name.trim(), description: state.description,
+      firstAppearanceChapterId: chapterId, chapterRange: { startChapterId: chapterId }, tags: state.tags, imagePrompt: state.imagePrompt,
       referenceImageIds: [], sourceChapterIds: [chapterId], createdAt: now, updatedAt: now,
-    }] : [],
+    })),
     createdAt: now, updatedAt: now,
   };
 };
 const mergeCandidateIntoAsset = (asset: LongProjectAsset, candidate: LongProjectAssetExtractionCandidate, chapterId: string): LongProjectAsset => {
   const now = Date.now();
   const variants = [...asset.variants];
-  const versionName = candidate.visualVersion?.name.trim();
-  if (versionName && !variants.some((variant) => variant.name.trim() === versionName)) {
-    variants.push({ id: uuidv4(), name: versionName, description: candidate.visualVersion?.description, firstAppearanceChapterId: chapterId, chapterRange: { startChapterId: chapterId }, tags: candidate.visualVersion?.tags, imagePrompt: candidate.visualVersion?.imagePrompt, referenceImageIds: [], sourceChapterIds: [chapterId], createdAt: now, updatedAt: now });
+  for (const state of getCandidateStates(candidate)) {
+    const name = state.name.trim();
+    if (!name) continue;
+    // 归属到已有状态时不新建，只补充章节引用与空缺字段
+    const existing = state.suggestedVariantId ? variants.find((variant) => variant.id === state.suggestedVariantId) : undefined;
+    if (existing) {
+      variants.splice(variants.indexOf(existing), 1, { ...existing, sourceChapterIds: uniqueStrings([...existing.sourceChapterIds, chapterId]), description: state.description || existing.description, imagePrompt: state.imagePrompt || existing.imagePrompt, tags: state.tags?.length ? state.tags : existing.tags, updatedAt: now });
+      continue;
+    }
+    if (!variants.some((variant) => variant.name.trim() === name)) {
+      variants.push({ id: uuidv4(), name, description: state.description, firstAppearanceChapterId: chapterId, chapterRange: { startChapterId: chapterId }, tags: state.tags, imagePrompt: state.imagePrompt, referenceImageIds: [], sourceChapterIds: [chapterId], createdAt: now, updatedAt: now });
+    }
   }
   return {
     ...asset,
@@ -569,30 +573,24 @@ const confirmAssetExtraction = async () => {
     .filter((asset) => asset.scope !== "chapter" || !currentChapterAssetIds.has(asset.id) || referencedByOtherChapters.has(asset.id) || suggestedAssetIds.has(asset.id))
     .map((asset) => ({ ...asset, variants: [...asset.variants] }));
   const nextChapterAssets = chapterAssets.value.filter((entry) => entry.chapterId !== chapter.id);
-  const resolvedAssetIds = new Map<string, string>();
   for (const candidate of run.candidates) {
     if (candidate.decision === "ignore" || candidate.decision === "pending") continue;
-    const parent = candidate.stateParentCandidateId ? run.candidates.find((item) => item.id === candidate.stateParentCandidateId) : undefined;
-    const parentAssetId = parent ? (resolvedAssetIds.get(parent.id) ?? parent.suggestedAssetId) : undefined;
-    if (candidate.decision === "create" && !parentAssetId) {
-      const asset = createAssetFromCandidate(candidate, chapter.id);
+    let asset = candidate.suggestedAssetId ? nextAssets.find((item) => item.id === candidate.suggestedAssetId) : undefined;
+    if (!asset) {
+      asset = createAssetFromCandidate(candidate, chapter.id);
       nextAssets.push(asset);
-      resolvedAssetIds.set(candidate.id, asset.id);
     } else {
-      const assetId = parentAssetId ?? candidate.suggestedAssetId;
-      const previous = nextAssets.find((asset) => asset.id === assetId);
-      if (!assetId || !previous) continue;
-      const stateMergeTarget = candidate.stateMergeTargetCandidateId ? run.candidates.find((item) => item.id === candidate.stateMergeTargetCandidateId) : undefined;
-      const candidateToMerge = stateMergeTarget ? { ...candidate, visualVersion: undefined } : candidate;
-      nextAssets = nextAssets.map((asset) => asset.id === assetId ? mergeCandidateIntoAsset(asset, candidateToMerge, chapter.id) : asset);
-      resolvedAssetIds.set(candidate.id, assetId);
+      const merged = mergeCandidateIntoAsset(asset, candidate, chapter.id);
+      nextAssets = nextAssets.map((item) => item.id === merged.id ? merged : item);
+      asset = merged;
     }
-    const assetId = resolvedAssetIds.get(candidate.id)!;
-    const asset = nextAssets.find((item) => item.id === assetId);
-    const stateMergeTarget = candidate.stateMergeTargetCandidateId ? run.candidates.find((item) => item.id === candidate.stateMergeTargetCandidateId) : undefined;
-    const variantName = stateMergeTarget?.visualVersion?.name.trim() || candidate.visualVersion?.name.trim();
-    const variant = variantName ? asset?.variants.find((item) => item.name.trim() === variantName) : undefined;
-    nextChapterAssets.push({ id: uuidv4(), chapterId: chapter.id, assetId, variantId: variant?.id, appearance: candidate.stateParentCandidateId || candidate.decision === "merge" ? "reused" : "introduced", evidence: candidate.evidence, sourceExtractionRunId: run.id, createdAt: Date.now(), updatedAt: Date.now() });
+    // 每个视觉状态一条章节引用；无状态资产保留一条无 variant 引用
+    const states = getCandidateStates(candidate).filter((state) => state.name.trim());
+    const entries = states.length ? states : [null];
+    for (const state of entries) {
+      const variant = state?.suggestedVariantId ? asset.variants.find((item) => item.id === state.suggestedVariantId) ?? asset.variants.find((item) => item.name.trim() === state.name.trim()) : asset.variants.find((item) => item.name.trim() === state?.name.trim());
+      nextChapterAssets.push({ id: uuidv4(), chapterId: chapter.id, assetId: asset.id, variantId: variant?.id, appearance: candidate.suggestedAssetId ? "reused" : "introduced", evidence: candidate.evidence, sourceExtractionRunId: run.id, createdAt: Date.now(), updatedAt: Date.now() });
+    }
   }
   const nextRuns = assetExtractionRuns.value.map((item) => item.id === run.id ? { ...item, status: "confirmed" as const, updatedAt: Date.now() } : item);
   const nextNodes = nodes.value.map((node) => node.id === chapter.id ? { ...node, stage: "assets-ready" as const, updatedAt: Date.now() } : node);

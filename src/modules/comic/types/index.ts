@@ -122,6 +122,19 @@ export interface LongProjectChapterAsset {
 export type AssetExtractionCandidateDecision = 'pending' | 'create' | 'merge' | 'ignore'
 export type AssetExtractionRunStatus = 'running' | 'completed' | 'failed' | 'confirmed'
 
+/** 单次提取出的一个视觉状态候选，含与项目已有状态的匹配建议。 */
+export interface LongProjectExtractedState {
+  id: string
+  name: string
+  description?: string
+  imagePrompt?: string
+  tags?: string[]
+  /** 匹配到的项目已有视觉状态 id，确认时按该 id 归属。 */
+  suggestedVariantId?: string
+  /** model 表示模型沿用已有状态名精确命中；new 表示需要新建。 */
+  matchSource: 'model' | 'new'
+}
+
 /** AI 从单个章节中识别出的资产候选项，确认前不会进入项目资产库。 */
 export interface LongProjectAssetExtractionCandidate {
   id: string
@@ -133,6 +146,8 @@ export interface LongProjectAssetExtractionCandidate {
   importance: 'major' | 'minor'
   description?: string
   evidence: string[]
+  /** 本次提取出的全部视觉状态；旧数据只有 visualVersion 时按单状态兼容。 */
+  states?: LongProjectExtractedState[]
   visualVersion?: {
     name: string
     description?: string
@@ -141,10 +156,6 @@ export interface LongProjectAssetExtractionCandidate {
   }
   attributes?: Record<string, string | string[] | number>
   suggestedAssetId?: string
-  /** 同一次提取中，拆分出的视觉状态归属到哪个候选资产。 */
-  stateParentCandidateId?: string
-  /** 将本候选状态合并到本次结果的目标状态，确认时不会创建重复状态。 */
-  stateMergeTargetCandidateId?: string
   decision: AssetExtractionCandidateDecision
 }
 
