@@ -76,6 +76,12 @@ const routes: RouteRecordRaw[] = [
         meta: { module: 'comic', title: '长篇项目' },
       },
       {
+        path: 'panel-gen/:projectId/:chapterId?',
+        name: 'ComicPanelGen',
+        component: () => import('../modules/comic/views/LongProjectPanelGen.vue'),
+        meta: { module: 'comic', title: '分镜生图' },
+      },
+      {
         path: 'project-assets/:projectId',
         name: 'ComicProjectAssets',
         component: () => import('../modules/comic/views/ProjectAssets.vue'),

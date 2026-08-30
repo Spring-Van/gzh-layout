@@ -61,17 +61,46 @@ function typeFromHeading(value: string): LongProjectAssetType | undefined {
 
 function splitValue(value: string): string[] { return value.split(/[、,，；;\n]/).map((item) => item.trim()).filter(Boolean) }
 
+/**
+ * 按名称取视觉状态，不存在时新建。
+ * 模型可能同时以「- 视觉状态：X」字段和「### 视觉状态：X」标题输出同一状态，需按名称去重，避免产生多余的空状态。
+ */
+function getOrCreateState(candidate: LongProjectAssetExtractionCandidate, name: string): LongProjectExtractedState {
+  const trimmed = name.trim()
+  const existing = candidate.states?.find((state) => state.name.trim() === trimmed)
+  if (existing) return existing
+  const state: LongProjectExtractedState = { id: uuidv4(), name: trimmed, description: '', imagePrompt: '', matchSource: 'new' }
+  candidate.states = [...(candidate.states ?? []), state]
+  return state
+}
+
 function parseChineseAssetReport(content: string): LongProjectAssetExtractionCandidate[] {
   let currentType: LongProjectAssetType | undefined
   let current: LongProjectAssetExtractionCandidate | undefined
   let currentState: LongProjectExtractedState | undefined
   let contentLines: string[] = []
+  /** 状态字段出现在 ### 视觉状态 标题之前时先缓冲，待标题创建状态后回填 */
+  let pendingStateFields: { description?: string; imagePrompt?: string; tags?: string[] } = {}
   const result: LongProjectAssetExtractionCandidate[] = []
+  /** 将缓冲字段填充到状态（仅补空缺，不覆盖块内已有值） */
+  const applyPendingFields = (state: LongProjectExtractedState) => {
+    if (pendingStateFields.description && !state.description) state.description = pendingStateFields.description
+    if (pendingStateFields.imagePrompt && !state.imagePrompt) state.imagePrompt = pendingStateFields.imagePrompt
+    if (pendingStateFields.tags?.length && !state.tags) state.tags = pendingStateFields.tags
+    pendingStateFields = {}
+  }
   const flush = () => {
-    if (current && currentType) result.push({ ...current, content: contentLines.join('\n').trim() })
+    if (current && currentType) {
+      // 前导字段未被任何标题消费：落到默认状态，避免数据丢失
+      if (pendingStateFields.description || pendingStateFields.imagePrompt || pendingStateFields.tags?.length) {
+        applyPendingFields(getOrCreateState(current, '默认状态'))
+      }
+      result.push({ ...current, content: contentLines.join('\n').trim() })
+    }
     current = undefined
     currentState = undefined
     contentLines = []
+    pendingStateFields = {}
   }
   for (const rawLine of content.replace(/\r/g, '').split('\n')) {
     const line = rawLine.trim()
@@ -83,12 +112,12 @@ function parseChineseAssetReport(content: string): LongProjectAssetExtractionCan
       current = { id: uuidv4(), type: currentType, name: item[1].trim(), content: '', aliases: [], importance: 'major', description: '', evidence: [], attributes: {}, states: [], decision: 'create' }
       continue
     }
-    // ### 视觉状态：xxx → 开启一个新状态块
+    // ### 视觉状态：xxx → 开启一个新状态块；同名状态已存在（如已按字段形式输出）时复用
     const stateHeading = line.match(/^###\s*(?:视觉状态|视觉版本)[：:]\s*(.+)$/)
     if (stateHeading && current) {
-      currentState = { id: uuidv4(), name: stateHeading[1].trim(), description: '', imagePrompt: '', matchSource: 'new' }
-      current.states?.push(currentState)
-      if (current) contentLines.push(rawLine)
+      currentState = getOrCreateState(current, stateHeading[1])
+      applyPendingFields(currentState)
+      contentLines.push(rawLine)
       continue
     }
     if (current) contentLines.push(rawLine)
@@ -100,15 +129,20 @@ function parseChineseAssetReport(content: string): LongProjectAssetExtractionCan
     else if (key === '重要性') current.importance = value === '次要' || value === 'minor' ? 'minor' : 'major'
     else if (key === '描述' || key === '资产描述') current.description = value
     else if (key === '视觉状态' || key === '视觉版本') {
-      // 兼容旧协议：单状态字段形式
-      currentState = { id: uuidv4(), name: value, description: '', imagePrompt: '', matchSource: 'new' }
-      current.states?.push(currentState)
-    } else if (key === '视觉描述' && currentState) currentState.description = value
-    else if (key === '绘画提示词') {
-      if (!currentState) { currentState = { id: uuidv4(), name: '默认状态', description: '', imagePrompt: value, matchSource: 'new' }; current.states?.push(currentState) }
-      else currentState.imagePrompt = value
-    } else if (key === '状态标签' && currentState) currentState.tags = splitValue(value)
-    else if (value) current.attributes = { ...current.attributes, [key]: value }
+      // 兼容旧协议：单状态字段形式；同名状态已存在（如已有 ### 标题块）时复用，避免重复
+      currentState = getOrCreateState(current, value)
+      applyPendingFields(currentState)
+    } else if (key === '视觉描述') {
+      // 字段可能出现在状态标题之前（资产字段位置），缓冲待回填，避免丢失
+      if (currentState) currentState.description = value
+      else pendingStateFields.description = value
+    } else if (key === '绘画提示词') {
+      if (currentState) currentState.imagePrompt = value
+      else pendingStateFields.imagePrompt = value
+    } else if (key === '状态标签') {
+      if (currentState) currentState.tags = splitValue(value)
+      else pendingStateFields.tags = splitValue(value)
+    } else if (value) current.attributes = { ...current.attributes, [key]: value }
   }
   flush()
   return result.filter((item) => item.name)
@@ -188,7 +222,7 @@ export function buildAssetExtractionPrompt(templateContent: string, chapterConte
         return `- ${asset.name}（${asset.type === 'character' ? '人物' : asset.type === 'scene' ? '场景' : '道具'}；已有视觉状态：${states}）`
       }).join('\n')}\n规则：资产已存在且本章外观未变化时，视觉状态名必须与已有状态名完全一致；仅当原文出现明确外观变化时才新建视觉状态。\n`
     : ''
-  return `${template}${assetContext}\n\n【系统固定输出协议】\n只输出中文 Markdown，不要解释、代码块或 JSON。\n一级标题只能是 # 人物、# 场景、# 道具；没有该类资产则不输出该标题。\n每项资产必须以 ## 资产名称 开始；其余信息每行写为 - 属性名：属性内容。\n每个视觉状态必须以 ### 视觉状态：状态名 单独成块，块内使用字段：视觉描述、状态标签、绘画提示词；同一资产可输出多个视觉状态。\n系统识别字段：姓名、别名、重要性（主要/次要）、描述、原文依据、视觉状态、视觉描述、状态标签、绘画提示词。\n除系统识别字段外，你可根据模板规则自由输出中文属性，例如门派、身份关系、境界、材质、时代、氛围。\n视觉状态表示该资产在当前剧情中的稳定外观或形态，如“少年期·布衣”“宗门弟子服”“战损”；正面、侧面、背面属于同一状态的参考图，不要单列为状态。\n只基于原文明确内容，不要编造。`
+  return `${template}${assetContext}\n\n【系统固定输出协议】\n只输出中文 Markdown，不要解释、代码块或 JSON。\n一级标题只能是 # 人物、# 场景、# 道具；没有该类资产则不输出该标题。\n每项资产必须以 ## 资产名称 开始；其余信息每行写为 - 属性名：属性内容。\n每个视觉状态必须以 ### 视觉状态：状态名 单独成块，块内使用字段：视觉描述、状态标签、绘画提示词；同一资产可输出多个视觉状态。\n系统识别字段：姓名、别名、重要性（主要/次要）、描述、原文依据、视觉描述、状态标签、绘画提示词；视觉状态只能通过 ### 视觉状态：状态名 标题声明，不要以字段形式重复输出。\n除系统识别字段外，你可根据模板规则自由输出中文属性，例如门派、身份关系、境界、材质、时代、氛围。\n视觉状态表示该资产在当前剧情中的稳定外观或形态，如“少年期·布衣”“宗门弟子服”“战损”；正面、侧面、背面属于同一状态的参考图，不要单列为状态。\n只基于原文明确内容，不要编造。`
 }
 
 export async function extractChapterAssets(options: {

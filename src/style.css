@@ -25,6 +25,19 @@
   }
 }
 
+@layer components {
+  /* 主操作按钮：与 LongProject.vue 内 scoped 定义保持一致，
+     全局定义使 Teleport 弹窗与子组件也能使用 */
+  .primary-button { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: 0.5rem; background: #06b6d4; padding: 0.625rem 1.25rem; font-size: 0.875rem; font-weight: 500; color: #020617; transition: background-color 0.15s ease; cursor: pointer; }
+  .primary-button:hover { background: #22d3ee; }
+  .primary-button:disabled { cursor: not-allowed; opacity: 0.4; }
+
+  /* 次操作按钮：语义令牌，自动适配 dark 模式 */
+  .secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; white-space: nowrap; border: 1px solid var(--border-subtle); border-radius: 0.5rem; background: var(--bg-surface); padding: 0.625rem 1.25rem; font-size: 0.875rem; color: var(--text-secondary); transition: color 0.15s ease, border-color 0.15s ease; cursor: pointer; }
+  .secondary-button:hover { color: var(--text-primary); border-color: var(--border-default); }
+  .secondary-button:disabled { cursor: not-allowed; opacity: 0.4; }
+}
+
 @layer utilities {
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

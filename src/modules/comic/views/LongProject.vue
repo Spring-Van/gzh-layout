@@ -179,12 +179,69 @@
           </div>
         </div>
 
-        <LongProjectChapterAssets v-else-if="activeTab === 'assets'" :entries="selectedChapterAssets" :assets="projectAssets" />
+        <LongProjectAssetTab
+          v-else-if="activeTab === 'assets'"
+          :entries="selectedChapterAssets"
+          :assets="projectAssets"
+          :chapter-id="selectedChapter.id"
+          :llm-models="llmModels"
+          :image-models="imageModels"
+          :templates="promptTemplates"
+          :asset-gen-config="assetGenConfig"
+          :painting-style="project?.comicConfig?.paintingStyle"
+          :shared-blocks="project?.imageGenConfig?.sharedBlocks"
+          @update:asset="updateAssetVariant"
+          @update:gen-config="updateAssetGenConfig"
+        />
 
-        <div v-else-if="activeTab === 'storyboard'" class="custom-scrollbar flex-1 overflow-y-auto p-6">
-          <div class="mx-auto max-w-4xl">
-            <div v-if="latestStoryboardRun?.status === 'running'" class="flex min-h-64 flex-col items-center justify-center text-center"><LoaderCircle :size="28" class="animate-spin text-cyan-400" /><h2 class="mt-4 text-base font-medium text-text-primary">正在生成分镜</h2><p class="mt-2 text-sm text-text-secondary">正在结合当前章节与项目资产库匹配视觉状态。</p></div>
-            <div v-else-if="latestStoryboardRun?.status === 'completed'" class="space-y-3"><div class="flex items-center justify-between"><p class="text-sm text-text-secondary">{{ latestStoryboardRun.panels.length }} 个分镜 · 已按项目资产库匹配</p><button class="secondary-button text-xs" @click="activeTab = 'source'">返回原文</button></div><article v-for="panel in latestStoryboardRun.panels" :key="panel.id" class="rounded-lg border border-border-subtle bg-surface p-4"><div class="flex items-center justify-between gap-4"><span class="text-xs font-medium text-cyan-400">分镜 {{ panel.order }}</span><span v-if="panel.shot" class="text-xs text-text-muted">{{ panel.shot }}</span></div><p class="mt-3 text-sm leading-6 text-text-primary">{{ panel.content }}</p><div v-if="panel.assetBindings.length" class="mt-3 flex flex-wrap gap-2"><span v-for="binding in panel.assetBindings" :key="`${binding.assetName}-${binding.visualVersionName}`" class="rounded border px-2 py-1 text-[11px]" :class="binding.assetId ? 'border-violet-400/25 bg-violet-400/10 text-violet-200' : 'border-amber-400/25 bg-amber-400/10 text-amber-200'">{{ binding.assetName }}<template v-if="binding.visualVersionName"> · {{ binding.visualVersionName }}</template></span></div><p v-if="panel.imagePrompt" class="mt-3 border-t border-border-subtle pt-3 text-xs leading-5 text-text-secondary">{{ panel.imagePrompt }}</p></article></div>
+        <div v-else-if="activeTab === 'storyboard'" class="custom-scrollbar flex flex-1 flex-col overflow-y-auto p-6">
+          <div class="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
+            <div v-if="latestStoryboardRun?.status === 'running'" class="flex min-h-0 flex-1 items-center justify-center text-center">
+              <div class="w-full max-w-sm">
+                <div class="relative mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-lg border border-cyan-500/25 bg-cyan-500/10">
+                  <span class="absolute inset-0 rounded-lg border border-cyan-400/40 extraction-ring" />
+                  <LoaderCircle :size="26" class="animate-spin text-cyan-400" />
+                </div>
+                <h2 class="text-base font-medium text-text-primary">正在生成分镜</h2>
+                <p class="mt-2 text-sm text-text-secondary">正在结合当前章节与项目资产库匹配视觉状态。</p>
+                <div class="mt-7 grid grid-cols-3 gap-2 text-left">
+                  <div v-for="step in storyboardLoadingSteps" :key="step.label" class="rounded-md border border-border-subtle bg-surface px-3 py-3">
+                    <component :is="step.icon" :size="16" class="mb-2 text-cyan-400 extraction-step-icon" />
+                    <p class="text-xs text-text-primary">{{ step.label }}</p>
+                    <p class="mt-1 text-[11px] text-text-muted">处理中</p>
+                  </div>
+                </div>
+                <div class="mx-auto mt-5 flex items-center justify-center gap-1.5 text-xs text-text-muted"><span class="loading-dot" /><span class="loading-dot" /><span class="loading-dot" /><span class="ml-1">大模型生成中</span></div>
+              </div>
+            </div>
+            <div v-else-if="latestStoryboardRun?.status === 'completed'" class="flex min-h-0 flex-1 flex-col space-y-3">
+              <div class="flex shrink-0 items-center justify-between">
+                <p class="text-sm text-text-secondary">
+                  <template v-if="storyboardEditing">{{ storyboardEditCount }} 个分镜 · 一段一个分镜（空行分隔），按序保留镜头与资产绑定</template>
+                  <template v-else>{{ latestStoryboardRun.panels.length }} 个分镜 · 已按项目资产库匹配</template>
+                </p>
+                <div class="flex items-center gap-3">
+                  <template v-if="storyboardEditing">
+                    <button class="secondary-button text-xs" @click="cancelStoryboardEditing">取消</button>
+                    <button class="primary-button text-xs" :disabled="!storyboardEditCount || storyboardSaving" @click="saveStoryboardEditing">保存分镜<Check :size="14" /></button>
+                  </template>
+                  <template v-else>
+                    <button class="secondary-button text-xs" @click="enterStoryboardEditing"><Pencil :size="14" />编辑分镜</button>
+                    <button class="primary-button text-xs" @click="openPanelGen">进入生图工作台<ArrowRight :size="14" /></button>
+                    <button class="secondary-button text-xs" @click="activeTab = 'source'">返回原文</button>
+                  </template>
+                </div>
+              </div>
+              <textarea
+                v-if="storyboardEditing"
+                v-model="storyboardDraft"
+                class="custom-scrollbar min-h-0 flex-1 resize-none rounded-lg border border-border-subtle bg-surface p-4 text-sm leading-7 text-text-primary outline-none focus:border-cyan-500/50"
+                placeholder="每一段描述一个分镜画面，段落之间用空行分隔..."
+              />
+              <div v-else class="custom-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+                <article v-for="panel in latestStoryboardRun.panels" :key="panel.id" class="rounded-lg border border-border-subtle bg-surface p-4"><div class="flex items-center justify-between gap-4"><span class="text-xs font-medium text-cyan-400">分镜 {{ panel.order }}</span><span v-if="panel.shot" class="text-xs text-text-muted">{{ panel.shot }}</span></div><p class="mt-3 text-sm leading-6 text-text-primary">{{ panel.content }}</p><div v-if="panel.assetBindings.length" class="mt-3 flex flex-wrap gap-2"><span v-for="binding in panel.assetBindings" :key="`${binding.assetName}-${binding.visualVersionName}`" class="rounded border px-2 py-1 text-[11px]" :class="binding.assetId ? 'border-violet-400/25 bg-violet-400/10 text-violet-200' : 'border-amber-400/25 bg-amber-400/10 text-amber-200'">{{ binding.assetName }}<template v-if="binding.visualVersionName"> · {{ binding.visualVersionName }}</template></span></div><p v-if="panel.imagePrompt" class="mt-3 border-t border-border-subtle pt-3 text-xs leading-5 text-text-secondary">{{ panel.imagePrompt }}</p></article>
+              </div>
+            </div>
             <div v-else-if="latestStoryboardRun?.status === 'failed'" class="flex min-h-64 flex-col items-center justify-center text-center"><ScanText :size="28" class="text-red-400" /><h2 class="mt-4 text-base font-medium text-text-primary">分镜生成失败</h2><p class="mt-2 text-sm text-text-secondary">{{ latestStoryboardRun.error }}</p></div>
             <div v-else class="flex min-h-64 flex-col items-center justify-center text-center"><ListTree :size="28" class="text-text-muted" /><h2 class="mt-4 text-base font-medium text-text-primary">尚未生成分镜</h2><p class="mt-2 text-sm text-text-secondary">在原文底部选择“生成分镜”，系统会根据当前章节和项目资产库推荐视觉状态。</p></div>
           </div>
@@ -234,7 +291,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { v4 as uuidv4 } from "uuid";
-import { AlignJustify, ArrowLeft, ArrowRight, Boxes, Ellipsis, Eraser, FileImage, FilePlus2, FileText, FolderPlus, ListTree, ListX, LoaderCircle, MapPin, Package, PanelLeftClose, PanelLeftOpen, Pencil, Rows3, ScanText, TextAlignStart, Trash2, Undo2, UserRound, Workflow, X } from "lucide-vue-next";
+import { AlignJustify, ArrowLeft, ArrowRight, Boxes, Check, Ellipsis, Eraser, FileImage, FilePlus2, FileText, FolderPlus, ListTree, ListX, LoaderCircle, MapPin, Package, PanelLeftClose, PanelLeftOpen, Pencil, Rows3, ScanText, TextAlignStart, Trash2, Undo2, UserRound, Workflow, X } from "lucide-vue-next";
 import { comicDb } from "@/api/comic";
 import ConfirmDialog from "@comic/components/ConfirmDialog.vue";
 import LongProjectNodeDialog from "@comic/components/LongProjectNodeDialog.vue";
@@ -242,11 +299,12 @@ import LongProjectTree from "@comic/components/LongProjectTree.vue";
 import LongProjectAssetLibraryTree, { type AssetLibraryCategory } from "@comic/components/LongProjectAssetLibraryTree.vue";
 import LongProjectAssetExtractionReview from "@comic/components/LongProjectAssetExtractionReview.vue";
 import LongProjectAssetLibrary from "@comic/components/LongProjectAssetLibrary.vue";
-import LongProjectChapterAssets from "@comic/components/LongProjectChapterAssets.vue";
+import LongProjectAssetTab from "@comic/components/LongProjectAssetTab.vue";
 import { useToast } from "@comic/composables/useToast";
 import { buildAssetExtractionPrompt, extractChapterAssets, getCandidateStates } from "@comic/services/assetExtractionService";
 import { buildStoryboardPrompt, generateStoryboard } from "@comic/services/storyboardService";
-import type { ComicProject, LongProjectAsset, LongProjectAssetExtractionCandidate, LongProjectAssetExtractionRun, LongProjectNode, LongProjectNodeType, LongProjectStoryboardRun, ModelConfig, PromptTemplate } from "@comic/types";
+import { migratePanelArtworks } from "@comic/services/panelPromptService";
+import type { AssetGenConfig, ComicProject, LongProjectAsset, LongProjectAssetExtractionCandidate, LongProjectAssetExtractionRun, LongProjectAssetVariant, LongProjectNode, LongProjectNodeType, LongProjectStoryboardRun, ModelConfig, PromptTemplate } from "@comic/types";
 
 const route = useRoute();
 const router = useRouter();
@@ -298,6 +356,7 @@ const storyboardAssetsForChapter = computed(() => {
 const assetsForSelectedCategory = computed(() => selectedAssetCategory.value ? projectAssets.value.filter((asset) => asset.type === selectedAssetCategory.value && asset.scope !== "chapter") : []);
 const assetExtractionRuns = computed(() => project.value?.longProjectData?.assetExtractionRuns ?? []);
 const storyboardRuns = computed(() => project.value?.longProjectData?.storyboardRuns ?? []);
+const panelArtworks = computed(() => project.value?.longProjectData?.panelArtworks ?? []);
 const latestStoryboardRun = computed(() => selectedChapter.value ? storyboardRuns.value.filter((run) => run.chapterId === selectedChapter.value!.id).sort((a, b) => b.updatedAt - a.updatedAt)[0] : undefined);
 const activeExtractionRun = computed(() => assetExtractionRuns.value.find((run) => run.id === activeExtractionRunId.value) ?? null);
 const chapterExtractionRuns = computed(() => selectedChapter.value
@@ -329,6 +388,8 @@ const isDirty = computed(() => draftContent.value !== (selectedChapter.value?.co
 const paragraphCount = computed(() => draftContent.value.split(/\n\s*\n/).filter((paragraph) => paragraph.trim()).length);
 const saveStatus = computed(() => saving.value ? "正在自动保存" : isDirty.value ? "正在编辑" : "已自动保存");
 const llmModels = computed(() => models.value.filter((model) => model.category === "llm"));
+const imageModels = computed(() => models.value.filter((model) => model.category === "image"));
+const assetGenConfig = computed(() => project.value?.longProjectData?.assetGenConfig);
 const aiTasks = [
   { key: "assets" as const, label: "提取资产", templateType: "extract" as const },
   { key: "storyboard" as const, label: "生成分镜", templateType: "storyboard" as const },
@@ -358,6 +419,11 @@ const extractionLoadingSteps = [
   { label: "人物", icon: UserRound },
   { label: "场景", icon: MapPin },
   { label: "道具", icon: Package },
+];
+const storyboardLoadingSteps = [
+  { label: "读取原文", icon: FileText },
+  { label: "拆分镜头", icon: Rows3 },
+  { label: "匹配资产", icon: Boxes },
 ];
 const chapterTabs = [
   { key: "source", label: "原文", icon: FileText },
@@ -419,6 +485,8 @@ const runStoryboard = async (customPrompt?: string) => {
   const storyboardAssets = storyboardAssetsForChapter.value;
   const prompt = customPrompt ?? buildStoryboardPrompt(template.content, draftContent.value, storyboardAssets);
   const now = Date.now();
+  // 重跑前记录旧分镜，成功后用于对位迁移已推导描述与成图（panelArtworks）
+  const previousRun = latestStoryboardRun.value;
   const run: LongProjectStoryboardRun = { id: uuidv4(), chapterId: selectedChapter.value.id, sourceContent: draftContent.value, modelId: model.id, templateId: template.id, prompt, status: 'running', panels: [], createdAt: now, updatedAt: now };
   await persistLongProjectData({ storyboardRuns: [...storyboardRuns.value, run] });
   activeTab.value = 'storyboard';
@@ -426,11 +494,66 @@ const runStoryboard = async (customPrompt?: string) => {
     const result = await generateStoryboard({ model, template, chapterContent: draftContent.value, assets: storyboardAssets, chapterId: selectedChapter.value.id, chapterOrders: chapterOrders.value, prompt });
     const nextRuns = storyboardRuns.value.map((item) => item.id === run.id ? { ...item, status: 'completed' as const, panels: result.panels, rawResponse: result.rawResponse, updatedAt: Date.now() } : item);
     const nextNodes = nodes.value.map((node) => node.id === selectedChapter.value?.id ? { ...node, stage: 'storyboard-ready' as const, updatedAt: Date.now() } : node);
-    await persistLongProjectData({ storyboardRuns: nextRuns, nodes: nextNodes });
+    const nextPanelArtworks = migratePanelArtworks(panelArtworks.value, previousRun?.panels ?? [], result.panels, selectedChapter.value.id);
+    await persistLongProjectData({ storyboardRuns: nextRuns, nodes: nextNodes, panelArtworks: nextPanelArtworks });
   } catch (error) {
     const message = error instanceof Error ? error.message : '分镜生成失败，请重试';
     await persistLongProjectData({ storyboardRuns: storyboardRuns.value.map((item) => item.id === run.id ? { ...item, status: 'failed' as const, error: message, updatedAt: Date.now() } : item) });
     toast.error(message);
+  }
+};
+
+/** 进入当前章节的分镜生图工作台。 */
+const openPanelGen = () => {
+  if (selectedChapter.value) router.push(`/comic/panel-gen/${projectId}/${selectedChapter.value.id}`);
+};
+
+// ========== 分镜手动编辑（一段一镜，按序对位保留绑定） ==========
+
+const storyboardEditing = ref(false);
+const storyboardDraft = ref("");
+const storyboardSaving = ref(false);
+const storyboardEditCount = computed(() => storyboardDraft.value.split(/\n\s*\n/).filter((paragraph) => paragraph.trim()).length);
+
+/** 进入编辑：把当前分镜序列化为一段一镜的文本（空行分隔）。 */
+const enterStoryboardEditing = () => {
+  const run = latestStoryboardRun.value;
+  if (!run) return;
+  storyboardDraft.value = run.panels.map((panel) => panel.content).join("\n\n");
+  storyboardEditing.value = true;
+};
+
+const cancelStoryboardEditing = () => {
+  storyboardEditing.value = false;
+  storyboardDraft.value = "";
+};
+
+/**
+ * 保存分镜编辑：按空行拆分段落，按序对位迁移旧分镜的镜头/资产绑定/绘画提示词；
+ * 新增分镜为空白绑定；数量减少时多余分镜直接丢弃。panelArtworks 走迁移逻辑
+ * （内容变化的分镜其画面描述标记 stale，成图保留）。
+ */
+const saveStoryboardEditing = async () => {
+  const run = latestStoryboardRun.value;
+  const chapter = selectedChapter.value;
+  if (!run || !chapter || storyboardSaving.value) return;
+  const contents = storyboardDraft.value.split(/\n\s*\n/).map((item) => item.trim()).filter(Boolean);
+  if (!contents.length) { toast.warning("至少保留一个分镜"); return; }
+  storyboardSaving.value = true;
+  try {
+    const oldPanels = run.panels;
+    const newPanels = contents.map((content, index) => {
+      const old = oldPanels[index];
+      return old ? { ...old, order: index + 1, content } : { id: uuidv4(), order: index + 1, content, assetBindings: [] };
+    });
+    const nextRuns = storyboardRuns.value.map((item) => item.id === run.id ? { ...item, panels: newPanels, updatedAt: Date.now() } : item);
+    const nextPanelArtworks = migratePanelArtworks(panelArtworks.value, oldPanels, newPanels, chapter.id);
+    await persistLongProjectData({ storyboardRuns: nextRuns, panelArtworks: nextPanelArtworks });
+    storyboardEditing.value = false;
+    storyboardDraft.value = "";
+    toast.success(`已保存 ${newPanels.length} 个分镜`);
+  } finally {
+    storyboardSaving.value = false;
   }
 };
 const closePromptPreview = () => {
@@ -438,8 +561,12 @@ const closePromptPreview = () => {
   promptPreviewContent.value = "";
 };
 const sendPromptPreview = async () => {
-  if (promptPreviewTask.value === "storyboard") await runStoryboard(promptPreviewContent.value);
-  else await sendAssetExtraction(promptPreviewContent.value);
+  // 先捕获内容并关闭弹窗再执行，避免分镜分支执行期间弹窗遮挡页面
+  const content = promptPreviewContent.value;
+  const task = promptPreviewTask.value;
+  closePromptPreview();
+  if (task === "storyboard") await runStoryboard(content);
+  else await sendAssetExtraction(content);
 };
 const sendAssetExtraction = async (prompt: string) => {
   const model = llmModels.value.find((item) => item.id === selectedModelByTask.value.assets);
@@ -467,22 +594,53 @@ const sendAssetExtraction = async (prompt: string) => {
     toast.error(message);
   }
 };
-const persistLongProjectData = async (changes: Partial<NonNullable<ComicProject["longProjectData"]>>) => {
-  if (!project.value) return;
-  const current = project.value.longProjectData ?? { nodes: [] };
-  const updated: ComicProject = {
-    ...project.value,
-    // Vue reactive proxies cannot cross Electron IPC. Long-project data is JSON-only.
-    longProjectData: JSON.parse(JSON.stringify({ ...current, ...changes })),
-    updatedAt: Date.now(),
-  };
-  await comicDb.saveProject(updated);
-  project.value = updated;
+/** 持久化串行队列：并发 saveProject 会互相覆盖（后写赢），工作台批量回写必须串行。 */
+let persistQueue: Promise<unknown> = Promise.resolve();
+const runPersistTask = (task: () => Promise<void>): Promise<void> => {
+  // 前一个任务失败也继续执行后续任务，失败只抛给当次调用方
+  const run = persistQueue.then(task, task);
+  persistQueue = run.then(() => undefined, () => undefined);
+  return run;
 };
+/** 基于最新数据做局部修改后持久化（patch 在队列任务内计算，避免旧快照覆盖）。 */
+const mutateLongProjectData = (mutate: (data: NonNullable<ComicProject["longProjectData"]>) => void) =>
+  runPersistTask(async () => {
+    if (!project.value) return;
+    const current = project.value.longProjectData ?? { nodes: [] };
+    // 先克隆出纯数据草稿，patch 后再次序列化以剥离 reactive proxy（IPC 安全）
+    const draft = JSON.parse(JSON.stringify(current)) as NonNullable<ComicProject["longProjectData"]>;
+    mutate(draft);
+    const updated: ComicProject = {
+      ...project.value,
+      longProjectData: JSON.parse(JSON.stringify(draft)),
+      updatedAt: Date.now(),
+    };
+    await comicDb.saveProject(updated);
+    project.value = updated;
+  });
+const persistLongProjectData = (changes: Partial<NonNullable<ComicProject["longProjectData"]>>) =>
+  mutateLongProjectData((data) => { Object.assign(data, changes); });
 const persistNodes = async (nextNodes: LongProjectNode[]) => {
   // Computed nodes are Vue reactive proxies; strip them before crossing Electron IPC.
   const serializableNodes = nextNodes.map((node) => ({ ...node }));
   await persistLongProjectData({ nodes: serializableNodes });
+};
+/** 资产工作台回写：在持久化队列内基于最新数据 patch 视觉状态（提示词/参考图等）。 */
+const updateAssetVariant = (payload: { assetId: string; variantId: string; patch: Partial<LongProjectAssetVariant> }) =>
+  mutateLongProjectData((data) => {
+    data.assets = (data.assets ?? []).map((asset) => {
+      if (asset.id !== payload.assetId) return asset;
+      if (!asset.variants.some((item) => item.id === payload.variantId)) return asset;
+      return {
+        ...asset,
+        variants: asset.variants.map((item) => item.id === payload.variantId ? { ...item, ...payload.patch, updatedAt: Date.now() } : item),
+        updatedAt: Date.now(),
+      };
+    });
+  });
+/** 保存资产生图配置（项目级默认）。 */
+const updateAssetGenConfig = async (config: AssetGenConfig) => {
+  await persistLongProjectData({ assetGenConfig: JSON.parse(JSON.stringify(config)) });
 };
 const toggleFolder = (folderId: string) => { const next = new Set(expandedFolders.value); next.has(folderId) ? next.delete(folderId) : next.add(folderId); expandedFolders.value = next; };
 const selectChapter = async (chapter: LongProjectNode) => { if (isDirty.value) await saveCurrentChapter(false); activeExtractionRunId.value = null; selectedAssetCategory.value = null; selectedChapterId.value = chapter.id; draftContent.value = chapter.content ?? ""; contentHistory.value = []; activeTab.value = "source"; };
@@ -700,8 +858,41 @@ onMounted(async () => {
     const defaultStoryboardTemplateId = promptTemplates.value.find((template) => template.type === "storyboard")?.id ?? "";
     selectedModelByTask.value = { assets: defaultModelId, storyboard: defaultModelId };
     selectedTemplateByTask.value = { assets: defaultAssetTemplateId, storyboard: defaultStoryboardTemplateId };
+    // 异常恢复：页面刚加载时不可能有进行中的分镜任务，残留 running 的 run 标记为失败，避免分镜 tab 永远转圈、工作台空白
+    if (storyboardRuns.value.some((run) => run.status === "running")) {
+      await persistLongProjectData({
+        storyboardRuns: storyboardRuns.value.map((run) => run.status === "running"
+          ? { ...run, status: "failed" as const, error: "上次分镜生成被中断，请重新生成", updatedAt: Date.now() }
+          : run),
+      });
+    }
+    applyReturnQuery();
   } finally { loading.value = false; }
 });
+
+/**
+ * 应用工作台返回参数（?tab=storyboard&chapter=xxx）：
+ * 选中对应章节并停留在分镜 tab。组件被 keep-alive 缓存，返回时 onMounted 不重跑，
+ * 因此同时 watch route.query 覆盖激活场景。
+ */
+function applyReturnQuery() {
+  if (route.name !== "ComicLongProject" || route.params.projectId !== projectId) return;
+  const queryChapter = typeof route.query.chapter === "string" ? route.query.chapter : "";
+  if (queryChapter && queryChapter !== selectedChapterId.value) {
+    const chapter = nodes.value.find((node) => node.id === queryChapter);
+    if (chapter) {
+      if (isDirty.value) void saveCurrentChapter(false);
+      activeExtractionRunId.value = null;
+      selectedAssetCategory.value = null;
+      selectedChapterId.value = chapter.id;
+      draftContent.value = chapter.content ?? "";
+      contentHistory.value = [];
+    }
+  }
+  if (route.query.tab === "storyboard") activeTab.value = "storyboard";
+}
+
+watch(() => route.query, () => { if (route.name === "ComicLongProject") applyReturnQuery(); });
 </script>
 
 <style scoped>

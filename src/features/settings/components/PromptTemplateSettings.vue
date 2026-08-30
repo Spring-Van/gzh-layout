@@ -72,7 +72,7 @@
         </div>
         <SettingsFieldInput v-model="form.description" label="模板描述" placeholder="简要描述该模板的用途" />
         <label class="block text-xs text-text-secondary">
-          <span class="mb-1.5 flex items-center justify-between gap-3"><span>提示词内容</span><button v-if="form.type === 'extract'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedExtractionTemplate">填入推荐资产提取模板</button><button v-else-if="form.type === 'storyboard'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedStoryboardTemplate">填入推荐分镜模板</button></span>
+          <span class="mb-1.5 flex items-center justify-between gap-3"><span>提示词内容</span><button v-if="form.type === 'extract'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedExtractionTemplate">填入推荐资产提取模板</button><button v-else-if="form.type === 'storyboard'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedStoryboardTemplate">填入推荐分镜模板</button><button v-else-if="form.type === 'asset-prompt'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedAssetPromptTemplate">填入推荐资产绘画提示词模板</button><button v-else-if="form.type === 'panel-prompt'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedPanelPromptTemplate">填入推荐分镜画面描述模板</button></span>
           <textarea
             v-model="form.content"
             rows="7"
@@ -115,6 +115,8 @@ const typeOptions: Array<{ value: TemplateType; label: string }> = [
   { value: 'extract', label: '资产提取模板' },
   { value: 'story', label: '故事模板' },
   { value: 'storyboard', label: '分镜模板' },
+  { value: 'asset-prompt', label: '资产绘画提示词模板' },
+  { value: 'panel-prompt', label: '分镜画面描述模板' },
 ];
 const recommendedExtractionPrompt = `你是一名专业的小说漫画化资产分析师。请从当前章节中识别后续漫画创作需要反复引用、并保持视觉一致性的核心资产。
 
@@ -144,6 +146,22 @@ const recommendedExtractionPrompt = `你是一名专业的小说漫画化资产�
 
 【章节原文】
 {{chapter_content}}`;
+const recommendedAssetPromptPrompt = `你是一名资深的漫画绘画提示词工程师。请根据下面的状态清单与风格上下文，为每一个视觉状态撰写一段可直接用于生图的中文绘画提示词。
+
+【目标生图模型】
+{{target_model}}
+
+【风格上下文】
+{{style}}
+
+【待生成状态清单】
+{{assets}}
+
+【写作要求】
+- 每段提示词为一段完整、连贯的中文描述，不要分点。
+- 人物包含：外貌与体型、服饰与材质、表情姿态与氛围；场景包含：空间结构、环境元素、光线与氛围；道具包含：外形、材质、细节特征。
+- 结尾附上画风要求，与风格上下文保持一致。
+- 严格基于清单给定信息撰写，不要编造与原文冲突的细节，不要出现镜头语言（如特写、仰视等）。`;
 const recommendedStoryboardPrompt = `你是一名小说漫画分镜设计师。请将当前章节拆分为可直接绘制的关键分镜。
 
 保留推动剧情、情绪转折、角色行动和重要信息的画面；删除重复叙述与不能画面化的内心独白。每个分镜只呈现一个清晰的主要动作或画面重点，并根据项目资产库选择正确的人物、场景、道具和视觉状态。
@@ -154,9 +172,37 @@ const recommendedStoryboardPrompt = `你是一名小说漫画分镜设计师。�
 
 【章节原文】
 {{chapter_content}}`;
+const recommendedPanelPromptPrompt = `你是一名专业的漫画分镜画面描述师。请根据当前分镜信息，写出一段可直接用于漫画生图的中文画面描述。
+
+【目标生图模型】
+{{target_model}}
+
+【风格上下文】
+{{style}}
+
+【本章分镜概要】
+{{chapter_outline}}
+
+【前文分镜与画面】
+{{prev_panels}}
+
+【当前分镜】
+镜头：{{shot}}
+画面内容：{{panel_content}}
+
+【本分镜绑定资产视觉设定】
+{{assets}}
+
+【写作要求】
+- 描述画面中的人物位置、动作、表情、场景环境与氛围，构图遵循当前镜头类型；
+- 出场资产必须严格遵循给定的资产视觉设定（外观、服饰等固定特征），不要改动；
+- 与前文分镜保持剧情与画面的连续性（人物位置关系、光线、场景细节等）；
+- 严格基于给定信息撰写，不要补写原文没有的细节；
+- 不写对白与旁白，只描述画面本身；
+- 输出为一段完整、连贯的中文描述。`;
 
 function typeLabel(type: TemplateType): string {
-  return ({ style: '风格', extract: '资产提取', story: '故事', storyboard: '分镜' })[type];
+  return ({ style: '风格', extract: '资产提取', story: '故事', storyboard: '分镜', 'asset-prompt': '资产绘画提示词', 'panel-prompt': '分镜画面描述' })[type] ?? type;
 }
 
 async function load() {
@@ -179,6 +225,18 @@ function applyRecommendedStoryboardTemplate() {
   form.name = form.name.trim() || '长篇章节分镜';
   form.description = form.description.trim() || '根据章节原文与项目资产库生成可审核的漫画分镜。';
   form.content = recommendedStoryboardPrompt;
+}
+
+function applyRecommendedAssetPromptTemplate() {
+  form.name = form.name.trim() || '资产绘画提示词';
+  form.description = form.description.trim() || '按状态清单与风格上下文，为资产视觉状态批量生成绘画提示词。';
+  form.content = recommendedAssetPromptPrompt;
+}
+
+function applyRecommendedPanelPromptTemplate() {
+  form.name = form.name.trim() || '分镜画面描述';
+  form.description = form.description.trim() || '按分镜内容、前文画面与资产视觉设定，逐镜生成可直接生图的画面描述。';
+  form.content = recommendedPanelPromptPrompt;
 }
 
 function openCreate() {

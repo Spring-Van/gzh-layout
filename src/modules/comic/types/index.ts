@@ -78,6 +78,8 @@ export interface LongProjectAssetVariant {
   chapterRange?: { startChapterId: string; endChapterId?: string }
   tags?: string[]
   imagePrompt?: string
+  /** 生图工作台暂存：生成的图片与上传待选图，采纳后移入 referenceImageIds。 */
+  generatedImageIds?: string[]
   referenceImageIds: string[]
   sourceChapterIds: string[]
   createdAt: number
@@ -212,6 +214,77 @@ export interface LongProjectAssetExtractionRun {
   updatedAt: number
 }
 
+/** 资产提示词批量生成任务：记录模型与模板选择及原始返回，便于追溯重跑。 */
+export interface AssetPromptRun {
+  id: string
+  chapterId: string
+  modelId: string
+  templateId: string
+  /** 实际发送的最终提示词，发送前可临时修改。 */
+  prompt: string
+  /** 生成目标：资产 id → 视觉状态 id 列表；为空表示整章全部状态。 */
+  targets?: Record<string, string[]>
+  status: 'running' | 'completed' | 'failed'
+  rawResponse?: string
+  error?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export type PanelPromptStatus = 'none' | 'pending' | 'running' | 'done' | 'failed' | 'stale'
+export type PanelGenStatus = 'none' | 'running' | 'done' | 'failed'
+
+/**
+ * 分镜画面：按分镜 panelId 关联的推导描述与成图。
+ * 独立于 storyboardRuns 快照存储——重跑分镜不会丢掉已推导描述与成图（内容变化时标记 stale）。
+ */
+export interface LongProjectPanelArtwork {
+  /** 对应 LongProjectStoryboardPanel.id */
+  panelId: string
+  chapterId: string
+  /** 依次推导（或人工编辑）出的画面描述 */
+  imagePrompt?: string
+  promptSource?: 'inferred' | 'manual'
+  promptStatus: PanelPromptStatus
+  /** 成图暂存：候选图列表，采纳后写 selectedImageId */
+  generatedImageIds?: string[]
+  selectedImageId?: string
+  genStatus: PanelGenStatus
+  updatedAt: number
+}
+
+/** 资产生图任务：基于视觉状态的参考图生成记录。 */
+export interface AssetGenTask {
+  id: string
+  projectId: string
+  chapterId?: string
+  assetId: string
+  variantId: string
+  prompt: string
+  refImages: string[]
+  taskId?: string
+  status: 'pending' | 'running' | 'done' | 'failed'
+  resultImageUrl?: string
+  error?: string
+  createdAt: number
+  updatedAt: number
+}
+
+/** 资产生图配置：项目级默认值，工作台中可单次覆盖。 */
+export interface AssetGenConfig {
+  /** 生图模型 id */
+  imageModelId: string
+  /** 提示词生成用 LLM 模型 id */
+  promptModelId?: string
+  /** 提示词模板 id */
+  promptTemplateId?: string
+  aspectRatio: string
+  resolution: string
+  quality?: string
+  /** 批量生图并发数 */
+  concurrency?: number
+}
+
 export interface LongProjectNode {
   id: string
   type: LongProjectNodeType
@@ -233,6 +306,12 @@ export interface LongProjectData {
   /** 各章节待审核或已确认的资产提取任务 */
   assetExtractionRuns?: LongProjectAssetExtractionRun[]
   storyboardRuns?: LongProjectStoryboardRun[]
+  /** 分镜画面（描述推导 + 成图），按 panelId 关联分镜 */
+  panelArtworks?: LongProjectPanelArtwork[]
+  /** 资产提示词生成任务（按章） */
+  assetPromptRuns?: AssetPromptRun[]
+  /** 资产生图配置（项目级默认） */
+  assetGenConfig?: AssetGenConfig
 }
 
 export interface ComicProject {
@@ -304,7 +383,7 @@ export interface OpenAIImageParams {
   compatibleMode?: boolean
 }
 
-export type TemplateType = 'style' | 'extract' | 'story' | 'storyboard'
+export type TemplateType = 'style' | 'extract' | 'story' | 'storyboard' | 'asset-prompt' | 'panel-prompt'
 
 export interface PromptTemplate {
   id: string
