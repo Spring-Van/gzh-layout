@@ -9,16 +9,39 @@
         <p class="text-[11px] text-text-muted">{{ describedCount }} 已描述 · {{ completedCount }} 已成图</p>
       </div>
 
-      <!-- 章节切换：弹窗选择（替代原下拉框） -->
-      <button
-        class="secondary-button h-9 max-w-52 shrink-0 px-3 text-xs"
-        title="切换章节"
-        @click="chapterModalVisible = true"
-      >
-        <BookOpen :size="14" />
-        <span class="truncate">{{ currentChapter?.name || '选择章节' }}</span>
-        <ChevronDown :size="14" class="text-text-muted" />
-      </button>
+      <!-- 章节切换：下拉框内嵌项目树，固定高度超出滚动 -->
+      <div class="relative shrink-0">
+        <button
+          class="secondary-button h-9 max-w-52 px-3 text-xs"
+          title="切换章节"
+          @click="toggleChapterMenu"
+        >
+          <BookOpen :size="14" />
+          <span class="truncate">{{ currentChapter?.name || '选择章节' }}</span>
+          <ChevronDown :size="14" class="text-text-muted transition-transform" :class="chapterMenuVisible ? 'rotate-180' : ''" />
+        </button>
+
+        <!-- 下拉树面板：透明遮罩点击外部关闭 -->
+        <div v-if="chapterMenuVisible" class="fixed inset-0 z-40" @click="chapterMenuVisible = false" />
+        <Transition name="fade">
+          <div
+            v-if="chapterMenuVisible"
+            class="absolute left-0 top-full z-50 mt-1.5 w-[280px] overflow-hidden rounded-lg border border-border-subtle bg-surface shadow-xl shadow-black/20"
+          >
+            <div class="custom-scrollbar max-h-72 overflow-y-auto p-2">
+              <LongProjectTree
+                :project-name="project?.name || '长篇项目'"
+                :nodes="nodes"
+                :selected-id="chapterId || null"
+                :expanded-ids="treeExpandedIds"
+                @select="onTreeSelect"
+                @toggle="toggleTreeFolder"
+              />
+              <p v-if="!chapters.length" class="px-2 py-4 text-center text-xs text-text-muted">暂无章节</p>
+            </div>
+          </div>
+        </Transition>
+      </div>
 
       <div class="ml-auto flex shrink-0 items-center gap-2">
         <button
@@ -75,7 +98,7 @@
     <div v-else class="flex min-h-0 flex-1 gap-3 p-3">
       <!-- 左：分镜列表（宽度与短篇生图页一致） -->
       <div class="w-[20%] min-w-[220px] max-w-[280px] shrink-0 overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-lg shadow-black/20">
-        <PanelListSidebar :items="panelItems" :current-index="currentIndex" @select="currentIndex = $event" />
+        <PanelListSidebar :items="panelItems" :current-index="currentIndex" @select="currentIndex = $event" @infer="inferFromSidebar" />
       </div>
 
       <!-- 中：成图预览（上）+ 资产绑定三 tab（下） -->
@@ -98,7 +121,7 @@
           <PanelAssetTabs
             :panel="currentPanel"
             :assets="assets"
-            @update-binding="updateBinding"
+            @update-variant-images="updateVariantImages"
             @preview="openPreview"
           />
         </div>
@@ -112,6 +135,7 @@
         <PanelPromptPanel
           :panel="currentPanel"
           :artwork="currentArtwork"
+          :assets="assets"
           :prompt-busy="promptBusyIds.has(currentPanel.id)"
           :generating="currentArtwork?.genStatus === 'running'"
           :ref-groups="currentRefGroups"
@@ -153,39 +177,6 @@
       @confirm="runSinglePrompt"
     />
 
-    <!-- 章节选择弹窗 -->
-    <Teleport to="body">
-      <Transition name="fade">
-        <div v-if="chapterModalVisible" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5 backdrop-blur-sm" @click.self="chapterModalVisible = false">
-          <section class="flex max-h-[min(560px,calc(100vh-3rem))] w-[min(420px,100%)] flex-col overflow-hidden rounded-lg border border-border-subtle bg-surface shadow-2xl">
-            <header class="flex shrink-0 items-center justify-between border-b border-border-subtle px-5 py-4">
-              <h2 class="text-base font-semibold text-text-primary">切换章节</h2>
-              <button class="icon-button" title="关闭" @click="chapterModalVisible = false"><X :size="18" /></button>
-            </header>
-            <div class="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
-              <button
-                v-for="chapter in chapters"
-                :key="chapter.id"
-                class="mb-1.5 flex w-full items-center gap-2.5 rounded-lg border p-3 text-left transition-colors"
-                :class="chapter.id === chapterId ? 'border-cyan-500/40 bg-cyan-500/10' : 'border-transparent hover:bg-app-bg'"
-                @click="selectChapter(chapter.id)"
-              >
-                <BookOpen :size="16" :class="chapter.id === chapterId ? 'text-cyan-400' : 'text-text-muted'" />
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate text-sm text-text-primary">{{ chapter.name }}</span>
-                  <span class="mt-0.5 block text-[11px] text-text-muted">
-                    {{ chapterRunStatus(chapter.id) }}
-                  </span>
-                </span>
-                <Check v-if="chapter.id === chapterId" :size="16" class="shrink-0 text-cyan-400" />
-              </button>
-              <p v-if="!chapters.length" class="px-2 py-6 text-center text-xs text-text-muted">暂无章节</p>
-            </div>
-          </section>
-        </div>
-      </Transition>
-    </Teleport>
-
     <!-- 大图预览 -->
     <AssetImagePreviewModal
       v-model="previewVisible"
@@ -216,7 +207,7 @@
  */
 import { computed, onMounted, reactive, ref, toRaw, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, BookOpen, Check, ChevronDown, Download, ListTree, LoaderCircle, SlidersHorizontal, Sparkles, X } from 'lucide-vue-next'
+import { ArrowLeft, BookOpen, ChevronDown, Download, ListTree, LoaderCircle, SlidersHorizontal, Sparkles } from 'lucide-vue-next'
 import { comicDb, comicDownload } from '@/api/comic'
 import { useToast } from '@comic/composables/useToast'
 import { imageGenerationService } from '@comic/services/imageGenerationService'
@@ -230,7 +221,10 @@ import {
   resolvePanelBindings,
   type PrevPanelContextEntry,
 } from '@comic/services/panelPromptService'
+import { buildAssetNameIndex, computeAutoBindings } from '@comic/services/promptAssetService'
+import { defaultVariant } from '@comic/services/storyboardService'
 import PanelListSidebar from '@comic/components/panel-gen/PanelListSidebar.vue'
+import LongProjectTree from '@comic/components/LongProjectTree.vue'
 import PanelPreview from '@comic/components/panel-gen/PanelPreview.vue'
 import PanelAssetTabs from '@comic/components/panel-gen/PanelAssetTabs.vue'
 import PanelPromptPanel, { type PanelRefConfig, type TypedRefGroup } from '@comic/components/panel-gen/PanelPromptPanel.vue'
@@ -243,7 +237,6 @@ import type {
   ComicProject,
   ImageGenConfig,
   LongProjectPanelArtwork,
-  LongProjectStoryboardAssetBinding,
   LongProjectStoryboardPanel,
   ModelConfig,
   PromptTemplate,
@@ -294,7 +287,13 @@ let batchGenCancelled = false
 
 const promptModalVisible = ref(false)
 const singleModalVisible = ref(false)
-const chapterModalVisible = ref(false)
+
+/** 左栏列表快捷推导：选中该分镜并打开单镜推导弹窗。 */
+function inferFromSidebar(index: number) {
+  currentIndex.value = index
+  singleModalVisible.value = true
+}
+const chapterMenuVisible = ref(false)
 const configDrawerVisible = ref(false)
 const exportBusy = ref(false)
 
@@ -467,29 +466,29 @@ function upsertArtwork(panelId: string, patch: Partial<LongProjectPanelArtwork>)
   })
 }
 
-/** 资产换绑：直接修改当前分镜 run 的 assetBindings。 */
-function updateBinding(payload: { index: number; binding: LongProjectStoryboardAssetBinding }) {
-  const runId = currentRun.value?.id
-  const panelId = currentPanel.value?.id
-  if (!runId || !panelId) return
+/** 更换资产视觉状态参考图：替换式写回资产库并持久化（对所有引用该资产的分镜生效）。 */
+function updateVariantImages(payload: { assetId: string; variantId: string; images: string[] }) {
   void mutateLongProjectData((data) => {
-    const run = (data.storyboardRuns ?? []).find((item) => item.id === runId)
-    if (!run) return
-    run.panels = run.panels.map((panel) =>
-      panel.id === panelId
-        ? { ...panel, assetBindings: panel.assetBindings.map((b, i) => (i === payload.index ? payload.binding : b)) }
-        : panel,
-    )
-    run.updatedAt = Date.now()
+    data.assets ??= []
+    const asset = data.assets.find((item) => item.id === payload.assetId)
+    if (!asset) return
+    const variant = asset.variants.find((item) => item.id === payload.variantId)
+    if (!variant) return
+    variant.referenceImageIds = [...payload.images]
+    variant.updatedAt = Date.now()
+    asset.updatedAt = Date.now()
   })
 }
 
 // ========== 画面描述推导 ==========
 
-/** 模板内容解析：空模板 id 走内置默认模板。 */
-function templateContentOf(templateId?: string): string {
-  if (!templateId) return DEFAULT_PANEL_PROMPT_TEMPLATE
-  return panelPromptTemplates.value.find((template) => template.id === templateId)?.content ?? DEFAULT_PANEL_PROMPT_TEMPLATE
+/** 模板解析：空模板 id / 未命中走内置默认模板，返回内容与自定义输出协议。 */
+function resolveTemplate(templateId?: string): { content: string; outputProtocol?: string } {
+  const template = templateId ? panelPromptTemplates.value.find((item) => item.id === templateId) : undefined
+  return {
+    content: template?.content ?? DEFAULT_PANEL_PROMPT_TEMPLATE,
+    outputProtocol: template?.outputProtocol,
+  }
 }
 
 /** 滑动窗口前文：前 K 镜 + 各自已推导描述（批量推导时随进度动态刷新）。 */
@@ -504,10 +503,11 @@ function prevEntriesOf(index: number): PrevPanelContextEntry[] {
   return entries
 }
 
-/** 拼装单镜最终提示词。 */
-function buildPromptForPanel(panel: LongProjectStoryboardPanel, index: number, templateContent: string): string {
+/** 拼装单镜最终提示词（输出协议取模板自定义，未自定义则不附加任何输出限制）。 */
+function buildPromptForPanel(panel: LongProjectStoryboardPanel, index: number, template: { content: string; outputProtocol?: string }): string {
   return buildPanelPromptPrompt({
-    templateContent,
+    templateContent: template.content,
+    outputProtocol: template.outputProtocol,
     panel: toRaw(panel),
     chapterOutline: chapterOutline.value,
     prevEntries: prevEntriesOf(index),
@@ -517,17 +517,22 @@ function buildPromptForPanel(panel: LongProjectStoryboardPanel, index: number, t
   })
 }
 
+/** 弹窗回调的模板 → 拼装参数（null = 内置默认模板）。 */
+function toPromptTemplateArg(template: PromptTemplate | null): { content: string; outputProtocol?: string } {
+  return template ? { content: template.content, outputProtocol: template.outputProtocol } : { content: DEFAULT_PANEL_PROMPT_TEMPLATE }
+}
+
 /** 批量弹窗预览：按范围取首个目标分镜拼装示例。 */
-function buildBatchPromptPreview(templateContent: string, scope?: 'missing' | 'all'): string {
+function buildBatchPromptPreview(template: PromptTemplate | null, scope?: 'missing' | 'all'): string {
   const firstIndex = scope === 'all' ? 0 : panels.value.findIndex((panel) => needsInfer(panel))
   if (firstIndex < 0) return ''
-  return buildPromptForPanel(panels.value[firstIndex], firstIndex, templateContent)
+  return buildPromptForPanel(panels.value[firstIndex], firstIndex, toPromptTemplateArg(template))
 }
 
 /** 单镜弹窗预览：当前分镜的最终提示词（可在弹窗内编辑）。 */
-function buildSinglePromptPreview(templateContent: string): string {
+function buildSinglePromptPreview(template: PromptTemplate | null): string {
   if (!currentPanel.value) return ''
-  return buildPromptForPanel(currentPanel.value, currentIndex.value, templateContent)
+  return buildPromptForPanel(currentPanel.value, currentIndex.value, toPromptTemplateArg(template))
 }
 
 /** 批量推导：按分镜顺序依次执行，每镜一次 LLM 调用，前文滑动窗口自动关联。 */
@@ -535,7 +540,7 @@ async function runBatchPrompts(options: { modelId: string; templateId: string; s
   const model = llmModels.value.find((item) => item.id === options.modelId)
   if (!model) return
   const scope = options.scope ?? 'missing'
-  const templateContent = templateContentOf(options.templateId)
+  const template = resolveTemplate(options.templateId)
   const targets = panels.value
     .map((panel, index) => ({ panel, index }))
     .filter(({ panel }) => scope === 'all' || needsInfer(panel))
@@ -553,7 +558,7 @@ async function runBatchPrompts(options: { modelId: string; templateId: string; s
   for (const { panel, index } of targets) {
     try {
       await upsertArtwork(panel.id, { promptStatus: 'running' })
-      const prompt = buildPromptForPanel(panel, index, templateContent)
+      const prompt = buildPromptForPanel(panel, index, template)
       const result = await inferPanelPrompt({ model: toRaw(model), prompt })
       await upsertArtwork(panel.id, { imagePrompt: result, promptSource: 'inferred', promptStatus: 'done' })
     } catch (error) {
@@ -581,7 +586,7 @@ async function runSinglePrompt(options: { modelId: string; templateId: string; p
   try {
     await upsertArtwork(panel.id, { promptStatus: 'running' })
     const prompt =
-      options.prompt?.trim() || buildPromptForPanel(panel, currentIndex.value, templateContentOf(options.templateId))
+      options.prompt?.trim() || buildPromptForPanel(panel, currentIndex.value, resolveTemplate(options.templateId))
     const result = await inferPanelPrompt({ model: toRaw(model), prompt })
     await upsertArtwork(panel.id, { imagePrompt: result, promptSource: 'inferred', promptStatus: 'done' })
     toast.success('画面描述已生成')
@@ -599,6 +604,37 @@ function savePromptEdit(prompt: string) {
   const panel = currentPanel.value
   if (!panel) return
   void upsertArtwork(panel.id, { imagePrompt: prompt, promptSource: 'manual', promptStatus: 'done' })
+  syncCurrentPanelBindings(prompt)
+}
+
+/**
+ * 自动绑定同步：扫描当前分镜文本（画面/对白/旁白 + 最新提示词），
+ * 出现资产名且未绑定 → 自动添加（延续上一镜同资产视觉状态，否则章节范围默认）；
+ * auto-text 绑定且名称消失 → 自动移除；其余来源绑定不动。
+ */
+function syncCurrentPanelBindings(prompt?: string) {
+  const runId = currentRun.value?.id
+  const panel = currentPanel.value
+  const chapter = currentChapter.value
+  if (!runId || !panel || !chapter) return
+  const index = buildAssetNameIndex(assets.value)
+  const chapterOrders = Object.fromEntries(chapters.value.map((item) => [item.id, item.order]))
+  const prevPanel = panels.value.find((item) => item.order === panel.order - 1)
+  const prevVariants = new Map(
+    (prevPanel?.assetBindings ?? []).filter((binding) => binding.assetId && binding.visualVersionId).map((binding) => [binding.assetId!, binding.visualVersionId!]),
+  )
+  const scanPanel = prompt === undefined ? toRaw(panel) : { ...toRaw(panel), imagePrompt: prompt }
+  const next = computeAutoBindings(scanPanel, index, (asset) => {
+    const continued = prevVariants.get(asset.id)
+    return asset.variants.find((variant) => variant.id === continued) ?? defaultVariant(asset, chapter.id, chapterOrders)
+  })
+  if (!next) return
+  void mutateLongProjectData((data) => {
+    const run = (data.storyboardRuns ?? []).find((item) => item.id === runId)
+    if (!run) return
+    run.panels = run.panels.map((item) => (item.id === panel.id ? { ...item, assetBindings: next } : item))
+    run.updatedAt = Date.now()
+  })
 }
 
 // ========== 生图 ==========
@@ -825,19 +861,36 @@ function goBack() {
 
 // ========== 章节切换 ==========
 
-/** 弹窗内选择章节。 */
-function selectChapter(id: string) {
-  chapterModalVisible.value = false
-  if (id !== chapterId.value) chapterId.value = id
+/** 项目树展开状态：打开下拉时默认展开全部文件夹。 */
+const treeExpandedIds = ref<Set<string>>(new Set())
+
+watch(chapterMenuVisible, (visible) => {
+  if (visible) treeExpandedIds.value = new Set(nodes.value.filter((node) => node.type === 'folder').map((node) => node.id))
+})
+
+/** 展开/收起下拉树。 */
+function toggleChapterMenu() {
+  chapterMenuVisible.value = !chapterMenuVisible.value
 }
 
-/** 章节选择弹窗内的分镜状态摘要。 */
-function chapterRunStatus(id: string): string {
-  const run = (project.value?.longProjectData?.storyboardRuns ?? []).filter((item) => item.chapterId === id).at(-1)
-  if (!run) return '尚未生成分镜'
-  if (run.status === 'running') return '分镜生成中...'
-  if (run.status === 'failed') return '分镜生成失败'
-  return `已生成 ${run.panels.length} 个分镜`
+/** 树节点选择：仅章节可选（文件夹走 toggle 展开/收起）。 */
+function onTreeSelect(node: { id: string; type: string }) {
+  if (node.type !== 'chapter') return
+  selectChapter(node.id)
+}
+
+/** 展开/收起文件夹。 */
+function toggleTreeFolder(id: string) {
+  const next = new Set(treeExpandedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  treeExpandedIds.value = next
+}
+
+/** 下拉内选择章节。 */
+function selectChapter(id: string) {
+  chapterMenuVisible.value = false
+  if (id !== chapterId.value) chapterId.value = id
 }
 
 watch(chapterId, (id) => {
@@ -887,6 +940,13 @@ onMounted(async () => {
           genStatus: item.genStatus === 'running' ? 'failed' : item.genStatus,
         }))
       })
+    }
+    // 定位分镜：从长篇页右键「在生图工作台查看」跳转携带 ?panel=<panelId>
+    const queryPanel = route.query.panel
+    if (typeof queryPanel === 'string') {
+      const index = panels.value.findIndex((panel) => panel.id === queryPanel)
+      if (index >= 0) currentIndex.value = index
+      void router.replace({ name: 'ComicPanelGen', params: { projectId, chapterId: chapterId.value } })
     }
   } finally {
     loading.value = false

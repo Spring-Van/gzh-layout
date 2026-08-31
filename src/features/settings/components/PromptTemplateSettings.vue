@@ -33,6 +33,10 @@
           <dt class="text-[11px] text-text-secondary mb-0.5">提示词内容</dt>
           <dd class="text-xs text-text-secondary truncate" :title="template.content">{{ template.content }}</dd>
         </div>
+        <div v-if="template.outputProtocol">
+          <dt class="text-[11px] text-text-secondary mb-0.5">自定义输出协议</dt>
+          <dd class="text-xs text-text-secondary truncate" :title="template.outputProtocol">{{ template.outputProtocol }}</dd>
+        </div>
       </dl>
     </article>
 
@@ -71,6 +75,28 @@
           </div>
         </div>
         <SettingsFieldInput v-model="form.description" label="模板描述" placeholder="简要描述该模板的用途" />
+        <!-- 输出协议：仅资产绘画提示词 / 分镜画面描述模板支持（其余类型结果不直接回填展示） -->
+        <label v-if="form.type === 'asset-prompt' || form.type === 'panel-prompt'" class="block text-xs text-text-secondary">
+          <span class="mb-1.5 flex items-center justify-between gap-3">
+            <span>输出协议（可选）</span>
+            <button
+              v-if="form.type === 'asset-prompt'"
+              type="button"
+              class="text-cyan-400 hover:text-cyan-300"
+              title="批量一次性发送时系统需按【资产名｜状态名】逐条解析回填，推荐使用此格式"
+              @click="form.outputProtocol = recommendedAssetOutputProtocol"
+            >插入推荐格式</button>
+          </span>
+          <textarea
+            v-model="form.outputProtocol"
+            rows="4"
+            class="w-full bg-input-bg border border-border-subtle rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-cyan-500/50 resize-y leading-relaxed"
+            placeholder="自定义模型返回要求，附加在最终提示词末尾；留空则不附加任何输出限制"
+          />
+          <span class="mt-1 block text-[11px] text-text-muted leading-4">
+            留空 = 不限制模型返回格式。注意：资产提示词「批量·一次性发送」依赖逐条格式解析回填，若自定义协议请保持「【资产名｜状态名】提示词」逐条结构，否则可能解析失败。
+          </span>
+        </label>
         <label class="block text-xs text-text-secondary">
           <span class="mb-1.5 flex items-center justify-between gap-3"><span>提示词内容</span><button v-if="form.type === 'extract'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedExtractionTemplate">填入推荐资产提取模板</button><button v-else-if="form.type === 'storyboard'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedStoryboardTemplate">填入推荐分镜模板</button><button v-else-if="form.type === 'asset-prompt'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedAssetPromptTemplate">填入推荐资产绘画提示词模板</button><button v-else-if="form.type === 'panel-prompt'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedPanelPromptTemplate">填入推荐分镜画面描述模板</button></span>
           <textarea
@@ -109,7 +135,11 @@ const templates = ref<PromptTemplate[]>([]);
 const modalVisible = ref(false);
 const editingId = ref<string | null>(null);
 const draggedId = ref<string | null>(null);
-const form = reactive({ name: '', type: 'extract' as TemplateType, description: '', content: '' });
+const form = reactive({ name: '', type: 'extract' as TemplateType, description: '', content: '', outputProtocol: '' });
+/** 资产提示词批量·一次性发送的可解析推荐输出协议（与系统解析协议同构，可直接复制使用）。 */
+const recommendedAssetOutputProtocol = `只输出中文，不要解释、不要代码块。
+逐条输出，每条格式为：【资产名｜状态名】绘画提示词内容（一段完整可直接用于生图的描述）。
+资产名与状态名必须与清单中的完全一致、一字不差，不要遗漏任何状态、不要新增。`;
 const typeOptions: Array<{ value: TemplateType; label: string }> = [
   { value: 'style', label: '风格模板' },
   { value: 'extract', label: '资产提取模板' },
@@ -211,7 +241,7 @@ async function load() {
 }
 
 function resetForm() {
-  Object.assign(form, { name: '', type: 'extract', description: '', content: '' });
+  Object.assign(form, { name: '', type: 'extract', description: '', content: '', outputProtocol: '' });
   editingId.value = null;
 }
 
@@ -251,6 +281,7 @@ function openEdit(template: PromptTemplate) {
     type: template.type,
     description: template.description,
     content: template.content,
+    outputProtocol: template.outputProtocol ?? '',
   });
   modalVisible.value = true;
 }
@@ -271,6 +302,7 @@ async function save() {
     type: form.type,
     description: form.description.trim(),
     content: form.content,
+    outputProtocol: (form.type === 'asset-prompt' || form.type === 'panel-prompt') && form.outputProtocol.trim() ? form.outputProtocol.trim() : undefined,
     assetExtractionConfig: undefined,
     sortOrder: existing?.sortOrder ?? maxOrder + 1,
     createdAt: existing?.createdAt ?? now,

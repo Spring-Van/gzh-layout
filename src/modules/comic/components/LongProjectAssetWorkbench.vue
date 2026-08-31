@@ -56,7 +56,7 @@
       </div>
     </div>
 
-    <!-- 批量提示词弹窗（可选生成范围：仅补缺失 / 全部重新生成） -->
+    <!-- 批量提示词弹窗（可选生成范围与发送方式） -->
     <AssetPromptGenerateModal
       v-model="promptModalVisible"
       :llm-models="llmModels"
@@ -67,6 +67,7 @@
       :missing-count="promptTargetCount"
       :total-count="totalVariantCount"
       allow-scope
+      allow-send-mode
       :busy="promptBatchBusy"
       :build-prompt="buildPromptPreview"
       @confirm="runBatchPrompts"
@@ -196,19 +197,39 @@ const genTargets = computed(() => props.assets.flatMap((asset) => asset.variants
 const hasGenTargets = computed(() => genTargets.value.length > 0)
 
 // ========== 提示词 ==========
-/** 构建批量提示词生成用的最终 prompt（供弹窗预览，按所选范围取目标）。 */
-function buildPromptPreview(templateContent: string, scope?: 'missing' | 'all'): string {
+/** 构建批量提示词生成用的最终 prompt（供弹窗预览，按所选范围/发送方式取目标；输出协议取模板自定义）。 */
+function buildPromptPreview(template: PromptTemplate, scope?: 'missing' | 'all', sendMode?: 'once' | 'per-item'): string {
   const targets = scope === 'all' ? allPromptTargets.value : promptTargets.value
+  // 逐条发送：预览首个目标的单条拼装提示词（结果直接取全文回填，不解析）
+  if (sendMode === 'per-item') {
+    const first = targets.flatMap(({ asset, variants }) => variants.map((variant) => ({ asset, variant })))[0]
+    if (!first) return ''
+    return buildSingleAssetPrompt({
+      asset: toRaw(first.asset),
+      variant: toRaw(first.variant),
+      currentPrompt: first.variant.imagePrompt,
+      styleContext: styleContext.value,
+      templateContent: template.content,
+      outputProtocol: template.outputProtocol,
+    })
+  }
+  // 一次性发送：系统需按【资产名｜状态名】逐条解析回填，模板未自定义协议时用系统兜底协议
   return buildAssetPromptPrompt({
-    templateContent,
+    templateContent: template.content,
     targets: targets.map(({ asset, variants }) => ({ asset: toRaw(asset), variants: variants.map(toRaw) })),
     styleContext: styleContext.value,
     targetImageModel: currentImageModel.value?.name,
+    outputProtocol: template.outputProtocol,
+    requireParseable: true,
   })
 }
 
-/** 批量提示词生成（弹窗确认后执行，范围：仅补缺失 / 全部重新生成）。 */
-async function runBatchPrompts(options: { modelId: string; templateId: string; prompt?: string; scope?: 'missing' | 'all' }) {
+/**
+ * 批量提示词生成（弹窗确认后执行）。
+ * - 范围：仅补缺失 / 全部重新生成；
+ * - 发送方式：一次性（全部状态一份清单一次请求）/ 逐条（每个状态单独请求，失败不中断）。
+ */
+async function runBatchPrompts(options: { modelId: string; templateId: string; prompt?: string; scope?: 'missing' | 'all'; sendMode?: 'once' | 'per-item' }) {
   const model = props.llmModels.find((m) => m.id === options.modelId)
   const template = assetPromptTemplates.value.find((t) => t.id === options.templateId)
   if (!model || !template) return
@@ -222,21 +243,53 @@ async function runBatchPrompts(options: { modelId: string; templateId: string; p
   promptBatchBusy.value = true
   scopeTargets.forEach(({ variants }) => variants.forEach((v) => promptBusyIds.add(v.id)))
   try {
-    const targets = scopeTargets.map(({ asset, variants }) => ({ asset: toRaw(asset), variants: variants.map(toRaw) }))
-    const result = await generateAssetPrompts({
-      model,
-      template,
-      targets,
-      styleContext: styleContext.value,
-      targetImageModel: currentImageModel.value?.name,
-      prompt: options.prompt,
-    })
-    for (const item of result.items) {
-      emit('update:asset', { assetId: item.assetId, variantId: item.variantId, patch: { imagePrompt: item.imagePrompt } })
+    if (options.sendMode === 'per-item') {
+      // 逐条发送：每个视觉状态单独一次请求，失败记录后继续下一条
+      let done = 0
+      let failed = 0
+      for (const { asset, variants } of scopeTargets) {
+        for (const variant of variants) {
+          try {
+            const prompt = buildSingleAssetPrompt({
+              asset: toRaw(asset),
+              variant: toRaw(variant),
+              currentPrompt: variant.imagePrompt,
+              styleContext: styleContext.value,
+              templateContent: template.content,
+              outputProtocol: template.outputProtocol,
+            })
+            const imagePrompt = await rewriteAssetPrompt({ model, asset: toRaw(asset), variant: toRaw(variant), prompt })
+            emit('update:asset', { assetId: asset.id, variantId: variant.id, patch: { imagePrompt } })
+            done += 1
+          } catch (error) {
+            failed += 1
+            console.error(`[资产提示词] ${asset.name}·${variant.name} 逐条生成失败:`, error)
+          } finally {
+            promptBusyIds.delete(variant.id)
+          }
+        }
+      }
+      emit('prompt-completed')
+      emit('update:gen-config', { ...(props.assetGenConfig ?? defaultGenConfig()), promptModelId: options.modelId, promptTemplateId: options.templateId })
+      toast[failed ? 'warning' : 'success'](`逐条发送完成：成功 ${done}，失败 ${failed}`)
+    } else {
+      // 一次性发送：全部状态一份清单，一次请求返回全部
+      const targets = scopeTargets.map(({ asset, variants }) => ({ asset: toRaw(asset), variants: variants.map(toRaw) }))
+      const result = await generateAssetPrompts({
+        model,
+        template,
+        targets,
+        styleContext: styleContext.value,
+        targetImageModel: currentImageModel.value?.name,
+        prompt: options.prompt,
+      })
+      for (const item of result.items) {
+        emit('update:asset', { assetId: item.assetId, variantId: item.variantId, patch: { imagePrompt: item.imagePrompt } })
+      }
+      emit('prompt-completed')
+      emit('update:gen-config', { ...(props.assetGenConfig ?? defaultGenConfig()), promptModelId: options.modelId, promptTemplateId: options.templateId })
+      toast.success(`已生成 ${result.items.length} 条提示词`)
     }
-    emit('prompt-completed')
-    emit('update:gen-config', { ...(props.assetGenConfig ?? defaultGenConfig()), promptModelId: options.modelId, promptTemplateId: options.templateId })
-    toast.success(`已生成 ${result.items.length} 条提示词`)
   } catch (error) {
     toast.error(error instanceof Error ? error.message : '提示词生成失败')
   } finally {
@@ -257,8 +310,8 @@ function openRewriteModal(asset: LongProjectAsset, variant: LongProjectAssetVari
   rewriteModalVisible.value = true
 }
 
-/** 构建单条生成/重写的最终 prompt（模板 + 该状态信息）。 */
-function buildRewritePreview(templateContent: string): string {
+/** 构建单条生成/重写的最终 prompt（模板 + 该状态信息；输出协议取模板自定义，未自定义则不附加）。 */
+function buildRewritePreview(template: PromptTemplate): string {
   const target = rewriteTarget.value
   if (!target) return ''
   return buildSingleAssetPrompt({
@@ -266,7 +319,8 @@ function buildRewritePreview(templateContent: string): string {
     variant: toRaw(target.variant),
     currentPrompt: target.variant.imagePrompt,
     styleContext: styleContext.value,
-    templateContent,
+    templateContent: template.content,
+    outputProtocol: template.outputProtocol,
   })
 }
 

@@ -1,5 +1,5 @@
 <template>
-  <div class="flex h-screen overflow-hidden bg-app-bg text-text-primary" @click="contextMenu = null; formatMenuOpen = false">
+  <div class="flex h-screen overflow-hidden bg-app-bg text-text-primary" @click="contextMenu = null; panelMenu.visible = false; formatMenuOpen = false">
     <aside class="flex shrink-0 flex-col border-r border-border-subtle bg-surface transition-[width] duration-200" :class="sidebarCollapsed ? 'w-14' : 'w-72'">
       <template v-if="!sidebarCollapsed">
         <div class="flex h-14 shrink-0 items-center gap-2 border-b border-border-subtle px-3">
@@ -195,7 +195,7 @@
         />
 
         <div v-else-if="activeTab === 'storyboard'" class="custom-scrollbar flex flex-1 flex-col overflow-y-auto p-6">
-          <div class="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
+          <div class="mx-auto flex min-h-0 w-full flex-1 flex-col" :class="activeTab === 'storyboard' && !storyboardEditing ? (storyboardViewMode === 'table' ? 'max-w-full' : 'max-w-6xl') : 'max-w-4xl'">
             <div v-if="latestStoryboardRun?.status === 'running'" class="flex min-h-0 flex-1 items-center justify-center text-center">
               <div class="w-full max-w-sm">
                 <div class="relative mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-lg border border-cyan-500/25 bg-cyan-500/10">
@@ -215,15 +215,37 @@
               </div>
             </div>
             <div v-else-if="latestStoryboardRun?.status === 'completed'" class="flex min-h-0 flex-1 flex-col space-y-3">
+              <!-- 合并/拆分操作撤销条（8 秒内可撤销） -->
+              <div v-if="storyboardUndoAvailable" class="flex shrink-0 items-center justify-between rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-300">
+                <span>{{ storyboardUndoLabel }}</span>
+                <button class="flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-amber-400/10" @click="undoStoryboardOp"><Undo2 :size="12" />撤销</button>
+              </div>
               <div class="flex shrink-0 items-center justify-between">
-                <p class="text-sm text-text-secondary">
-                  <template v-if="storyboardEditing">{{ storyboardEditCount }} 个分镜 · 一段一个分镜（空行分隔），按序保留镜头与资产绑定</template>
-                  <template v-else>{{ latestStoryboardRun.panels.length }} 个分镜 · 已按项目资产库匹配</template>
-                </p>
+                <div class="flex items-center gap-3">
+                  <p class="text-sm text-text-secondary">
+                    <template v-if="storyboardEditing">{{ draftPanelCount }} 个分镜 · 逐镜编辑镜头/画面/对白/旁白，按序保留资产绑定</template>
+                    <template v-else>{{ latestStoryboardRun.panels.length }} 个分镜 · 已按项目资产库匹配</template>
+                  </p>
+                  <!-- 视图模式切换：双栏对照 / 表格 -->
+                  <div v-if="!storyboardEditing" class="flex items-center rounded-lg border border-border-subtle bg-surface p-[2px]">
+                    <button
+                      class="rounded px-2 py-0.5 text-[11px] transition-colors"
+                      :class="storyboardViewMode === 'split' ? 'bg-elevated text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'"
+                      title="左侧章节原文与右侧分镜对照，滚动联动"
+                      @click="setStoryboardViewMode('split')"
+                    >对照</button>
+                    <button
+                      class="rounded px-2 py-0.5 text-[11px] transition-colors"
+                      :class="storyboardViewMode === 'table' ? 'bg-elevated text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'"
+                      title="紧凑表格，一屏纵览全章分镜"
+                      @click="setStoryboardViewMode('table')"
+                    >表格</button>
+                  </div>
+                </div>
                 <div class="flex items-center gap-3">
                   <template v-if="storyboardEditing">
                     <button class="secondary-button text-xs" @click="cancelStoryboardEditing">取消</button>
-                    <button class="primary-button text-xs" :disabled="!storyboardEditCount || storyboardSaving" @click="saveStoryboardEditing">保存分镜<Check :size="14" /></button>
+                    <button class="primary-button text-xs" :disabled="!draftPanelCount || storyboardSaving" @click="saveStoryboardEditing">保存分镜<Check :size="14" /></button>
                   </template>
                   <template v-else>
                     <button class="secondary-button text-xs" @click="enterStoryboardEditing"><Pencil :size="14" />编辑分镜</button>
@@ -232,14 +254,97 @@
                   </template>
                 </div>
               </div>
-              <textarea
-                v-if="storyboardEditing"
-                v-model="storyboardDraft"
-                class="custom-scrollbar min-h-0 flex-1 resize-none rounded-lg border border-border-subtle bg-surface p-4 text-sm leading-7 text-text-primary outline-none focus:border-cyan-500/50"
-                placeholder="每一段描述一个分镜画面，段落之间用空行分隔..."
-              />
-              <div v-else class="custom-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
-                <article v-for="panel in latestStoryboardRun.panels" :key="panel.id" class="rounded-lg border border-border-subtle bg-surface p-4"><div class="flex items-center justify-between gap-4"><span class="text-xs font-medium text-cyan-400">分镜 {{ panel.order }}</span><span v-if="panel.shot" class="text-xs text-text-muted">{{ panel.shot }}</span></div><p class="mt-3 text-sm leading-6 text-text-primary">{{ panel.content }}</p><div v-if="panel.assetBindings.length" class="mt-3 flex flex-wrap gap-2"><span v-for="binding in panel.assetBindings" :key="`${binding.assetName}-${binding.visualVersionName}`" class="rounded border px-2 py-1 text-[11px]" :class="binding.assetId ? 'border-violet-400/25 bg-violet-400/10 text-violet-200' : 'border-amber-400/25 bg-amber-400/10 text-amber-200'">{{ binding.assetName }}<template v-if="binding.visualVersionName"> · {{ binding.visualVersionName }}</template></span></div><p v-if="panel.imagePrompt" class="mt-3 border-t border-border-subtle pt-3 text-xs leading-5 text-text-secondary">{{ panel.imagePrompt }}</p></article>
+              <!-- 结构化编辑：逐镜卡片，完整编辑镜头/画面/对白/旁白 -->
+              <div v-if="storyboardEditing" class="custom-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+                <article
+                  v-for="(item, index) in storyboardDraftPanels"
+                  :key="item.key"
+                  class="rounded-lg border border-border-subtle bg-surface p-4"
+                >
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs font-medium text-cyan-400">分镜 {{ index + 1 }}</span>
+                    <button class="icon-button" title="删除该分镜" @click="removeDraftPanel(index)"><Trash2 :size="14" /></button>
+                  </div>
+                  <label class="mt-3 block">
+                    <span class="mb-1 block text-[11px] text-text-muted">镜头</span>
+                    <textarea v-model="item.shot" rows="2" class="custom-scrollbar w-full resize-y rounded-lg border border-border-subtle bg-input-bg p-2 text-sm leading-6 text-text-primary outline-none focus:border-cyan-500/50" placeholder="近景 / 全景…（可空）" />
+                  </label>
+                  <div class="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    <label class="block">
+                      <span class="mb-1 block text-[11px] text-text-muted">对白</span>
+                      <textarea v-model="item.dialogue" rows="2" class="custom-scrollbar w-full resize-y rounded-lg border border-border-subtle bg-input-bg p-2 text-sm leading-6 text-text-primary outline-none focus:border-cyan-500/50" placeholder="角色台词（可空）" />
+                    </label>
+                    <label class="block">
+                      <span class="mb-1 block text-[11px] text-text-muted">旁白</span>
+                      <textarea v-model="item.narration" rows="2" class="custom-scrollbar w-full resize-y rounded-lg border border-border-subtle bg-input-bg p-2 text-sm leading-6 text-text-primary outline-none focus:border-cyan-500/50" placeholder="画外音 / 内心独白（可空）" />
+                    </label>
+                  </div>
+                  <label class="mt-3 block">
+                    <span class="mb-1 block text-[11px] text-text-muted">画面（必填）</span>
+                    <textarea v-model="item.content" rows="3" class="custom-scrollbar w-full resize-y rounded-lg border border-border-subtle bg-input-bg p-2 text-sm leading-6 text-text-primary outline-none focus:border-cyan-500/50" placeholder="这一格画面发生了什么…" />
+                  </label>
+                </article>
+                <button class="secondary-button w-full justify-center text-xs" @click="addDraftPanel"><Plus :size="14" />添加分镜</button>
+              </div>
+              <!-- 双栏对照：左章节原文，右分镜卡片，滚动按比例联动 -->
+              <div v-else-if="storyboardViewMode === 'split'" class="flex min-h-0 flex-1 gap-3">
+                <div
+                  ref="splitSourceEl"
+                  class="custom-scrollbar min-h-0 flex-1 overflow-y-auto rounded-lg border border-border-subtle bg-surface p-4"
+                  @scroll="onSplitScroll('source')"
+                >
+                  <p class="mb-3 shrink-0 text-xs font-medium text-text-secondary">章节原文</p>
+                  <p class="whitespace-pre-wrap text-sm leading-7 text-text-primary">{{ latestStoryboardRun.sourceContent }}</p>
+                </div>
+                <div
+                  ref="splitPanelsEl"
+                  class="custom-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto pr-1"
+                  @scroll="onSplitScroll('panels')"
+                >
+                  <article v-for="panel in latestStoryboardRun.panels" :key="panel.id" class="cursor-context-menu rounded-lg border border-border-subtle bg-surface p-4 transition-colors hover:border-border-strong" @contextmenu.prevent="openPanelMenu($event, panel)"><div class="flex items-center justify-between gap-4"><span class="text-xs font-medium text-cyan-400">分镜 {{ panel.order }}</span><span v-if="panel.shot" class="text-xs text-text-muted">{{ panel.shot }}</span></div><p class="mt-3 text-sm leading-6 text-text-primary">{{ panel.content }}</p><p v-if="panel.dialogue" class="mt-2 rounded-lg border border-border-subtle bg-elevated px-3 py-2 text-sm leading-6 text-text-primary">对白：{{ panel.dialogue }}</p><p v-if="panel.narration" class="mt-2 text-xs leading-5 text-text-muted">旁白：{{ panel.narration }}</p><div v-if="panel.assetBindings.length" class="mt-3 flex flex-wrap gap-1.5"><AssetBindingTag v-for="binding in panel.assetBindings" :key="`${binding.assetName}-${binding.visualVersionName}`" :binding="binding" :assets="projectAssets" @inspect="inspectAssetBinding" /></div><p v-if="panel.imagePrompt" class="mt-3 border-t border-border-subtle pt-3 text-xs leading-5 text-text-secondary">{{ panel.imagePrompt }}</p></article>
+                </div>
+              </div>
+              <!-- 表格视图：紧凑纵览全章分镜 -->
+              <div v-else class="custom-scrollbar min-h-0 flex-1 overflow-y-auto rounded-lg border border-border-subtle bg-surface">
+                <table class="w-full table-fixed text-left text-xs">
+                  <thead class="sticky top-0 z-10 bg-surface text-[11px] text-text-muted">
+                    <tr class="border-b border-border-subtle">
+                      <th class="w-10 px-2 py-2 font-medium">#</th>
+                      <th class="px-2 py-2 font-medium">镜头</th>
+                      <th class="px-2 py-2 font-medium">画面</th>
+                      <th class="w-44 px-2 py-2 font-medium">对白 / 旁白</th>
+                      <th class="w-36 px-2 py-2 font-medium">资产</th>
+                      <th class="w-20 px-2 py-2 font-medium">成图</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="panel in latestStoryboardRun.panels"
+                      :key="panel.id"
+                      class="cursor-context-menu border-b border-border-subtle/60 align-top transition-colors hover:bg-cyan-500/5"
+                      @contextmenu.prevent="openPanelMenu($event, panel)"
+                    >
+                      <td class="px-2 py-2 font-medium text-cyan-400">{{ panel.order }}</td>
+                      <td class="px-2 py-2 leading-5 text-text-muted">{{ panel.shot || '—' }}</td>
+                      <td class="px-2 py-2 leading-5 text-text-primary">{{ panel.content }}</td>
+                      <td class="px-2 py-2 leading-5">
+                        <p v-if="panel.dialogue" class="text-text-primary">对白：{{ panel.dialogue }}</p>
+                        <p v-if="panel.narration" class="text-text-muted">旁白：{{ panel.narration }}</p>
+                        <p v-if="!panel.dialogue && !panel.narration" class="text-text-muted">—</p>
+                      </td>
+                      <td class="px-2 py-2">
+                        <div class="flex flex-wrap gap-1">
+                          <AssetBindingTag v-for="binding in panel.assetBindings" :key="`${binding.assetName}-${binding.visualVersionName}`" :binding="binding" :assets="projectAssets" @inspect="inspectAssetBinding" />
+                          <span v-if="!panel.assetBindings.length" class="text-text-muted">—</span>
+                        </div>
+                      </td>
+                      <td class="px-2 py-2">
+                        <img v-if="artworkMap.get(panel.id)?.selectedImageId" :src="artworkMap.get(panel.id)!.selectedImageId" class="h-14 w-14 rounded border border-border-subtle object-cover" :alt="`分镜${panel.order}成图`" />
+                        <span v-else class="text-text-muted">—</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
             <div v-else-if="latestStoryboardRun?.status === 'failed'" class="flex min-h-64 flex-col items-center justify-center text-center"><ScanText :size="28" class="text-red-400" /><h2 class="mt-4 text-base font-medium text-text-primary">分镜生成失败</h2><p class="mt-2 text-sm text-text-secondary">{{ latestStoryboardRun.error }}</p></div>
@@ -284,6 +389,22 @@
 
     <LongProjectNodeDialog v-model="nodeDialogVisible" :node-type="nodeDialogType" :rename-mode="Boolean(editingNode)" :initial-name="editingNode?.name" :parent-name="nodeDialogParentName" @submit="handleNodeDialogSubmit" />
     <ConfirmDialog v-model="deleteDialogVisible" title="删除内容" :content="deleteDialogContent" confirm-text="确认删除" @confirm="confirmDelete" />
+    <!-- 分镜合并弹窗：右键合并目标的预览 + 成图归属单选 -->
+    <StoryboardMergeDialog v-model="mergeDialogVisible" :panels="mergeSelectedPanels" :artwork-map="artworkMap" @confirm="applyMerge" />
+    <!-- 分镜拆分弹窗：空行分割符编辑 + 实时预览（原地拆/向上插镜/向下插镜） -->
+    <StoryboardSplitDialog v-model="splitDialogVisible" :panel="splitTargetPanel ?? undefined" :mode="splitMode" @confirm="applySplit" />
+    <!-- 分镜右键菜单：合并/拆分/复制/跳转 -->
+    <StoryboardContextMenu
+      :visible="panelMenu.visible"
+      :x="panelMenu.x"
+      :y="panelMenu.y"
+      :panel="panelMenu.panel!"
+      :total="latestStoryboardRun?.panels.length ?? 0"
+      @close="panelMenu.visible = false"
+      @action="handlePanelMenuAction"
+    />
+    <!-- 资产视觉状态参考图预览 -->
+    <ImagePreviewModal v-model="assetPreviewVisible" :images="assetPreviewImages" :image-index="assetPreviewIndex" alt="资产视觉状态参考图" />
   </div>
 </template>
 
@@ -291,10 +412,17 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { v4 as uuidv4 } from "uuid";
-import { AlignJustify, ArrowLeft, ArrowRight, Boxes, Check, Ellipsis, Eraser, FileImage, FilePlus2, FileText, FolderPlus, ListTree, ListX, LoaderCircle, MapPin, Package, PanelLeftClose, PanelLeftOpen, Pencil, Rows3, ScanText, TextAlignStart, Trash2, Undo2, UserRound, Workflow, X } from "lucide-vue-next";
+import { AlignJustify, ArrowLeft, ArrowRight, Boxes, Check, Ellipsis, Eraser, FileImage, FilePlus2, FileText, FolderPlus, ListTree, ListX, LoaderCircle, MapPin, Package, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Rows3, ScanText, TextAlignStart, Trash2, Undo2, UserRound, Workflow, X } from "lucide-vue-next";
 import { comicDb } from "@/api/comic";
 import ConfirmDialog from "@comic/components/ConfirmDialog.vue";
 import LongProjectNodeDialog from "@comic/components/LongProjectNodeDialog.vue";
+import StoryboardMergeDialog from "@comic/components/StoryboardMergeDialog.vue";
+import StoryboardSplitDialog from "@comic/components/StoryboardSplitDialog.vue";
+import StoryboardContextMenu, { type StoryboardMenuAction } from "@comic/components/StoryboardContextMenu.vue";
+import AssetBindingTag from "@comic/components/AssetBindingTag.vue";
+import ImagePreviewModal from "@comic/components/ImagePreviewModal.vue";
+import { buildAssetNameIndex, syncPanelsAutoBindings } from "@comic/services/promptAssetService";
+import { defaultVariant } from "@comic/services/storyboardService";
 import LongProjectTree from "@comic/components/LongProjectTree.vue";
 import LongProjectAssetLibraryTree, { type AssetLibraryCategory } from "@comic/components/LongProjectAssetLibraryTree.vue";
 import LongProjectAssetExtractionReview from "@comic/components/LongProjectAssetExtractionReview.vue";
@@ -304,7 +432,7 @@ import { useToast } from "@comic/composables/useToast";
 import { buildAssetExtractionPrompt, extractChapterAssets, getCandidateStates } from "@comic/services/assetExtractionService";
 import { buildStoryboardPrompt, generateStoryboard } from "@comic/services/storyboardService";
 import { migratePanelArtworks } from "@comic/services/panelPromptService";
-import type { AssetGenConfig, ComicProject, LongProjectAsset, LongProjectAssetExtractionCandidate, LongProjectAssetExtractionRun, LongProjectAssetVariant, LongProjectNode, LongProjectNodeType, LongProjectStoryboardRun, ModelConfig, PromptTemplate } from "@comic/types";
+import type { AssetGenConfig, ComicProject, LongProjectAsset, LongProjectAssetExtractionCandidate, LongProjectAssetExtractionRun, LongProjectAssetVariant, LongProjectNode, LongProjectNodeType, LongProjectPanelArtwork, LongProjectStoryboardPanel, LongProjectStoryboardRun, ModelConfig, PromptTemplate } from "@comic/types";
 
 const route = useRoute();
 const router = useRouter();
@@ -508,49 +636,342 @@ const openPanelGen = () => {
   if (selectedChapter.value) router.push(`/comic/panel-gen/${projectId}/${selectedChapter.value.id}`);
 };
 
-// ========== 分镜手动编辑（一段一镜，按序对位保留绑定） ==========
+// ========== 分镜视图模式：双栏对照（默认）/ 表格 ==========
+const STORYBOARD_VIEW_KEY = 'comic-storyboard-view';
+type StoryboardViewMode = 'split' | 'table';
+const storyboardViewMode = ref<StoryboardViewMode>(
+  (localStorage.getItem(STORYBOARD_VIEW_KEY) as StoryboardViewMode) || 'split',
+);
+/** 切换分镜视图模式并持久化。 */
+const setStoryboardViewMode = (mode: StoryboardViewMode) => {
+  storyboardViewMode.value = mode;
+  localStorage.setItem(STORYBOARD_VIEW_KEY, mode);
+};
+
+/** 分镜 ID → 生图工件映射，用于表格视图展示成图缩略图。 */
+const artworkMap = computed(() => new Map(panelArtworks.value.map((item) => [item.panelId, item])));
+
+// ========== 资产自动绑定同步与资产图预览 ==========
+
+const assetPreviewVisible = ref(false);
+const assetPreviewImages = ref<string[]>([]);
+const assetPreviewIndex = ref(0);
+
+/** 查看绑定资产的视觉状态参考图。 */
+function inspectAssetBinding(asset: import("@comic/types").LongProjectAsset | null) {
+  if (!asset) { toast.warning("资产未匹配，请在资产库中核对名称"); return; }
+  const variant = asset.variants[0];
+  const images = variant?.referenceImageIds ?? [];
+  if (!images.length) { toast.info(`「${asset.name}」暂无参考图`); return; }
+  assetPreviewImages.value = [...images];
+  assetPreviewIndex.value = 0;
+  assetPreviewVisible.value = true;
+}
+
+/**
+ * 分镜文本自动绑定同步：编辑/合并/拆分后重扫全部分镜文本，
+ * 出现资产名且未绑定 → 自动添加（延续上一镜视觉状态，否则章节范围默认）；
+ * auto-text 绑定且名称消失 → 自动移除；其余来源绑定不动。
+ */
+function autoSyncBindings(panels: LongProjectStoryboardPanel[], chapterId: string): LongProjectStoryboardPanel[] {
+  return syncPanelsAutoBindings(panels, buildAssetNameIndex(projectAssets.value), (asset) => defaultVariant(asset, chapterId, chapterOrders.value));
+}
+
+const splitSourceEl = ref<HTMLElement | null>(null);
+const splitPanelsEl = ref<HTMLElement | null>(null);
+let splitScrollSyncing = false;
+/**
+ * 双栏对照的按比例滚动联动：滚动一侧容器时，按滚动比例同步另一侧。
+ * @param source 当前滚动的是哪一侧（原文 / 分镜）
+ */
+function onSplitScroll(source: 'source' | 'panels') {
+  if (splitScrollSyncing) return;
+  const from = source === 'source' ? splitSourceEl.value : splitPanelsEl.value;
+  const to = source === 'source' ? splitPanelsEl.value : splitSourceEl.value;
+  if (!from || !to) return;
+  splitScrollSyncing = true;
+  const ratio = from.scrollTop / Math.max(1, from.scrollHeight - from.clientHeight);
+  to.scrollTop = ratio * (to.scrollHeight - to.clientHeight);
+  requestAnimationFrame(() => { splitScrollSyncing = false; });
+}
+
+// ========== 分镜右键菜单：合并 / 拆分 / 复制 / 跳转 ==========
+
+const mergeDialogVisible = ref(false);
+const splitDialogVisible = ref(false);
+const splitTargetPanel = ref<LongProjectStoryboardPanel | null>(null);
+/** 拆分模式：multi 原地拆多段；up 新镜插入上方；down 新镜插入下方。 */
+const splitMode = ref<"multi" | "up" | "down">("multi");
+/** 合并方向与条数（由右键菜单选择）。 */
+const mergeDirection = ref<"up" | "down">("up");
+const mergeCount = ref(1);
+
+/** 分镜右键菜单状态（与章节树 contextMenu 区分）。 */
+const panelMenu = ref<{ visible: boolean; x: number; y: number; panel: LongProjectStoryboardPanel | null }>({ visible: false, x: 0, y: 0, panel: null });
+
+/** 操作前快照（仅一步撤销），8 秒内可恢复。 */
+let storyboardOpSnapshot: { runId: string; panels: LongProjectStoryboardPanel[]; artworks: LongProjectPanelArtwork[]; label: string } | null = null;
+let storyboardUndoTimer: ReturnType<typeof setTimeout> | undefined;
+const storyboardUndoAvailable = ref(false);
+const storyboardUndoLabel = ref("");
+
+/** 待合并分镜（按 order 升序）：当前分镜 + 上/下方相邻 mergeCount 个。 */
+const mergeSelectedPanels = computed(() => {
+  const run = latestStoryboardRun.value;
+  const anchor = panelMenu.value.panel;
+  if (!run || !anchor) return [];
+  const index = run.panels.findIndex((panel) => panel.id === anchor.id);
+  if (index < 0) return [];
+  return mergeDirection.value === "up"
+    ? run.panels.slice(Math.max(0, index - mergeCount.value), index + 1)
+    : run.panels.slice(index, index + mergeCount.value + 1);
+});
+
+/** 打开分镜右键菜单（表格行 / 卡片上右键）。 */
+function openPanelMenu(event: MouseEvent, panel: LongProjectStoryboardPanel) {
+  panelMenu.value = { visible: true, x: event.clientX, y: event.clientY, panel };
+}
+
+/** 处理分镜右键菜单动作。 */
+function handlePanelMenuAction(action: StoryboardMenuAction) {
+  const panel = panelMenu.value.panel;
+  if (!panel) return;
+  if (action.action === "merge-up" || action.action === "merge-down") {
+    mergeDirection.value = action.action === "merge-up" ? "up" : "down";
+    mergeCount.value = action.count;
+    mergeDialogVisible.value = true;
+    return;
+  }
+  if (action.action === "split") { openSplitDialog(panel, "multi"); return; }
+  if (action.action === "split-up") { openSplitDialog(panel, "up"); return; }
+  if (action.action === "split-down") { openSplitDialog(panel, "down"); return; }
+  if (action.action === "copy") {
+    const text = [panel.content, panel.dialogue ? `对白：${panel.dialogue}` : "", panel.narration ? `旁白：${panel.narration}` : ""].filter(Boolean).join("\n");
+    void navigator.clipboard?.writeText(text).then(() => toast.success("已复制分镜内容")).catch(() => toast.error("复制失败"));
+    return;
+  }
+  if (action.action === "open-workbench" && selectedChapter.value) {
+    router.push(`/comic/panel-gen/${projectId}/${selectedChapter.value.id}?panel=${panel.id}`);
+  }
+}
+
+/** 打开拆分弹窗。 */
+function openSplitDialog(panel: LongProjectStoryboardPanel, mode: "multi" | "up" | "down" = "multi") {
+  splitTargetPanel.value = panel;
+  splitMode.value = mode;
+  splitDialogVisible.value = true;
+}
+
+/** 记录操作前快照并启动 8 秒撤销窗口。 */
+function snapshotForUndo(label: string) {
+  const run = latestStoryboardRun.value;
+  if (!run) return;
+  storyboardOpSnapshot = { runId: run.id, panels: run.panels, artworks: panelArtworks.value, label };
+  storyboardUndoLabel.value = label;
+  storyboardUndoAvailable.value = true;
+  if (storyboardUndoTimer) clearTimeout(storyboardUndoTimer);
+  storyboardUndoTimer = setTimeout(() => { storyboardUndoAvailable.value = false; storyboardOpSnapshot = null; }, 8000);
+}
+
+/** 撤销最近一次合并/拆分操作。 */
+async function undoStoryboardOp() {
+  const snapshot = storyboardOpSnapshot;
+  if (!snapshot) return;
+  if (storyboardUndoTimer) clearTimeout(storyboardUndoTimer);
+  storyboardUndoAvailable.value = false;
+  storyboardOpSnapshot = null;
+  const nextRuns = storyboardRuns.value.map((item) => item.id === snapshot.runId ? { ...item, panels: snapshot.panels, updatedAt: Date.now() } : item);
+  await persistLongProjectData({ storyboardRuns: nextRuns, panelArtworks: snapshot.artworks });
+  toast.success("已撤销上一步操作");
+}
+
+/** 工件状态标记：内容变化且有描述时置为 stale；进行中置为 failed。 */
+function reevaluatePromptStatus(artwork: LongProjectPanelArtwork, contentChanged: boolean): LongProjectPanelArtwork["promptStatus"] {
+  if (artwork.promptStatus === "running" || artwork.promptStatus === "pending") return "failed";
+  if (contentChanged && artwork.imagePrompt?.trim()) return "stale";
+  return artwork.promptStatus;
+}
+
+/**
+ * 执行合并：连续分镜合为 1 个，保留所选分镜的成图归属。
+ * 被合并分镜的候选图并入保留工件的 generatedImageIds，不丢失。
+ */
+async function applyMerge(sourcePanelId: string) {
+  const run = latestStoryboardRun.value;
+  const chapter = selectedChapter.value;
+  const panelsToMerge = mergeSelectedPanels.value;
+  if (!run || !chapter || panelsToMerge.length < 2) return;
+  snapshotForUndo(`已合并 ${panelsToMerge.length} 个分镜`);
+  const sourcePanel = panelsToMerge.find((panel) => panel.id === sourcePanelId);
+  if (!sourcePanel) return;
+
+  // 资产绑定按 assetId+visualVersionId 去重取并集
+  const seen = new Set<string>();
+  const assetBindings = panelsToMerge.flatMap((panel) => panel.assetBindings).filter((binding) => {
+    const key = `${binding.assetId ?? binding.assetName}::${binding.visualVersionId ?? binding.visualVersionName ?? ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const merged: LongProjectStoryboardPanel = {
+    id: sourcePanelId,
+    order: panelsToMerge[0].order,
+    content: panelsToMerge.map((panel) => panel.content).filter(Boolean).join("\n"),
+    shot: panelsToMerge.map((panel) => panel.shot).find(Boolean),
+    dialogue: panelsToMerge.map((panel) => panel.dialogue).filter(Boolean).join("\n") || undefined,
+    narration: panelsToMerge.map((panel) => panel.narration).filter(Boolean).join("\n") || undefined,
+    imagePrompt: panelsToMerge.map((panel) => panel.imagePrompt).find(Boolean),
+    assetBindings,
+  };
+
+  const startIdx = run.panels.findIndex((panel) => panel.id === panelsToMerge[0].id);
+  const nextPanels = autoSyncBindings([...run.panels.slice(0, startIdx), merged, ...run.panels.slice(startIdx + panelsToMerge.length)].map((panel, index) => ({ ...panel, order: index + 1 })), chapter.id);
+
+  // 成图归属：保留所选分镜的工件（id 未变，panelId 不动）；其余分镜候选图并入
+  const otherIds = panelsToMerge.filter((panel) => panel.id !== sourcePanelId).map((panel) => panel.id);
+  const keptArtwork = artworkMap.value.get(sourcePanelId);
+  const extraImages = otherIds.flatMap((id) => artworkMap.value.get(id)?.generatedImageIds ?? []);
+  let nextArtworks = panelArtworks.value.filter((artwork) => artwork.chapterId !== chapter.id || !otherIds.includes(artwork.panelId));
+  if (keptArtwork) {
+    const contentChanged = merged.content !== sourcePanel.content;
+    nextArtworks = nextArtworks.map((artwork) => artwork.panelId === sourcePanelId ? {
+      ...artwork,
+      generatedImageIds: [...new Set([...(artwork.generatedImageIds ?? []), ...extraImages])],
+      promptStatus: reevaluatePromptStatus(artwork, contentChanged),
+      genStatus: artwork.genStatus === "running" ? "failed" : artwork.genStatus,
+      updatedAt: Date.now(),
+    } : artwork);
+  }
+
+  const nextRuns = storyboardRuns.value.map((item) => item.id === run.id ? { ...item, panels: nextPanels, updatedAt: Date.now() } : item);
+  await persistLongProjectData({ storyboardRuns: nextRuns, panelArtworks: nextArtworks });
+  toast.success(`已合并为 1 个分镜，顺序号已重排`);
+}
+
+/**
+ * 执行拆分：
+ * - multi：原地拆成 N 段，第一段继承父 ID（保留成图）；
+ * - up：拆成 2 段，第一段为新分镜插入父分镜上方，父分镜保留第二段（继承成图）；
+ * - down：拆成 2 段，第二段为新分镜插入父分镜下方，父分镜保留第一段（继承成图）。
+ * 新分镜继承镜头与资产绑定，无描述无成图。
+ */
+async function applySplit(parts: string[]) {
+  const run = latestStoryboardRun.value;
+  const chapter = selectedChapter.value;
+  const parent = splitTargetPanel.value;
+  const mode = splitMode.value;
+  if (!run || !chapter || !parent || parts.length < 2) return;
+  if (mode !== "multi" && parts.length !== 2) return;
+  snapshotForUndo(`已拆分分镜 ${parent.order} 为 ${parts.length} 个`);
+
+  /** 新分镜构造：继承镜头与绑定，新 ID。 */
+  const makeChild = (content: string): LongProjectStoryboardPanel => ({
+    id: uuidv4(), order: parent.order, content, shot: parent.shot,
+    assetBindings: parent.assetBindings.map((binding) => ({ ...binding })),
+  });
+  const children: LongProjectStoryboardPanel[] =
+    mode === "multi"
+      ? parts.map((content, index) => index === 0 ? { ...parent, content } : { ...makeChild(content), order: parent.order + index })
+      : mode === "up"
+        ? [makeChild(parts[0]), { ...parent, content: parts[1] }]
+        : [{ ...parent, content: parts[0] }, makeChild(parts[1])];
+
+  const index = run.panels.findIndex((panel) => panel.id === parent.id);
+  const nextPanels = autoSyncBindings([...run.panels.slice(0, index), ...children, ...run.panels.slice(index + 1)].map((panel, i) => ({ ...panel, order: i + 1 })), chapter.id);
+
+  // 成图归属：父分镜保留段 panelId 未变自动继承；内容变化时标记 stale 提示重新推导
+  const parentContent = mode === "up" ? parts[1] : parts[0];
+  const parentArtwork = artworkMap.value.get(parent.id);
+  let nextArtworks = panelArtworks.value;
+  if (parentArtwork && parentContent !== parent.content) {
+    nextArtworks = panelArtworks.value.map((artwork) => artwork.panelId === parent.id ? { ...artwork, promptStatus: reevaluatePromptStatus(artwork, true), updatedAt: Date.now() } : artwork);
+  }
+
+  const nextRuns = storyboardRuns.value.map((item) => item.id === run.id ? { ...item, panels: nextPanels, updatedAt: Date.now() } : item);
+  await persistLongProjectData({ storyboardRuns: nextRuns, panelArtworks: nextArtworks });
+  splitTargetPanel.value = null;
+  toast.success(`已拆分为 ${parts.length} 个分镜`);
+}
+
+// ========== 分镜手动编辑（逐镜卡片，完整编辑镜头/画面/对白/旁白，按序对位保留绑定） ==========
+
+/** 编辑卡片：key 供 v-for 稳定渲染（删除/新增不依赖下标）。 */
+interface DraftPanel {
+  key: number;
+  shot: string;
+  content: string;
+  dialogue: string;
+  narration: string;
+}
 
 const storyboardEditing = ref(false);
-const storyboardDraft = ref("");
+const storyboardDraftPanels = ref<DraftPanel[]>([]);
 const storyboardSaving = ref(false);
-const storyboardEditCount = computed(() => storyboardDraft.value.split(/\n\s*\n/).filter((paragraph) => paragraph.trim()).length);
+let draftKeySeq = 0;
 
-/** 进入编辑：把当前分镜序列化为一段一镜的文本（空行分隔）。 */
+/** 有效分镜数（画面非空），用于保存按钮置灰与顶部计数。 */
+const draftPanelCount = computed(() => storyboardDraftPanels.value.filter((item) => item.content.trim()).length);
+
+/** 进入编辑：把当前分镜的完整字段序列化为卡片列表。 */
 const enterStoryboardEditing = () => {
   const run = latestStoryboardRun.value;
   if (!run) return;
-  storyboardDraft.value = run.panels.map((panel) => panel.content).join("\n\n");
+  storyboardDraftPanels.value = run.panels.map((panel) => ({
+    key: draftKeySeq++,
+    shot: panel.shot ?? "",
+    content: panel.content,
+    dialogue: panel.dialogue ?? "",
+    narration: panel.narration ?? "",
+  }));
   storyboardEditing.value = true;
 };
 
 const cancelStoryboardEditing = () => {
   storyboardEditing.value = false;
-  storyboardDraft.value = "";
+  storyboardDraftPanels.value = [];
+};
+
+/** 追加一个空白分镜卡片。 */
+const addDraftPanel = () => {
+  storyboardDraftPanels.value.push({ key: draftKeySeq++, shot: "", content: "", dialogue: "", narration: "" });
+};
+
+/** 删除指定下标的分镜卡片。 */
+const removeDraftPanel = (index: number) => {
+  storyboardDraftPanels.value.splice(index, 1);
 };
 
 /**
- * 保存分镜编辑：按空行拆分段落，按序对位迁移旧分镜的镜头/资产绑定/绘画提示词；
- * 新增分镜为空白绑定；数量减少时多余分镜直接丢弃。panelArtworks 走迁移逻辑
- * （内容变化的分镜其画面描述标记 stale，成图保留）。
+ * 保存分镜编辑：丢弃画面为空的卡片后按序对位迁移旧分镜的资产绑定/绘画提示词；
+ * 新增分镜为空白绑定。panelArtworks 走迁移逻辑（内容变化的分镜其画面描述标记
+ * stale，成图保留）。
  */
 const saveStoryboardEditing = async () => {
   const run = latestStoryboardRun.value;
   const chapter = selectedChapter.value;
   if (!run || !chapter || storyboardSaving.value) return;
-  const contents = storyboardDraft.value.split(/\n\s*\n/).map((item) => item.trim()).filter(Boolean);
-  if (!contents.length) { toast.warning("至少保留一个分镜"); return; }
+  const drafts = storyboardDraftPanels.value.filter((item) => item.content.trim());
+  if (!drafts.length) { toast.warning("至少保留一个分镜（画面内容不能为空）"); return; }
   storyboardSaving.value = true;
   try {
     const oldPanels = run.panels;
-    const newPanels = contents.map((content, index) => {
+    const newPanels = autoSyncBindings(drafts.map((item, index) => {
+      const fields = {
+        order: index + 1,
+        content: item.content.trim(),
+        shot: item.shot.trim(),
+        dialogue: item.dialogue.trim(),
+        narration: item.narration.trim(),
+      };
       const old = oldPanels[index];
-      return old ? { ...old, order: index + 1, content } : { id: uuidv4(), order: index + 1, content, assetBindings: [] };
-    });
+      return old ? { ...old, ...fields } : { id: uuidv4(), assetBindings: [], ...fields };
+    }), chapter.id);
     const nextRuns = storyboardRuns.value.map((item) => item.id === run.id ? { ...item, panels: newPanels, updatedAt: Date.now() } : item);
     const nextPanelArtworks = migratePanelArtworks(panelArtworks.value, oldPanels, newPanels, chapter.id);
     await persistLongProjectData({ storyboardRuns: nextRuns, panelArtworks: nextPanelArtworks });
     storyboardEditing.value = false;
-    storyboardDraft.value = "";
+    storyboardDraftPanels.value = [];
     toast.success(`已保存 ${newPanels.length} 个分镜`);
   } finally {
     storyboardSaving.value = false;
@@ -842,6 +1263,7 @@ watch(draftContent, () => {
 
 onBeforeUnmount(() => {
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  if (storyboardUndoTimer) clearTimeout(storyboardUndoTimer);
 });
 
 onMounted(async () => {

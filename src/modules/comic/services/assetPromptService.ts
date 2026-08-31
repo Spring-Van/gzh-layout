@@ -32,6 +32,28 @@ export interface AssetPromptGenerationResult {
 const typeLabel: Record<string, string> = { character: '人物', scene: '场景', prop: '道具' }
 
 /**
+ * 批量一次性发送场景的系统兜底输出协议（模板未自定义 outputProtocol 时使用，保证结果可解析回填）。
+ * 与 parseAssetPromptResponse 的名字/序号协议保持兼容。
+ */
+export const DEFAULT_ASSET_PARSE_PROTOCOL = `只输出中文，不要解释、不要代码块。
+逐条输出，每条格式为：【资产名｜状态名】绘画提示词内容（一段完整可直接用于生图的描述，包含外观、服饰/材质、姿态或氛围、画风要求；不写镜头语言，不要分点）。
+资产名与状态名必须与清单中的完全一致、一字不差，不要遗漏任何状态、不要新增。提示词只基于清单给定信息与风格上下文，不要编造与原文冲突的细节。`
+
+/**
+ * 附加输出协议。
+ * 优先级：模板自定义协议 > 需解析场景的系统兜底 > 不附加任何限制。
+ * @param base 拼装好的 prompt 正文
+ * @param protocol 模板自定义输出协议（空 = 未自定义）
+ * @param requireParseable 结果是否需要程序解析回填（批量一次性发送 = true）
+ */
+export function applyOutputProtocol(base: string, protocol: string | undefined, requireParseable: boolean): string {
+  const custom = protocol?.trim()
+  if (custom) return `${base}\n\n【输出要求】\n${custom}`
+  if (requireParseable) return `${base}\n\n【系统固定输出协议】\n${DEFAULT_ASSET_PARSE_PROTOCOL}`
+  return base
+}
+
+/**
  * 拼装视觉状态清单文本（发模型用）。
  * 每个状态同时登记两种定位键：序号 + 「资产名##状态名」；模型按名字回写，解析时优先按名字定位。
  */
@@ -120,12 +142,15 @@ export function parseAssetPromptResponse(content: string, index: Map<string, { a
 /**
  * 拼装最终提示词：模板 + 风格上下文 + 状态清单。
  * 模板可使用 {{assets}} / {{style}} / {{target_model}} 变量；无变量时追加到末尾。
+ * 输出协议按优先级附加：模板自定义 outputProtocol > 需解析场景的系统兜底 > 不附加。
  */
 export function buildAssetPromptPrompt(options: {
   templateContent: string
   targets: AssetPromptTarget[]
   styleContext?: string
   targetImageModel?: string
+  outputProtocol?: string
+  requireParseable?: boolean
 }): string {
   const { text } = buildTargetList(options.targets)
   const replacements: Array<[RegExp, string]> = [
@@ -141,7 +166,7 @@ export function buildAssetPromptPrompt(options: {
   }
   const list = hasVariables ? template : `${template}\n\n【待生成状态清单】\n${text}`
   const style = options.styleContext ? `\n\n【风格上下文】\n${options.styleContext}` : ''
-  return `${list}${style}\n\n【系统固定输出协议】\n只输出中文，不要解释、不要代码块。\n逐条输出，每条格式为：【资产名｜状态名】绘画提示词内容（一段完整可直接用于生图的描述，包含外观、服饰/材质、姿态或氛围、画风要求；不写镜头语言，不要分点）。\n资产名与状态名必须与清单中的完全一致、一字不差，不要遗漏任何状态、不要新增。提示词只基于清单给定信息与风格上下文，不要编造与原文冲突的细节。`
+  return applyOutputProtocol(`${list}${style}`, options.outputProtocol, options.requireParseable ?? true)
 }
 
 /**
@@ -163,19 +188,27 @@ export async function generateAssetPrompts(options: {
     targets: options.targets,
     styleContext: options.styleContext,
     targetImageModel: options.targetImageModel,
+    outputProtocol: options.template.outputProtocol,
+    requireParseable: true,
   })
   const result = await llmService.call({ modelConfig: options.model, userMessage: prompt })
   if (!result.success || !result.content) throw new Error(result.error || '模型没有返回内容')
   const items = parseAssetPromptResponse(result.content, index)
-  if (!items.length) throw new Error('模型返回中没有可识别的状态提示词，请检查模板或重试')
+  if (!items.length) {
+    throw new Error(
+      options.template.outputProtocol?.trim()
+        ? '模型返回无法解析回填：自定义输出协议与解析格式不匹配。建议在模板输出协议中使用「【资产名｜状态名】提示词」逐条格式，或改用逐条发送。'
+        : '模型返回中没有可识别的状态提示词，请检查模板或重试',
+    )
+  }
   return { rawResponse: result.content, items }
 }
 
 /**
  * 单条生成/重写：只针对一个视觉状态，返回一段提示词文本。
- * - 传 templateContent：按模板 + 状态信息拼装（用于发送前确认弹窗预览）；
+ * - 传 templateContent：按模板 + 状态信息拼装（用于发送前确认弹窗预览）；协议用模板自定义 outputProtocol，未自定义则不附加任何输出限制；
  * - 传 prompt：直接使用调用方确认后的最终文本执行；
- * - 两者都无：使用内置默认指令。
+ * - 两者都无：使用内置默认指令（含系统默认输出要求）。
  * model 允许为空（仅拼装不调模型）。
  */
 export function buildSingleAssetPrompt(options: {
@@ -185,6 +218,7 @@ export function buildSingleAssetPrompt(options: {
   styleContext?: string
   instruction?: string
   templateContent?: string
+  outputProtocol?: string
 }): string {
   const { asset, variant } = options
   const info = `- 资产：${asset.name}（${typeLabel[asset.type] ?? asset.type}）
@@ -200,7 +234,8 @@ export function buildSingleAssetPrompt(options: {
     else template += `\n\n【待生成状态】\n${info}`
     if (/\{\{style\}\}/.test(template)) template = template.replace(/\{\{style\}\}/g, style)
     else if (options.styleContext) template += `\n\n【风格上下文】\n${options.styleContext}`
-    return template
+    // 单条场景结果直接取全文回填，不解析：仅附加模板自定义协议，未自定义则不附加任何限制
+    return applyOutputProtocol(template, options.outputProtocol, false)
   }
   return `请为以下漫画资产的视觉状态重写一段可直接用于生图的中文绘画提示词。
 

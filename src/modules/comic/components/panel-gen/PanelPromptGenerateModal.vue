@@ -102,8 +102,8 @@ const props = defineProps<{
   missingCount?: number
   totalCount?: number
   busy: boolean
-  /** 由父组件按模板内容与范围拼装的最终 prompt；templateContent 为空串表示内置默认模板。 */
-  buildPrompt: (templateContent: string, scope?: 'missing' | 'all') => string
+  /** 由父组件按模板与范围拼装的最终 prompt；template 为 null 表示内置默认模板。 */
+  buildPrompt: (template: PromptTemplate | null, scope?: 'missing' | 'all') => string
 }>()
 
 const emit = defineEmits<{
@@ -123,8 +123,8 @@ const effectiveCount = computed(() => {
   return scope.value === 'missing' ? (props.missingCount ?? 0) : (props.totalCount ?? 0)
 })
 const builtPrompt = computed(() => {
-  const template = props.templates.find((t) => t.id === templateId.value)
-  return props.buildPrompt(template?.content ?? '', isBatch.value ? scope.value : undefined)
+  const template = props.templates.find((t) => t.id === templateId.value) ?? null
+  return props.buildPrompt(template, isBatch.value ? scope.value : undefined)
 })
 const canConfirm = computed(() => Boolean(modelId.value && prompt.value.trim() && effectiveCount.value > 0))
 

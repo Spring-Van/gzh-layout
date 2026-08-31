@@ -42,17 +42,32 @@
                 全部重新生成（{{ totalCount ?? 0 }}）
               </label>
             </div>
+            <!-- 发送方式：一次性全发（快） / 逐条发送（稳定、失败不中断） -->
+            <div v-if="allowSendMode" class="mt-3 flex items-center gap-4">
+              <span class="text-xs text-text-secondary">发送方式</span>
+              <label class="flex cursor-pointer items-center gap-1.5 text-xs text-text-secondary" title="全部状态拼成一份清单，一次请求返回所有提示词">
+                <input v-model="sendMode" type="radio" value="once" class="h-3 w-3 accent-cyan-400" />
+                一次性发送
+              </label>
+              <label class="flex cursor-pointer items-center gap-1.5 text-xs text-text-secondary" title="每个视觉状态单独一次请求，单条失败不影响其余条目">
+                <input v-model="sendMode" type="radio" value="per-item" class="h-3 w-3 accent-cyan-400" />
+                逐条发送
+              </label>
+            </div>
             <p v-if="!templates.length" class="mt-3 rounded border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
               没有类型为「资产提示词」的模板。请先在系统设置中创建（模板类型选择 asset-prompt）。
             </p>
             <div v-else class="mt-4 flex flex-col gap-1.5">
               <div class="flex items-center justify-between">
-                <span class="text-xs text-text-secondary">最终发送的提示词（可在本次发送前修改）</span>
-                <button class="text-xs text-cyan-400 hover:text-cyan-300" title="恢复系统拼装的提示词" @click="prompt = builtPrompt">重置</button>
+                <span class="text-xs text-text-secondary">
+                  {{ isPerItem ? '首个视觉状态的提示词示例（逐条发送时每条按模板自动拼装，此处仅预览）' : '最终发送的提示词（可在本次发送前修改）' }}
+                </span>
+                <button v-if="!isPerItem" class="text-xs text-cyan-400 hover:text-cyan-300" title="恢复系统拼装的提示词" @click="prompt = builtPrompt">重置</button>
               </div>
               <textarea
                 v-model="prompt"
                 class="custom-scrollbar h-[300px] w-full resize-none rounded-md border border-border-subtle bg-app-bg p-3 font-mono text-xs leading-6 text-text-primary outline-none focus:border-cyan-500/50"
+                :readonly="isPerItem"
                 aria-label="最终发送提示词"
               />
             </div>
@@ -90,10 +105,12 @@ interface Props {
   defaultTemplateId?: string
   targetCount: number
   busy: boolean
-  /** 由父组件构建的最终 prompt（基于当前模板与范围选择）。 */
-  buildPrompt: (templateContent: string, scope?: 'missing' | 'all') => string
+  /** 由父组件构建的最终 prompt（基于当前模板与范围/发送方式选择）。 */
+  buildPrompt: (template: PromptTemplate, scope?: 'missing' | 'all', sendMode?: 'once' | 'per-item') => string
   /** 批量模式：允许选择生成范围（仅补缺失 / 全部重新生成）。 */
   allowScope?: boolean
+  /** 批量模式：允许选择发送方式（一次性 / 逐条）。 */
+  allowSendMode?: boolean
   /** 缺少提示词的视觉状态数（allowScope 时展示）。 */
   missingCount?: number
   /** 全部视觉状态数（allowScope 时展示）。 */
@@ -104,7 +121,7 @@ const props = defineProps<Props>()
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
-  (e: 'confirm', payload: { modelId: string; templateId: string; prompt?: string; scope?: 'missing' | 'all' }): void
+  (e: 'confirm', payload: { modelId: string; templateId: string; prompt?: string; scope?: 'missing' | 'all'; sendMode?: 'once' | 'per-item' }): void
 }>()
 
 const modelId = ref('')
@@ -112,8 +129,11 @@ const templateId = ref('')
 const prompt = ref('')
 /** 生成范围：仅补缺失（默认）/ 全部重新生成。 */
 const scope = ref<'missing' | 'all'>('missing')
+/** 发送方式：一次性（默认，全部状态一份清单）/ 逐条（每个状态单独请求）。 */
+const sendMode = ref<'once' | 'per-item'>('once')
 
 const isOverwrite = computed(() => Boolean(props.allowScope && scope.value === 'all'))
+const isPerItem = computed(() => Boolean(props.allowSendMode && sendMode.value === 'per-item'))
 const effectiveCount = computed(() => {
   if (!props.allowScope) return props.targetCount
   return scope.value === 'missing' ? (props.missingCount ?? 0) : (props.totalCount ?? 0)
@@ -121,7 +141,7 @@ const effectiveCount = computed(() => {
 const builtPrompt = computed(() => {
   const template = props.templates.find((t) => t.id === templateId.value)
   if (!template) return ''
-  return props.buildPrompt(template.content, props.allowScope ? scope.value : undefined)
+  return props.buildPrompt(template, props.allowScope ? scope.value : undefined, props.allowSendMode ? sendMode.value : undefined)
 })
 const canConfirm = computed(() => Boolean(modelId.value && templateId.value && prompt.value.trim() && effectiveCount.value > 0))
 
@@ -137,7 +157,13 @@ watch(builtPrompt, (value) => { prompt.value = value })
 
 function handleConfirm() {
   if (!canConfirm.value || props.busy) return
-  emit('confirm', { modelId: modelId.value, templateId: templateId.value, prompt: prompt.value, scope: props.allowScope ? scope.value : undefined })
+  emit('confirm', {
+    modelId: modelId.value,
+    templateId: templateId.value,
+    prompt: prompt.value,
+    scope: props.allowScope ? scope.value : undefined,
+    sendMode: props.allowSendMode ? sendMode.value : undefined,
+  })
 }
 
 function handleClose() {

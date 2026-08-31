@@ -166,8 +166,8 @@ export interface LongProjectStoryboardAssetBinding {
   assetName: string
   visualVersionId?: string
   visualVersionName?: string
-  /** 由模型、章节范围或用户选择得出的建议。 */
-  matchSource: 'model' | 'chapter-range' | 'manual' | 'unmatched'
+  /** 由模型、章节范围、用户选择或文本自动识别得出的建议。 */
+  matchSource: 'model' | 'chapter-range' | 'manual' | 'auto-text' | 'unmatched'
   referenceImageIds?: string[]
 }
 
@@ -176,6 +176,10 @@ export interface LongProjectStoryboardPanel {
   order: number
   content: string
   shot?: string
+  /** 对白：角色台词，由分镜解析器从 LLM 输出中提取 */
+  dialogue?: string
+  /** 旁白：叙述性文字，由分镜解析器从 LLM 输出中提取 */
+  narration?: string
   imagePrompt?: string
   assetBindings: LongProjectStoryboardAssetBinding[]
 }
@@ -391,6 +395,8 @@ export interface PromptTemplate {
   type: TemplateType
   description: string
   content: string
+  /** 自定义输出协议：拼接时附加在 prompt 末尾的返回要求；留空 = 不附加任何输出限制（需要解析回填的批量场景由系统兜底）。 */
+  outputProtocol?: string
   /** 仅资产提取模板使用。核心资产协议由系统固定，模板只配置提取范围与扩展字段。 */
   assetExtractionConfig?: AssetExtractionConfig
   sortOrder: number

@@ -1,5 +1,5 @@
 import { llmService } from './llmService'
-import { buildStyleContext } from './assetPromptService'
+import { applyOutputProtocol, buildStyleContext } from './assetPromptService'
 import type { LongProjectAsset, LongProjectPanelArtwork, LongProjectStoryboardPanel, ModelConfig, SharedPromptBlock } from '@comic/types'
 
 /** 内置默认分镜画面描述模板：无用户模板时使用，与 panel-prompt 模板使用相同变量。 */
@@ -65,7 +65,10 @@ export function buildPanelAssetsContext(panel: LongProjectStoryboardPanel, asset
   }).join('\n')
 }
 
-/** 拼装单镜推导的最终提示词。 */
+/**
+ * 拼装单镜推导的最终提示词。
+ * 输出协议：模板自定义 outputProtocol 优先；未自定义则不附加任何输出限制（结果直接取全文回填，无需解析）。
+ */
 export function buildPanelPromptPrompt(options: {
   templateContent: string
   panel: LongProjectStoryboardPanel
@@ -74,6 +77,7 @@ export function buildPanelPromptPrompt(options: {
   assets: LongProjectAsset[]
   styleContext?: string
   targetImageModel?: string
+  outputProtocol?: string
 }): string {
   const { panel } = options
   const replacements: Array<[RegExp, string]> = [
@@ -98,10 +102,7 @@ export function buildPanelPromptPrompt(options: {
 ${panel.imagePrompt ? `分镜参考描述：${panel.imagePrompt}` : ''}`
   const body = hasVariables ? template : `${template}\n\n${info}`
   const style = options.styleContext ? `\n\n【风格上下文】\n${options.styleContext}` : ''
-  return `${body}${style}
-
-【系统固定输出协议】
-只输出一段完整的中文画面描述正文，不要任何前缀、解释、分点或代码块。描述要能直接用于生图模型。`
+  return applyOutputProtocol(`${body}${style}`, options.outputProtocol, false)
 }
 
 /** 单镜推导执行：一次 LLM 调用只返回当前分镜的画面描述。 */

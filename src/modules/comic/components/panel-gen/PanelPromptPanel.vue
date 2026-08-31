@@ -11,13 +11,27 @@
 
     <!-- 内容区 -->
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
-      <!-- 提示词输入框 -->
-      <div class="min-h-0 flex-1 rounded-xl border border-border-subtle bg-surface p-4 shadow-sm shadow-black/10">
+      <!-- 提示词输入框：叠加高亮层（textarea 文字透明，背后渲染资产名高亮，点击资产名查看参考图） -->
+      <div class="relative min-h-0 flex-1 rounded-xl border border-border-subtle bg-surface p-4 shadow-sm shadow-black/10">
+        <div ref="highlightLayerEl" class="pointer-events-none absolute inset-4 overflow-hidden whitespace-pre-wrap break-all text-xs leading-relaxed" aria-hidden="true">
+          <template v-for="(segment, index) in highlightSegments" :key="index">
+            <span v-if="segment.text" :class="segment.asset ? highlightClass(segment.asset) : ''" :title="segment.asset ? `${segment.asset.name} · 点击查看资产图` : ''">{{ segment.text }}</span>
+          </template>
+        </div>
         <textarea
           v-model="promptText"
-          class="h-full w-full resize-none bg-transparent text-xs leading-relaxed text-text-primary placeholder:text-text-muted focus:outline-none"
+          class="relative h-full w-full resize-none bg-transparent text-xs leading-relaxed text-transparent caret-cyan-400 placeholder:text-text-muted focus:outline-none"
           placeholder="在此输入本分镜的画面描述（生图提示词），可点击底部「AI 推导」由 LLM 生成后再修改..."
+          @scroll="syncHighlightScroll"
+          @click="handlePromptClick"
         />
+      </div>
+      <!-- 检测提示：提示词中识别到的资产 -->
+      <div v-if="detectedAssetChips.length" class="mt-1.5 shrink-0">
+        <div class="flex flex-wrap items-center gap-1.5">
+          <span class="text-[10px] text-text-muted">识别资产</span>
+          <AssetBindingTag v-for="asset in detectedAssetChips" :key="asset.id" :binding="asset.tagBinding" :assets="assets" @inspect="openAssetPreview" />
+        </div>
       </div>
 
       <!-- 参考图设置（与短篇提示词模式一致） -->
@@ -156,9 +170,11 @@
  */
 import { computed, reactive, ref, watch } from 'vue'
 import { ChevronRight, Eye, LoaderCircle, Plus, Sparkles, X } from 'lucide-vue-next'
-import type { LongProjectPanelArtwork, LongProjectStoryboardPanel } from '@comic/types'
+import type { LongProjectAsset, LongProjectPanelArtwork, LongProjectStoryboardAssetBinding, LongProjectStoryboardPanel } from '@comic/types'
 import ImagePreviewModal from '@comic/components/ImagePreviewModal.vue'
+import AssetBindingTag from '@comic/components/AssetBindingTag.vue'
 import { processImage, uploadImage, type ImageStorageMode } from '@comic/services/uploadService'
+import { buildAssetNameIndex, detectAssetSpans } from '@comic/services/promptAssetService'
 import { useToast } from '@comic/composables/useToast'
 
 const toast = useToast()
@@ -189,6 +205,8 @@ const props = defineProps<{
   refGroups: TypedRefGroup[]
   /** 当前已采纳成图（作为「结果图」参考选项）。 */
   generatedImage?: string | null
+  /** 项目资产库：用于提示词内资产名识别、高亮与查看资产图。 */
+  assets?: LongProjectAsset[]
 }>()
 
 const emit = defineEmits<{
@@ -199,6 +217,90 @@ const emit = defineEmits<{
 
 const promptText = ref(props.artwork?.imagePrompt ?? '')
 const showRefConfig = ref(true)
+
+// ===== 提示词资产识别与高亮 =====
+const highlightLayerEl = ref<HTMLElement | null>(null)
+/** 名称索引：资产名+别名按长度降序（长名优先匹配，仅依赖资产库，本地缓存）。 */
+const assetNameIndex = computed(() => buildAssetNameIndex(props.assets ?? []))
+
+/** 提示词中的资产命中区间（长名优先、区间消费防误报）。 */
+const assetSpans = computed(() => detectAssetSpans(promptText.value, assetNameIndex.value))
+
+/** 高亮分片：普通文本与资产名文本交替（backdrop 层渲染）。 */
+const highlightSegments = computed<Array<{ text: string; asset?: LongProjectAsset }>>(() => {
+  const text = promptText.value
+  const segments: Array<{ text: string; asset?: LongProjectAsset }> = []
+  let cursor = 0
+  for (const span of assetSpans.value) {
+    if (span.start > cursor) segments.push({ text: text.slice(cursor, span.start) })
+    segments.push({ text: text.slice(span.start, span.end), asset: span.asset })
+    cursor = span.end
+  }
+  if (cursor < text.length) segments.push({ text: text.slice(cursor) })
+  return segments
+})
+
+/** 资产类型对应的高亮样式（与 AssetBindingTag 配色一致）。 */
+function highlightClass(asset: LongProjectAsset): string {
+  if (asset.type === 'character') return 'rounded bg-violet-400/20 text-violet-200'
+  if (asset.type === 'scene') return 'rounded bg-sky-400/20 text-sky-200'
+  if (asset.type === 'prop') return 'rounded bg-emerald-400/20 text-emerald-200'
+  return 'rounded bg-app-bg'
+}
+
+/** 底部识别资产 chips：优先用分镜已有绑定快照（含视觉状态），未绑定时临时构造。 */
+const detectedAssetChips = computed<Array<{ id: string; tagBinding: LongProjectStoryboardAssetBinding }>>(() => {
+  const seen = new Set<string>()
+  const result: Array<{ id: string; tagBinding: LongProjectStoryboardAssetBinding }> = []
+  for (const span of assetSpans.value) {
+    if (seen.has(span.asset.id)) continue
+    seen.add(span.asset.id)
+    const binding = props.panel.assetBindings.find((item) => item.assetId === span.asset.id)
+    result.push({
+      id: span.asset.id,
+      tagBinding: binding ?? { assetId: span.asset.id, assetName: span.asset.name, matchSource: 'auto-text' as const },
+    })
+  }
+  return result
+})
+
+/** 同步 backdrop 高亮层滚动（与 textarea 滚动一致）。 */
+function syncHighlightScroll(event: Event) {
+  if (!highlightLayerEl.value) return
+  const textarea = event.target as HTMLTextAreaElement
+  highlightLayerEl.value.scrollTop = textarea.scrollTop
+  highlightLayerEl.value.scrollLeft = textarea.scrollLeft
+}
+
+/**
+ * 点击提示词：若点击位置（光标处）落在资产名高亮区间内，打开该资产的视觉状态参考图。
+ * 利用 textarea 原生单击定位行为（selectionStart 即点击字符位置）。
+ */
+function handlePromptClick(event: MouseEvent) {
+  const textarea = event.target as HTMLTextAreaElement
+  const pos = textarea.selectionStart
+  const span = assetSpans.value.find((item) => pos >= item.start && pos < item.end)
+  if (span) openAssetPreview(span.asset)
+}
+
+/** 查看资产视觉状态参考图。 */
+function openAssetPreview(asset: LongProjectAsset | null) {
+  if (!asset) {
+    toast.warning('资产未匹配，请先在资产库中修正名称')
+    return
+  }
+  const binding = props.panel.assetBindings.find((item) => item.assetId === asset.id)
+  const variant = asset.variants.find((item) => item.id === binding?.visualVersionId) ?? asset.variants[0]
+  const images = variant?.referenceImageIds ?? []
+  if (!images.length) {
+    toast.info(`「${asset.name} · ${variant?.name ?? '默认'}」暂无参考图`)
+    return
+  }
+  previewImages.value = [...images]
+  previewIndex.value = 0
+  showPreview.value = true
+}
+
 const isUploading = ref(false)
 const customRefImages = ref<string[]>([])
 const customStorageMode = ref<ImageStorageMode>('local')
