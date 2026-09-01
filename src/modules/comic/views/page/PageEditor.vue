@@ -644,6 +644,35 @@ const savePendingTasks = async () => {
   }
 };
 
+/**
+ * 增量保存单个待处理任务（按 `${projectId}-${pageIndex}` 幂等 upsert）。
+ * 批量生图时每张图开始/完成都会触发持久化，若走全量重写会反复序列化
+ * 所有任务记录并产生 O(N²) 次 IPC，是批量生图期间界面卡顿的主因之一。
+ * 恢复流程只依赖 taskId/pageIndex，prompt/refImages 仅作占位不再落库。
+ */
+const upsertPendingTask = async (pageIndex: number) => {
+  if (!projectId) return;
+  const task = pendingTasks.value.get(pageIndex);
+  if (!task) return;
+  await comicDb.saveGenerationTask({
+    id: `${projectId}-${pageIndex}`,
+    projectId,
+    pageIndex,
+    prompt: "",
+    refImages: [],
+    taskId: task.taskId,
+    status: task.taskId ? "running" : "pending",
+    createdAt: task.startTime,
+    updatedAt: Date.now(),
+  });
+};
+
+/** 删除单个任务记录（任务完成/放弃时使用） */
+const removePendingTaskRecord = (pageIndex: number) => {
+  if (!projectId) return;
+  void comicDb.deleteGenerationTask(`${projectId}-${pageIndex}`);
+};
+
 /** 从数据库加载待处理任务 */
 const loadPendingTasks = async () => {
   if (!projectId) return;
@@ -723,9 +752,9 @@ const retryPendingTasks = async () => {
     for (const pageIndex of indicesToCheck) {
       generatingPageIndices.value.delete(pageIndex);
       pendingTasks.value.delete(pageIndex);
+      removePendingTaskRecord(pageIndex);
     }
     generatingPageIndices.value = new Set(generatingPageIndices.value);
-    savePendingTasks();
     return;
   }
 
@@ -767,6 +796,7 @@ const retryPendingTasks = async () => {
         toast.success(`页面 ${pageIndex + 1} 生成完成`);
         // 成功则清理待恢复任务
         pendingTasks.value.delete(pageIndex);
+        removePendingTaskRecord(pageIndex);
       } else {
         // 没有查询到结果，保留 taskId 以便手动重试
         console.log(`[页面恢复] 任务 ${taskId} 未完成，变为待恢复`);
@@ -780,8 +810,6 @@ const retryPendingTasks = async () => {
     generatingPageIndices.value.delete(pageIndex);
     generatingPageIndices.value = new Set(generatingPageIndices.value);
   }
-
-  savePendingTasks();
 };
 
 /** 监听页面可见性变化 */
@@ -814,7 +842,7 @@ const generateImage = async (
     startTime: Date.now(),
   };
   pendingTasks.value.set(pageIndex, taskInfo);
-  savePendingTasks();
+  void upsertPendingTask(pageIndex);
 
   const result = await imageGenerationService.generateWithModel(
     model,
@@ -834,7 +862,7 @@ const generateImage = async (
       const existingTask = pendingTasks.value.get(pageIndex);
       if (existingTask) {
         existingTask.taskId = taskId;
-        savePendingTasks();
+        void upsertPendingTask(pageIndex);
       }
     },
   );
@@ -843,29 +871,14 @@ const generateImage = async (
   generatingPageIndices.value = new Set(generatingPageIndices.value);
 
   if (result.success && result.imageUrl) {
-    // 任务完成，更新数据库状态并删除待处理任务
-    if (projectId) {
-      const updatedTask: GenerationTask = {
-        id: `${projectId}-${pageIndex}`,
-        projectId,
-        pageIndex,
-        prompt,
-        refImages,
-        taskId: pendingTasks.value.get(pageIndex)?.taskId,
-        status: "done",
-        resultImageUrl: result.imageUrl,
-        createdAt: taskInfo.startTime,
-        updatedAt: Date.now(),
-      };
-      await comicDb.saveGenerationTask(updatedTask);
-    }
     pendingTasks.value.delete(pageIndex);
-    savePendingTasks();
+    removePendingTaskRecord(pageIndex);
     generatedImages.value = {
       ...generatedImages.value,
       [pageIndex]: result.imageUrl,
     };
-    await flushSavePageData();
+    // 批量生图时多张图并发完成，用防抖保存代替全量 flush，避免主线程被持续阻塞
+    savePageData();
     return true;
   }
 
@@ -882,7 +895,7 @@ const generateImage = async (
 
   // 创建任务阶段就失败，清理记录
   pendingTasks.value.delete(pageIndex);
-  savePendingTasks();
+  removePendingTaskRecord(pageIndex);
   toast.error(result.error || "生成失败");
   return false;
 };
@@ -944,7 +957,7 @@ const handleRecoverTask = async (pageIndex?: number) => {
       };
       await flushSavePageData();
       pendingTasks.value.delete(targetIndex);
-      savePendingTasks();
+      removePendingTaskRecord(targetIndex);
       toast.success(`页面 ${targetIndex + 1} 生成完成`);
     } else {
       toast.error(result.error || "任务未完成，请稍后再试");

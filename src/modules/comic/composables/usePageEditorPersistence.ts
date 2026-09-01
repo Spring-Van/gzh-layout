@@ -27,14 +27,16 @@ export function usePageEditorPersistence(
     try {
       const project = await comicDb.getProject(projectId);
       if (!project) return;
-      const pageData = clone(refs.comicData.value) as NonNullable<typeof project.pageData>;
+      // 直接传引用：Electron IPC 序列化时自带快照，避免在渲染主线程
+      // 对含 base64 图片的大对象做 JSON.parse(JSON.stringify()) 深拷贝（批量生图时的主要卡顿源）
+      const pageData = refs.comicData.value as unknown as NonNullable<typeof project.pageData>;
       await comicDb.saveProject({
         ...project,
         pageData,
-        generatedImages: clone(refs.generatedImages.value),
-        pageModelOverrides: clone(refs.pageModelOverrides.value),
-        pageRefImages: clone(refs.pageRefImages.value),
-        imageGenConfig: clone(refs.imageConfig.value),
+        generatedImages: refs.generatedImages.value,
+        pageModelOverrides: refs.pageModelOverrides.value,
+        pageRefImages: refs.pageRefImages.value,
+        imageGenConfig: refs.imageConfig.value,
         updatedAt: Date.now(),
       });
       sessionStorage.setItem(storageKey, JSON.stringify(pageData));
@@ -83,12 +85,13 @@ export function usePageEditorPersistence(
   watch(refs.comicData, savePageData, { deep: true });
   watch(refs.generatedImages, savePageData);
   onBeforeUnmount(() => {
-    if (saveTimer) clearTimeout(saveTimer);
+    // 防抖期间离开页面时兜底落盘，避免最后一次改动丢失
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      void doSave();
+    }
   });
 
   return { isLoadingData, savePageData, flushSavePageData, loadPageData };
-}
-
-function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
 }

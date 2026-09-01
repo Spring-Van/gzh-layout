@@ -34,6 +34,16 @@
       <div
         v-for="(page, index) in pages"
         :key="index"
+        v-memo="[
+          page,
+          index === currentIndex,
+          generatedImages[index],
+          generatingPageIndices.has(index),
+          recoverableTaskIds.has(index),
+          draggingIndex === index,
+          dragOverIndex === index,
+          dragSide === 'before',
+        ]"
         class="group flex items-center gap-2.5 p-2.5 rounded-lg cursor-pointer transition-[background-color,border-color,box-shadow,opacity] duration-200"
         :class="[
           currentIndex === index
