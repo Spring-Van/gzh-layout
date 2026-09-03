@@ -44,37 +44,39 @@
       </div>
 
       <div class="ml-auto flex shrink-0 items-center gap-2">
-        <button
-          class="secondary-button h-9 px-3 text-xs"
-          :disabled="!panels.length || batchPromptBusy"
-          :title="!panels.length ? '本章暂无分镜' : '依次推导缺失分镜的画面描述（一次一条，前后自动关联）'"
-          @click="promptModalVisible = true"
-        >
-          <LoaderCircle v-if="batchPromptBusy" :size="14" class="animate-spin" />
-          <Sparkles v-else :size="14" />
-          批量推导描述
-        </button>
-        <button
-          class="primary-button h-9 px-3 text-xs"
-          :disabled="!genTargets.length || batchGenBusy"
-          :title="!genTargets.length ? '没有可生图的分镜（需先有画面描述且未成图）' : `串行生成 ${genTargets.length} 个分镜画面`"
-          @click="runBatchGen"
-        >
-          <LoaderCircle v-if="batchGenBusy" :size="14" class="animate-spin" />
-          批量生图{{ batchGenBusy ? ` ${batchGenDone}/${batchGenTotal}` : genTargets.length ? `（${genTargets.length}）` : '' }}
-        </button>
-        <button v-if="batchGenBusy" class="secondary-button h-9 px-3 text-xs" @click="cancelBatchGen">取消</button>
+        <template v-if="pageTab === 'panels'">
+          <button
+            class="secondary-button h-9 px-3 text-xs"
+            :disabled="!panels.length || batchPromptBusy"
+            :title="!panels.length ? '本章暂无分镜' : '依次推导缺失分镜的画面描述（一次一条，前后自动关联）'"
+            @click="promptModalVisible = true"
+          >
+            <LoaderCircle v-if="batchPromptBusy" :size="14" class="animate-spin" />
+            <Sparkles v-else :size="14" />
+            批量推导描述
+          </button>
+          <button
+            class="primary-button h-9 px-3 text-xs"
+            :disabled="!genTargets.length || batchGenBusy"
+            :title="!genTargets.length ? '没有可生图的分镜（需先有画面描述且未成图）' : `串行生成 ${genTargets.length} 个分镜画面`"
+            @click="runBatchGen"
+          >
+            <LoaderCircle v-if="batchGenBusy" :size="14" class="animate-spin" />
+            批量生图{{ batchGenBusy ? ` ${batchGenDone}/${batchGenTotal}` : genTargets.length ? `（${genTargets.length}）` : '' }}
+          </button>
+          <button v-if="batchGenBusy" class="secondary-button h-9 px-3 text-xs" @click="cancelBatchGen">取消</button>
 
-        <button
-          class="flex h-9 items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs text-emerald-300 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
-          :disabled="!completedCount || exportBusy"
-          :title="!completedCount ? '本章还没有已采纳的成图' : `导出 ${completedCount} 张已采纳成图`"
-          @click="exportImages"
-        >
-          <LoaderCircle v-if="exportBusy" :size="14" class="animate-spin" />
-          <Download v-else :size="14" />
-          导出发布
-        </button>
+          <button
+            class="flex h-9 items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs text-emerald-300 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+            :disabled="!completedCount || exportBusy"
+            :title="!completedCount ? '本章还没有已采纳的成图' : `导出 ${completedCount} 张已采纳成图`"
+            @click="exportImages"
+          >
+            <LoaderCircle v-if="exportBusy" :size="14" class="animate-spin" />
+            <Download v-else :size="14" />
+            导出发布
+          </button>
+        </template>
 
         <!-- 绘图配置：点击打开抽屉（与短篇生图页一致） -->
         <button
@@ -85,20 +87,54 @@
       </div>
     </header>
 
+    <!-- 页面级 tab：分镜 | 资产 -->
+    <nav class="flex h-10 shrink-0 items-center gap-1 border-b border-border-subtle bg-surface px-4">
+      <button
+        v-for="tab in pageTabs"
+        :key="tab.id"
+        class="flex h-7 items-center gap-1.5 rounded-lg px-3 text-xs transition-colors"
+        :class="pageTab === tab.id ? 'bg-cyan-500/15 text-cyan-300' : 'text-text-muted hover:bg-app-bg hover:text-text-secondary'"
+        @click="pageTab = tab.id"
+      >
+        <component :is="tab.icon" :size="13" />
+        {{ tab.label }}
+      </button>
+    </nav>
+
     <!-- 主体 -->
     <div v-if="loading" class="flex flex-1 items-center justify-center text-sm text-text-secondary">正在加载分镜数据...</div>
 
-    <div v-else-if="!panels.length" class="flex flex-1 flex-col items-center justify-center p-8 text-center">
-      <ListTree :size="30" class="mb-4 text-text-muted" />
-      <h2 class="text-base font-medium text-text-primary">{{ emptyTitle }}</h2>
-      <p class="mt-2 max-w-md text-sm text-text-secondary">{{ emptyMessage }}</p>
-      <button class="primary-button mt-5" @click="goBack"><ArrowLeft :size="16" />返回长篇项目</button>
+    <!-- 资产页签：提取入口 + 审核区 + 资产生图工作台 -->
+    <div v-else-if="pageTab === 'assets'" class="min-h-0 flex-1 overflow-hidden">
+      <PanelGenAssetTab
+        v-if="currentChapter"
+        :chapter="currentChapter"
+        :panels="panels"
+        :analysis-content="analysisDoc?.content ?? ''"
+        :script-content="scriptDoc?.content ?? ''"
+        :models="models"
+        :templates="templates"
+        :assets="assets"
+        :chapter-assets="chapterAssets"
+        :asset-extraction-runs="assetExtractionRuns"
+        :asset-gen-config="assetGenConfig"
+        :painting-style="project?.comicConfig?.paintingStyle"
+        :shared-blocks="project?.imageGenConfig?.sharedBlocks"
+        :mutate-long-project-data="mutateLongProjectData"
+      />
+      <div v-else class="flex h-full items-center justify-center text-sm text-text-secondary">请先选择章节</div>
     </div>
 
+    <!-- 分镜页签：左列表 + 中预览 + 右[分镜内容|提示词] -->
     <div v-else class="flex min-h-0 flex-1 gap-3 p-3">
-      <!-- 左：分镜列表（宽度与短篇生图页一致） -->
+      <!-- 左：分镜列表（右键合并/拆分/复制） -->
       <div class="w-[20%] min-w-[220px] max-w-[280px] shrink-0 overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-lg shadow-black/20">
-        <PanelListSidebar :items="panelItems" :current-index="currentIndex" @select="currentIndex = $event" @infer="inferFromSidebar" />
+        <PanelListSidebar
+          :items="panelItems"
+          :current-index="currentIndex"
+          @select="currentIndex = $event"
+          @contextmenu="onPanelContextMenu"
+        />
       </div>
 
       <!-- 中：成图预览（上）+ 资产绑定三 tab（下） -->
@@ -106,47 +142,129 @@
         class="flex flex-1 flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-lg shadow-black/20"
         style="max-width: 24%; min-width: 260px"
       >
-        <div class="min-h-0 flex-1 overflow-hidden">
-          <PanelPreview
-            :panel="currentPanel"
-            :artwork="currentArtwork"
-            :is-generating="currentArtwork?.genStatus === 'running'"
-            @generate="generatePanelImage(currentPanel)"
-            @adopt="adoptImage"
-            @remove-gen-image="removeGenImage"
-            @preview="openPreview"
-          />
-        </div>
-        <div class="h-52 shrink-0 border-t border-border-subtle">
-          <PanelAssetTabs
-            :panel="currentPanel"
-            :assets="assets"
-            @update-variant-images="updateVariantImages"
-            @preview="openPreview"
-          />
+        <template v-if="currentPanel">
+          <div class="min-h-0 flex-1 overflow-hidden">
+            <PanelPreview
+              :panel="currentPanel"
+              :artwork="currentArtwork"
+              :is-generating="currentArtwork?.genStatus === 'running'"
+              @generate="generatePanelImage(currentPanel)"
+              @adopt="adoptImage"
+              @remove-gen-image="removeGenImage"
+              @preview="openPreview"
+            />
+          </div>
+          <div class="h-52 shrink-0 border-t border-border-subtle">
+            <PanelAssetTabs
+              :panel="currentPanel"
+              :assets="assets"
+              @update-variant-images="updateVariantImages"
+              @preview="openPreview"
+            />
+          </div>
+        </template>
+        <div v-else class="flex flex-1 flex-col items-center justify-center p-8 text-center">
+          <ListTree :size="26" class="text-text-muted" />
+          <p class="mt-3 text-xs text-text-secondary">生成分镜后在此预览成图</p>
         </div>
       </div>
 
-      <!-- 右：画面描述（提示词模式单一输入框，底部参考图设置） -->
+      <!-- 右：分镜内容（生成分镜 + 逐镜编辑）⇋ 提示词（画面描述编辑） -->
       <div
-        class="flex-1 shrink-0 overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-lg shadow-black/20"
+        class="flex flex-1 shrink-0 flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-lg shadow-black/20"
         style="min-width: 440px"
       >
-        <PanelPromptPanel
-          :panel="currentPanel"
-          :artwork="currentArtwork"
-          :assets="assets"
-          :prompt-busy="promptBusyIds.has(currentPanel.id)"
-          :generating="currentArtwork?.genStatus === 'running'"
-          :ref-groups="currentRefGroups"
-          :generated-image="currentArtwork?.selectedImageId ?? currentArtwork?.generatedImageIds?.at(-1) ?? null"
-          @infer="singleModalVisible = true"
-          @save="savePromptEdit"
-          @single-generate="runSingleGenerate"
-        />
+        <div class="flex h-10 shrink-0 items-center justify-between border-b border-border-subtle px-4">
+          <p class="text-xs text-text-secondary">{{ rightTab === 'content' ? '分镜内容（剧本 → 分镜）' : '绘画提示词（分镜 → 画面描述）' }}</p>
+          <div class="flex items-center gap-0.5 rounded-lg border border-border-subtle bg-app-bg p-0.5">
+            <button
+              v-for="tab in rightTabs"
+              :key="tab.id"
+              class="rounded-md px-2.5 py-1 text-[11px] transition-colors"
+              :class="rightTab === tab.id ? 'bg-cyan-500/15 text-cyan-300' : 'text-text-muted hover:text-text-secondary'"
+              @click="rightTab = tab.id"
+            >{{ tab.label }}</button>
+          </div>
+        </div>
+
+        <div class="min-h-0 flex-1">
+          <PanelContentEditor
+            v-if="rightTab === 'content'"
+            :panel="currentPanel"
+            :panels-count="panels.length"
+            :run-status="latestChapterRun?.status"
+            :run-error="latestChapterRun?.error"
+            :models="llmModels"
+            :templates="storyboardTemplates"
+            :model-id="storyboardModelId"
+            :template-id="storyboardTemplateId"
+            :script-content="scriptDoc?.content ?? ''"
+            :source-content="currentChapter?.content ?? ''"
+            :analysis-content="analysisDoc?.content ?? ''"
+            @update:model-id="storyboardModelId = $event"
+            @update:template-id="storyboardTemplateId = $event"
+            @run="runStoryboardFromEditor"
+            @save-panel="savePanelEdit"
+          />
+          <PanelPromptPanel
+            v-else-if="currentPanel"
+            :panel="currentPanel"
+            :artwork="currentArtwork"
+            :assets="assets"
+            :prompt-busy="promptBusyIds.has(currentPanel.id)"
+            :generating="currentArtwork?.genStatus === 'running'"
+            :ref-groups="currentRefGroups"
+            :generated-image="currentArtwork?.selectedImageId ?? currentArtwork?.generatedImageIds?.at(-1) ?? null"
+            @infer="singleModalVisible = true"
+            @save="savePromptEdit"
+            @single-generate="runSingleGenerate"
+          />
+          <div v-else class="flex h-full items-center justify-center text-xs text-text-muted">请先生成分镜</div>
+        </div>
       </div>
     </div>
 
+    <!-- 分镜右键菜单（合并/拆分/复制） -->
+    <StoryboardContextMenu
+      :visible="panelMenu.visible && !!panelMenu.panel"
+      :x="panelMenu.x"
+      :y="panelMenu.y"
+      :panel="panelMenu.panel!"
+      :total="panels.length"
+      :max-merge="3"
+      @close="panelMenu.visible = false"
+      @action="onPanelMenuAction"
+    />
+
+    <!-- 合并确认弹窗 -->
+    <StoryboardMergeDialog
+      v-model="mergeDialogVisible"
+      :panels="mergeSelectedPanels"
+      :artwork-map="artworkMap"
+      @confirm="applyMerge"
+    />
+
+    <!-- 拆分弹窗 -->
+    <StoryboardSplitDialog
+      v-model="splitDialogVisible"
+      :panel="splitTargetPanel ?? undefined"
+      :mode="splitMode"
+      @confirm="applySplit"
+    />
+
+    <!-- 合并/拆分撤销条（8 秒内可撤销） -->
+    <Transition name="fade">
+      <div
+        v-if="storyboardUndoAvailable"
+        class="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-cyan-500/30 bg-surface px-4 py-2 shadow-xl shadow-black/30"
+      >
+        <span class="text-xs text-text-secondary">{{ storyboardUndoLabel }}</span>
+        <button class="flex items-center gap-1 text-xs text-cyan-400 transition-colors hover:text-cyan-300" @click="undoStoryboardOp">
+          <Undo2 :size="13" />
+          撤销
+        </button>
+      </div>
+    </Transition>
 
     <!-- 批量推导确认弹窗 -->
     <PanelPromptGenerateModal
@@ -200,14 +318,17 @@
 <script setup lang="ts">
 /**
  * 长篇分镜生图工作台（独立页面，不影响短篇 PageEditor）：
- * 左列分镜列表 → 中列成图预览 + 资产绑定三 tab（人物/场景/道具）→ 右列画面描述输入框（提示词模式）。
- * 底部栏承载批量推导/批量生图/导出发布与绘图配置。画面描述按「依次推导」执行
- * （滑动窗口携带前文），生图自动携带绑定资产参考图。
+ * 页面级 tab「分镜｜资产」。
+ * - 分镜 tab：左列分镜列表（右键合并/拆分/复制）→ 中列成图预览 + 资产绑定三 tab
+ *   → 右列 [分镜内容|提示词] 切换（分镜内容 = 生成分镜 + 逐镜编辑；提示词 = 画面描述编辑）。
+ * - 资产 tab：资产提取入口 + 审核区 + 资产生图工作台。
+ * 分镜生成以漫画剧本为主输入、原文分析为辅助（无剧本时原文兜底）；
+ * 画面描述按「依次推导」执行（滑动窗口携带前文），生图自动携带绑定资产参考图。
  * 数据持久化走 panelArtworks（panelId 关联），重跑分镜由迁移逻辑保留/标记过期。
  */
-import { computed, onMounted, reactive, ref, toRaw, watch } from 'vue'
+import { computed, onActivated, onMounted, reactive, ref, toRaw, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, BookOpen, ChevronDown, Download, ListTree, LoaderCircle, SlidersHorizontal, Sparkles } from 'lucide-vue-next'
+import { ArrowLeft, BookOpen, Boxes, ChevronDown, Clapperboard, Download, ListTree, LoaderCircle, SlidersHorizontal, Sparkles, Undo2 } from 'lucide-vue-next'
 import { comicDb, comicDownload } from '@/api/comic'
 import { useToast } from '@comic/composables/useToast'
 import { imageGenerationService } from '@comic/services/imageGenerationService'
@@ -223,12 +344,20 @@ import {
 } from '@comic/services/panelPromptService'
 import { buildAssetNameIndex, computeAutoBindings } from '@comic/services/promptAssetService'
 import { defaultVariant } from '@comic/services/storyboardService'
+import { useStoryboardRun } from '@comic/composables/useStoryboardRun'
+import { useStoryboardOps } from '@comic/composables/useStoryboardOps'
+import { useLongProjectPersistence } from '@comic/composables/useLongProjectPersistence'
 import PanelListSidebar from '@comic/components/panel-gen/PanelListSidebar.vue'
 import LongProjectTree from '@comic/components/LongProjectTree.vue'
 import PanelPreview from '@comic/components/panel-gen/PanelPreview.vue'
 import PanelAssetTabs from '@comic/components/panel-gen/PanelAssetTabs.vue'
+import PanelContentEditor, { type PanelEditFields } from '@comic/components/panel-gen/PanelContentEditor.vue'
+import PanelGenAssetTab from '@comic/components/panel-gen/PanelGenAssetTab.vue'
 import PanelPromptPanel, { type PanelRefConfig, type TypedRefGroup } from '@comic/components/panel-gen/PanelPromptPanel.vue'
 import PanelPromptGenerateModal from '@comic/components/panel-gen/PanelPromptGenerateModal.vue'
+import StoryboardContextMenu, { type StoryboardMenuAction } from '@comic/components/StoryboardContextMenu.vue'
+import StoryboardMergeDialog from '@comic/components/StoryboardMergeDialog.vue'
+import StoryboardSplitDialog from '@comic/components/StoryboardSplitDialog.vue'
 import AssetImagePreviewModal from '@comic/components/AssetImagePreviewModal.vue'
 import ImageConfigDrawer from '@comic/components/ImageConfigDrawer.vue'
 import { migrateLegacyImageGenConfig } from '@comic/utils/sharedBlocks'
@@ -252,8 +381,8 @@ const MAX_REF_IMAGES = 14
 
 // ========== 页面状态 ==========
 
-const loading = ref(true)
-const project = ref<ComicProject | null>(null)
+// 持久化：串行队列 + 队列内 read-modify-write（与主页面共用模式，防 keep-alive 双页互相覆盖）
+const { project, loading, loadProject, mutateLongProjectData } = useLongProjectPersistence(projectId)
 const models = ref<ModelConfig[]>([])
 const templates = ref<PromptTemplate[]>([])
 const chapterId = ref(String(route.params.chapterId || ''))
@@ -288,11 +417,22 @@ let batchGenCancelled = false
 const promptModalVisible = ref(false)
 const singleModalVisible = ref(false)
 
-/** 左栏列表快捷推导：选中该分镜并打开单镜推导弹窗。 */
-function inferFromSidebar(index: number) {
-  currentIndex.value = index
-  singleModalVisible.value = true
-}
+// ========== 页面级 / 右栏 tab ==========
+
+/** 页面级 tab：分镜（列表+预览+编辑）｜资产（提取+工作台）。 */
+const pageTab = ref<'panels' | 'assets'>('panels')
+const pageTabs = [
+  { id: 'panels' as const, label: '分镜', icon: Clapperboard },
+  { id: 'assets' as const, label: '资产', icon: Boxes },
+]
+
+/** 右栏 tab：分镜内容（生成分镜 + 逐镜编辑）｜提示词（画面描述）。 */
+const rightTab = ref<'content' | 'prompt'>('content')
+const rightTabs = [
+  { id: 'content' as const, label: '分镜内容' },
+  { id: 'prompt' as const, label: '提示词' },
+]
+
 const chapterMenuVisible = ref(false)
 const configDrawerVisible = ref(false)
 const exportBusy = ref(false)
@@ -326,27 +466,13 @@ const currentRun = computed(() => {
 const panels = computed(() => currentRun.value?.panels ?? [])
 const chapterOutline = computed(() => buildChapterOutline(panels.value))
 
-/** 空态文案：按本章最近一次分镜 run 的状态区分，便于定位「进了工作台却空白」的原因。 */
+/** 本章最近一次分镜 run（含 running/failed，右栏「分镜内容」状态条数据源）。 */
 const latestChapterRun = computed(() => {
   const chapter = currentChapter.value
   if (!chapter) return undefined
   return storyboardRuns.value
     .filter((run) => run.chapterId === chapter.id)
     .sort((a, b) => b.updatedAt - a.updatedAt)[0]
-})
-const emptyTitle = computed(() => {
-  if (!currentChapter.value) return '请选择章节'
-  const status = latestChapterRun.value?.status
-  if (status === 'running') return '分镜正在生成中'
-  if (status === 'failed') return '分镜生成失败'
-  return '本章尚未生成分镜'
-})
-const emptyMessage = computed(() => {
-  if (!currentChapter.value) return '请先在顶部选择要处理的章节。'
-  const run = latestChapterRun.value
-  if (run?.status === 'running') return '分镜生成仍在进行，请回到长篇项目的分镜页等待完成后再进入工作台。'
-  if (run?.status === 'failed') return `最近一次分镜生成失败：${run.error ?? '未知错误'}。请回到长篇项目重新执行「生成分镜」。`
-  return '分镜生图工作台依赖已完成的分镜结果。请先回到长篇项目，在原文底部执行「生成分镜」。'
 })
 
 /** panelId → artwork 映射（仅本章）。 */
@@ -365,6 +491,18 @@ const panelItems = computed<PanelListItem[]>(() =>
 const currentPanel = computed(() => panels.value[currentIndex.value] ?? panels.value[0])
 const currentArtwork = computed(() => (currentPanel.value ? artworkMap.value.get(currentPanel.value.id) : undefined))
 
+/** 章节顺序表（章节 ID → 序号），视觉状态章节范围默认值计算用。 */
+const chapterOrders = computed(() => Object.fromEntries(chapters.value.map((item) => [item.id, item.order])))
+
+/** 本章原文分析 / 漫画剧本文档（分镜与资产提取的管线上下文）。 */
+const analysisDoc = computed(() => (project.value?.longProjectData?.chapterAnalyses ?? []).find((doc) => doc.chapterId === chapterId.value))
+const scriptDoc = computed(() => (project.value?.longProjectData?.chapterScripts ?? []).find((doc) => doc.chapterId === chapterId.value))
+
+/** 资产 tab 数据源。 */
+const chapterAssets = computed(() => project.value?.longProjectData?.chapterAssets ?? [])
+const assetExtractionRuns = computed(() => project.value?.longProjectData?.assetExtractionRuns ?? [])
+const assetGenConfig = computed(() => project.value?.longProjectData?.assetGenConfig)
+
 const describedCount = computed(() => panelItems.value.filter((item) => item.artwork?.imagePrompt?.trim()).length)
 const completedCount = computed(() => panelItems.value.filter((item) => item.artwork?.selectedImageId).length)
 
@@ -372,6 +510,9 @@ const llmModels = computed(() => models.value.filter((model) => model.category =
 const imageModels = computed(() => models.value.filter((model) => model.category === 'image'))
 const panelPromptTemplates = computed(() =>
   templates.value.filter((template) => template.type === 'panel-prompt').sort((a, b) => a.sortOrder - b.sortOrder),
+)
+const storyboardTemplates = computed(() =>
+  templates.value.filter((template) => template.type === 'storyboard').sort((a, b) => a.sortOrder - b.sortOrder),
 )
 
 const styleContext = computed(() =>
@@ -418,29 +559,7 @@ const currentRefGroups = computed<TypedRefGroup[]>(() => {
   return groups
 })
 
-// ========== 持久化（串行队列，与 LongProject 同一模式） ==========
-
-let persistQueue: Promise<unknown> = Promise.resolve()
-const runPersistTask = (task: () => Promise<void>): Promise<void> => {
-  const run = persistQueue.then(task, task)
-  persistQueue = run.then(() => undefined, () => undefined)
-  return run
-}
-/** 基于最新数据做局部修改后持久化（patch 在队列任务内计算，避免旧快照覆盖）。 */
-const mutateLongProjectData = (mutate: (data: NonNullable<ComicProject['longProjectData']>) => void) =>
-  runPersistTask(async () => {
-    if (!project.value) return
-    const current = project.value.longProjectData ?? { nodes: [] }
-    const draft = JSON.parse(JSON.stringify(current)) as NonNullable<ComicProject['longProjectData']>
-    mutate(draft)
-    const updated: ComicProject = {
-      ...project.value,
-      longProjectData: JSON.parse(JSON.stringify(draft)),
-      updatedAt: Date.now(),
-    }
-    await comicDb.saveProject(updated)
-    project.value = updated
-  })
+// ========== 持久化 ==========
 
 /** 新增/更新分镜画面记录。 */
 function upsertArtwork(panelId: string, patch: Partial<LongProjectPanelArtwork>) {
@@ -479,6 +598,126 @@ function updateVariantImages(payload: { assetId: string; variantId: string; imag
     asset.updatedAt = Date.now()
   })
 }
+
+// ========== 分镜生成（剧本主输入 + 原文分析辅助） ==========
+
+const {
+  selectedModelId: storyboardModelId,
+  selectedTemplateId: storyboardTemplateId,
+  initDefaults: initStoryboardDefaults,
+  runStoryboard,
+  recoverInterrupted: recoverStoryboardRun,
+} = useStoryboardRun({
+  project,
+  mutateLongProjectData,
+  getCurrentChapter: () => currentChapter.value,
+  getScriptContent: () => scriptDoc.value?.content,
+  getAnalysisContent: () => analysisDoc.value?.content,
+  getChapterOrders: () => chapterOrders.value,
+  notifyFallback: (message) => toast.info(message),
+  notifyError: (message) => toast.error(message),
+})
+
+/** 右栏「分镜内容」触发生成：PromptRunBar 已完成发送前确认，prompt 为最终版。 */
+async function runStoryboardFromEditor(prompt: string) {
+  const model = llmModels.value.find((item) => item.id === storyboardModelId.value)
+  if (!model) {
+    toast.error('请选择分镜生成模型')
+    return
+  }
+  await runStoryboard({ model, templateId: storyboardTemplateId.value, prompt })
+}
+
+// ========== 分镜结构操作（右键合并/拆分/复制/撤销） ==========
+
+/** 批量任务或分镜生成进行中时锁定结构操作，避免并发写入。 */
+const opsLocked = computed(() => batchPromptBusy.value || batchGenBusy.value || latestChapterRun.value?.status === 'running')
+
+const {
+  panelMenu,
+  mergeDialogVisible,
+  splitDialogVisible,
+  splitTargetPanel,
+  splitMode,
+  storyboardUndoAvailable,
+  storyboardUndoLabel,
+  mergeSelectedPanels,
+  openPanelMenu,
+  handlePanelMenuAction,
+  undoStoryboardOp,
+  applyMerge,
+  applySplit,
+  autoSyncBindings,
+  reevaluatePromptStatus,
+} = useStoryboardOps({
+  mutateLongProjectData,
+  notify: (type, message) => toast[type](message),
+  currentRun,
+  currentChapter,
+  panelArtworks,
+  artworkMap,
+  assets,
+  chapterOrders,
+  opsLocked,
+})
+
+/** 左栏分镜右键：打开结构操作菜单。 */
+function onPanelContextMenu(payload: { event: MouseEvent; panel: LongProjectStoryboardPanel }) {
+  openPanelMenu(payload.event, payload.panel)
+}
+
+/** 右键菜单动作分发（「在生图工作台查看」在本页即选中该分镜）。 */
+function onPanelMenuAction(action: StoryboardMenuAction) {
+  handlePanelMenuAction(action, (panel) => {
+    const index = panels.value.findIndex((item) => item.id === panel.id)
+    if (index >= 0) currentIndex.value = index
+  })
+}
+
+/**
+ * 右栏「分镜内容」逐镜编辑保存：写回 run.panels 并同步自动绑定；
+ * 画面变化且已有描述时标 stale 提示重新推导。
+ */
+function savePanelEdit(payload: { panelId: string; fields: PanelEditFields }) {
+  const run = currentRun.value
+  const chapter = currentChapter.value
+  if (!run || !chapter) return
+  const target = run.panels.find((panel) => panel.id === payload.panelId)
+  if (!target) return
+  const contentChanged = payload.fields.content !== target.content
+  const nextPanels = autoSyncBindings(
+    run.panels.map((panel) =>
+      panel.id === payload.panelId
+        ? {
+            ...panel,
+            shot: payload.fields.shot || undefined,
+            content: payload.fields.content,
+            dialogue: payload.fields.dialogue || undefined,
+            narration: payload.fields.narration || undefined,
+          }
+        : panel,
+    ),
+    chapter.id,
+  )
+  void mutateLongProjectData((data) => {
+    data.storyboardRuns = (data.storyboardRuns ?? []).map((item) =>
+      item.id === run.id ? { ...item, panels: nextPanels, updatedAt: Date.now() } : item,
+    )
+    if (contentChanged && (data.panelArtworks ?? []).some((item) => item.panelId === payload.panelId && item.imagePrompt?.trim())) {
+      data.panelArtworks = (data.panelArtworks ?? []).map((item) =>
+        item.panelId === payload.panelId ? { ...item, promptStatus: reevaluatePromptStatus(item, true), updatedAt: Date.now() } : item,
+      )
+    }
+  })
+}
+
+/** 分镜数量变化（生成/合并/拆分/撤销）后钳制选中索引，避免越界。 */
+watch(
+  () => panels.value.length,
+  (length) => {
+    if (currentIndex.value >= length) currentIndex.value = Math.max(0, length - 1)
+  },
+)
 
 // ========== 画面描述推导 ==========
 
@@ -852,9 +1091,9 @@ async function handleSaveImageConfig(next: ImageGenConfig) {
 }
 
 function goBack() {
-  // 返回长篇项目：带上当前章节与 tab 参数，落地后选中该章节并停在分镜 tab
+  // 返回长篇项目：带上当前章节与 tab 参数，落地后选中该章节并停在剧本 tab
   const chapter = currentChapter.value?.id
-  const query: Record<string, string> = { tab: 'storyboard' }
+  const query: Record<string, string> = { tab: 'script' }
   if (chapter) query.chapter = chapter
   router.push({ path: `/comic/long-project/${projectId}`, query })
 }
@@ -903,7 +1142,7 @@ watch(chapterId, (id) => {
 onMounted(async () => {
   try {
     loadConfig()
-    project.value = await comicDb.getProject(projectId)
+    await loadProject()
     if (!project.value || project.value.projectType !== 'long') {
       await router.replace('/comic/projects')
       return
@@ -912,6 +1151,10 @@ onMounted(async () => {
       comicDb.getAllModelConfigs(),
       comicDb.getAllPromptTemplates(),
     ])
+    // 分镜生成环节的模型/模板默认选择
+    initStoryboardDefaults(models.value, templates.value)
+    // 异常恢复：上次退出时分镜生成卡在 running 的按失败处理
+    await recoverStoryboardRun()
     // 项目绘图配置（绘画模型 + 共用属性），旧数据自动迁移
     imageGenConfig.value = JSON.parse(
       JSON.stringify(migrateLegacyImageGenConfig(project.value.imageGenConfig)),
@@ -951,6 +1194,12 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+})
+
+/** keep-alive 激活时重载项目：合并主页面（原文/剧本/资产确认）已写入的变更。 */
+onActivated(async () => {
+  if (!project.value) return
+  await loadProject()
 })
 </script>
 

@@ -5,6 +5,7 @@ import type {
   LongProjectAssetExtractionCandidate,
   LongProjectAssetType,
   LongProjectExtractedState,
+  LongProjectStoryboardPanel,
   ModelConfig,
   PromptTemplate,
 } from '@comic/types'
@@ -61,27 +62,37 @@ function typeFromHeading(value: string): LongProjectAssetType | undefined {
 
 function splitValue(value: string): string[] { return value.split(/[、,，；;\n]/).map((item) => item.trim()).filter(Boolean) }
 
-/**
- * 按名称取视觉状态，不存在时新建。
- * 模型可能同时以「- 视觉状态：X」字段和「### 视觉状态：X」标题输出同一状态，需按名称去重，避免产生多余的空状态。
- */
-function getOrCreateState(candidate: LongProjectAssetExtractionCandidate, name: string): LongProjectExtractedState {
-  const trimmed = name.trim()
-  const existing = candidate.states?.find((state) => state.name.trim() === trimmed)
-  if (existing) return existing
-  const state: LongProjectExtractedState = { id: uuidv4(), name: trimmed, description: '', imagePrompt: '', matchSource: 'new' }
-  candidate.states = [...(candidate.states ?? []), state]
-  return state
+/** 单个资产候选的字段解析结果；importance 未出现对应行时为 undefined，便于调用方保留旧值。 */
+export interface ParsedCandidateFields {
+  aliases: string[]
+  importance?: 'major' | 'minor'
+  description: string
+  evidence: string[]
+  attributes: Record<string, string | string[] | number>
+  states: LongProjectExtractedState[]
 }
 
-function parseChineseAssetReport(content: string): LongProjectAssetExtractionCandidate[] {
-  let currentType: LongProjectAssetType | undefined
-  let current: LongProjectAssetExtractionCandidate | undefined
+/**
+ * 解析单个资产候选的 Markdown 正文（## 标题之后的内容），提取字段与视觉状态。
+ * 供审核页在编辑资产信息后同步下方结构化数据；与 serializeCandidateContent 可互相往返。
+ */
+export function parseCandidateContent(content: string): ParsedCandidateFields {
   let currentState: LongProjectExtractedState | undefined
-  let contentLines: string[] = []
   /** 状态字段出现在 ### 视觉状态 标题之前时先缓冲，待标题创建状态后回填 */
   let pendingStateFields: { description?: string; imagePrompt?: string; tags?: string[] } = {}
-  const result: LongProjectAssetExtractionCandidate[] = []
+  const result: ParsedCandidateFields = { aliases: [], description: '', evidence: [], attributes: {}, states: [] }
+  /**
+   * 按名称取视觉状态，不存在时新建。
+   * 模型可能同时以「- 视觉状态：X」字段和「### 视觉状态：X」标题输出同一状态，需按名称去重，避免产生多余的空状态。
+   */
+  const getOrCreateState = (name: string): LongProjectExtractedState => {
+    const trimmed = name.trim()
+    const existing = result.states.find((state) => state.name.trim() === trimmed)
+    if (existing) return existing
+    const state: LongProjectExtractedState = { id: uuidv4(), name: trimmed, description: '', imagePrompt: '', matchSource: 'new' }
+    result.states.push(state)
+    return state
+  }
   /** 将缓冲字段填充到状态（仅补空缺，不覆盖块内已有值） */
   const applyPendingFields = (state: LongProjectExtractedState) => {
     if (pendingStateFields.description && !state.description) state.description = pendingStateFields.description
@@ -89,48 +100,25 @@ function parseChineseAssetReport(content: string): LongProjectAssetExtractionCan
     if (pendingStateFields.tags?.length && !state.tags) state.tags = pendingStateFields.tags
     pendingStateFields = {}
   }
-  const flush = () => {
-    if (current && currentType) {
-      // 前导字段未被任何标题消费：落到默认状态，避免数据丢失
-      if (pendingStateFields.description || pendingStateFields.imagePrompt || pendingStateFields.tags?.length) {
-        applyPendingFields(getOrCreateState(current, '默认状态'))
-      }
-      result.push({ ...current, content: contentLines.join('\n').trim() })
-    }
-    current = undefined
-    currentState = undefined
-    contentLines = []
-    pendingStateFields = {}
-  }
   for (const rawLine of content.replace(/\r/g, '').split('\n')) {
     const line = rawLine.trim()
-    const heading = line.match(/^#\s+(.+)$/)
-    if (heading) { flush(); currentType = typeFromHeading(heading[1]); continue }
-    const item = line.match(/^##\s+(.+)$/)
-    if (item && currentType) {
-      flush()
-      current = { id: uuidv4(), type: currentType, name: item[1].trim(), content: '', aliases: [], importance: 'major', description: '', evidence: [], attributes: {}, states: [], decision: 'create' }
-      continue
-    }
     // ### 视觉状态：xxx → 开启一个新状态块；同名状态已存在（如已按字段形式输出）时复用
     const stateHeading = line.match(/^###\s*(?:视觉状态|视觉版本)[：:]\s*(.+)$/)
-    if (stateHeading && current) {
-      currentState = getOrCreateState(current, stateHeading[1])
+    if (stateHeading) {
+      currentState = getOrCreateState(stateHeading[1])
       applyPendingFields(currentState)
-      contentLines.push(rawLine)
       continue
     }
-    if (current) contentLines.push(rawLine)
     const field = line.match(/^[-*]\s*([^：:]+)[：:]\s*(.*)$/)
-    if (!field || !current) continue
+    if (!field) continue
     const key = field[1].trim(); const value = field[2].trim()
-    if (key === '别名') current.aliases = splitValue(value)
-    else if (key === '原文依据') current.evidence = splitValue(value)
-    else if (key === '重要性') current.importance = value === '次要' || value === 'minor' ? 'minor' : 'major'
-    else if (key === '描述' || key === '资产描述') current.description = value
+    if (key === '别名') result.aliases = splitValue(value)
+    else if (key === '原文依据') result.evidence = splitValue(value)
+    else if (key === '重要性') result.importance = value === '次要' || value === 'minor' ? 'minor' : 'major'
+    else if (key === '描述' || key === '资产描述') result.description = value
     else if (key === '视觉状态' || key === '视觉版本') {
       // 兼容旧协议：单状态字段形式；同名状态已存在（如已有 ### 标题块）时复用，避免重复
-      currentState = getOrCreateState(current, value)
+      currentState = getOrCreateState(value)
       applyPendingFields(currentState)
     } else if (key === '视觉描述') {
       // 字段可能出现在状态标题之前（资产字段位置），缓冲待回填，避免丢失
@@ -142,7 +130,60 @@ function parseChineseAssetReport(content: string): LongProjectAssetExtractionCan
     } else if (key === '状态标签') {
       if (currentState) currentState.tags = splitValue(value)
       else pendingStateFields.tags = splitValue(value)
-    } else if (value) current.attributes = { ...current.attributes, [key]: value }
+    } else if (value) result.attributes = { ...result.attributes, [key]: value }
+  }
+  // 前导字段未被任何标题消费：落到默认状态，避免数据丢失
+  if (pendingStateFields.description || pendingStateFields.imagePrompt || pendingStateFields.tags?.length) {
+    applyPendingFields(getOrCreateState('默认状态'))
+  }
+  return result
+}
+
+/** 将候选资产的字段与视觉状态序列化为 Markdown 内容；供视觉状态弹窗编辑后回写资产信息。 */
+export function serializeCandidateContent(candidate: LongProjectAssetExtractionCandidate): string {
+  const lines: string[] = []
+  if (candidate.aliases.length) lines.push(`- 别名：${candidate.aliases.join('、')}`)
+  lines.push(`- 重要性：${candidate.importance === 'minor' ? '次要' : '主要'}`)
+  if (candidate.description) lines.push(`- 描述：${candidate.description}`)
+  if (candidate.evidence.length) lines.push(`- 原文依据：${candidate.evidence.join('、')}`)
+  for (const [key, value] of Object.entries(candidate.attributes ?? {})) {
+    if (Array.isArray(value)) { if (value.length) lines.push(`- ${key}：${value.join('、')}`) }
+    else if (value !== '' && value !== null && value !== undefined) lines.push(`- ${key}：${String(value)}`)
+  }
+  for (const state of getCandidateStates(candidate)) {
+    lines.push('', `### 视觉状态：${state.name.trim()}`)
+    if (state.description) lines.push(`- 视觉描述：${state.description}`)
+    if (state.tags?.length) lines.push(`- 状态标签：${state.tags.join('、')}`)
+    if (state.imagePrompt) lines.push(`- 绘画提示词：${state.imagePrompt}`)
+  }
+  return lines.join('\n')
+}
+
+function parseChineseAssetReport(content: string): LongProjectAssetExtractionCandidate[] {
+  let currentType: LongProjectAssetType | undefined
+  let currentName = ''
+  let contentLines: string[] = []
+  const result: LongProjectAssetExtractionCandidate[] = []
+  const flush = () => {
+    if (currentType && currentName) {
+      const body = contentLines.join('\n')
+      const parsed = parseCandidateContent(body)
+      result.push({
+        id: uuidv4(), type: currentType, name: currentName, content: body.trim(),
+        aliases: parsed.aliases, importance: parsed.importance ?? 'major', description: parsed.description,
+        evidence: parsed.evidence, attributes: parsed.attributes, states: parsed.states, decision: 'create',
+      })
+    }
+    currentName = ''
+    contentLines = []
+  }
+  for (const rawLine of content.replace(/\r/g, '').split('\n')) {
+    const line = rawLine.trim()
+    const heading = line.match(/^#\s+(.+)$/)
+    if (heading) { flush(); currentType = typeFromHeading(heading[1]); continue }
+    const item = line.match(/^##\s+(.+)$/)
+    if (item && currentType) { flush(); currentName = item[1].trim(); continue }
+    if (currentName) contentLines.push(rawLine)
   }
   flush()
   return result.filter((item) => item.name)
@@ -188,10 +229,32 @@ export function getCandidateStates(candidate: LongProjectAssetExtractionCandidat
   return candidate.visualVersion?.name.trim() ? [{ id: candidate.id, ...candidate.visualVersion, matchSource: 'new' }] : []
 }
 
-/** 状态名与项目已有视觉状态匹配：精确 → 归一化（去空格/大小写） */
-function matchExistingVariant(state: LongProjectExtractedState, asset: LongProjectAsset): string | undefined {
-  return asset.variants.find((variant) => variant.name.trim() === state.name.trim())?.id
-    ?? asset.variants.find((variant) => normalize(variant.name) === normalize(state.name))?.id
+/** 去掉常见分隔符的紧凑状态名，用于宽松匹配（如「少年期·布衣」→「少年期布衣」）。 */
+function compactName(value: string): string {
+  return normalize(value).replace(/[·・•\-—－~～_/|,，、;；:：.。()（）[\]【】]/g, '')
+}
+
+/**
+ * 状态与已有资产视觉状态的匹配：精确 → 归一化（去空格/大小写）→ 去分隔符 → 包含匹配（较短一侧至少 2 字）。
+ * 供提取解析与审核页编辑后重新归属使用。
+ */
+export function matchVariantForState(state: Pick<LongProjectExtractedState, 'name'>, asset: LongProjectAsset): string | undefined {
+  const rawName = state.name.trim()
+  if (!rawName) return undefined
+  const exact = asset.variants.find((variant) => variant.name.trim() === rawName)
+  if (exact) return exact.id
+  const norm = normalize(rawName)
+  const normalized = asset.variants.find((variant) => normalize(variant.name) === norm)
+  if (normalized) return normalized.id
+  const compact = compactName(rawName)
+  if (!compact) return undefined
+  const compactMatch = asset.variants.find((variant) => compactName(variant.name) === compact)
+  if (compactMatch) return compactMatch.id
+  if (compact.length < 2) return undefined
+  return asset.variants.find((variant) => {
+    const variantCompact = compactName(variant.name)
+    return variantCompact.length >= 2 && (variantCompact.includes(compact) || compact.includes(variantCompact))
+  })?.id
 }
 
 export function parseAssetExtractionResponse(content: string, existingAssets: LongProjectAsset[]): LongProjectAssetExtractionCandidate[] {
@@ -205,24 +268,84 @@ export function parseAssetExtractionResponse(content: string, existingAssets: Lo
     if (!asset) return { ...candidate, suggestedAssetId, decision: 'merge' }
     // 状态级匹配：模型沿用了已有状态名时标记归属，避免确认时新建重复状态
     const states = getCandidateStates(candidate).map((state) => {
-      const suggestedVariantId = matchExistingVariant(state, asset)
+      const suggestedVariantId = matchVariantForState(state, asset)
       return suggestedVariantId ? { ...state, suggestedVariantId, matchSource: 'model' as const } : state
     })
     return { ...candidate, suggestedAssetId, decision: 'merge', states }
   })
 }
 
-export function buildAssetExtractionPrompt(templateContent: string, chapterContent: string, existingAssets: LongProjectAsset[] = []): string {
+/** 资产提取提示词的管线上下文：新管线下汇总原文分析、剧本与分镜概要。 */
+export interface AssetExtractionContext {
+  /** 原文分析文档内容（管线第一环节产物） */
+  analysis?: string
+  /** 漫画剧本文档内容（管线第二环节产物） */
+  script?: string
+  /** 分镜概要（每镜一行剧情提要） */
+  panelsOutline?: string
+  /** 项目已有资产，用于状态名沿用与归属建议 */
+  existingAssets?: LongProjectAsset[]
+}
+
+/**
+ * 组装"资产提取"提示词：原文 + 原文分析 + 漫画剧本 + 分镜概要 + 已有资产上下文。
+ * 分镜概要告诉模型"哪些东西真的会被画出来、出现了几次"，辅助判断是否建立资产。
+ */
+export function buildAssetExtractionPrompt(templateContent: string, chapterContent: string, context: AssetExtractionContext = {}): string {
   const template = templateContent.includes('{{chapter_content}}')
     ? templateContent.replace(/\{\{chapter_content\}\}/g, chapterContent)
     : `${templateContent}\n\n【章节原文】\n${chapterContent}`
+  const existingAssets = context.existingAssets ?? []
+  const sections: string[] = []
+  if (context.analysis?.trim()) sections.push(`【原文分析】\n${context.analysis}`)
+  if (context.script?.trim()) sections.push(`【漫画剧本】\n${context.script}`)
+  if (context.panelsOutline?.trim()) sections.push(`【本章分镜概要（已确定会被绘制的画面）】\n${context.panelsOutline}`)
   const assetContext = existingAssets.length
     ? `\n\n【项目已有资产】\n${existingAssets.map((asset) => {
         const states = asset.variants.map((variant) => variant.name).join('、') || '无'
         return `- ${asset.name}（${asset.type === 'character' ? '人物' : asset.type === 'scene' ? '场景' : '道具'}；已有视觉状态：${states}）`
       }).join('\n')}\n规则：资产已存在且本章外观未变化时，视觉状态名必须与已有状态名完全一致；仅当原文出现明确外观变化时才新建视觉状态。\n`
     : ''
-  return `${template}${assetContext}\n\n【系统固定输出协议】\n只输出中文 Markdown，不要解释、代码块或 JSON。\n一级标题只能是 # 人物、# 场景、# 道具；没有该类资产则不输出该标题。\n每项资产必须以 ## 资产名称 开始；其余信息每行写为 - 属性名：属性内容。\n每个视觉状态必须以 ### 视觉状态：状态名 单独成块，块内使用字段：视觉描述、状态标签、绘画提示词；同一资产可输出多个视觉状态。\n系统识别字段：姓名、别名、重要性（主要/次要）、描述、原文依据、视觉描述、状态标签、绘画提示词；视觉状态只能通过 ### 视觉状态：状态名 标题声明，不要以字段形式重复输出。\n除系统识别字段外，你可根据模板规则自由输出中文属性，例如门派、身份关系、境界、材质、时代、氛围。\n视觉状态表示该资产在当前剧情中的稳定外观或形态，如“少年期·布衣”“宗门弟子服”“战损”；正面、侧面、背面属于同一状态的参考图，不要单列为状态。\n只基于原文明确内容，不要编造。`
+  return `${template}${sections.length ? `\n\n${sections.join('\n\n')}` : ''}${assetContext}\n\n【系统固定输出协议】\n只输出中文 Markdown，不要解释、代码块或 JSON。\n一级标题只能是 # 人物、# 场景、# 道具；没有该类资产则不输出该标题。\n每项资产必须以 ## 资产名称 开始；其余信息每行写为 - 属性名：属性内容。\n每个视觉状态必须以 ### 视觉状态：状态名 单独成块，块内使用字段：视觉描述、状态标签、绘画提示词；同一资产可输出多个视觉状态。\n系统识别字段：姓名、别名、重要性（主要/次要）、描述、原文依据、视觉描述、状态标签、绘画提示词；视觉状态只能通过 ### 视觉状态：状态名 标题声明，不要以字段形式重复输出。\n除系统识别字段外，你可根据模板规则自由输出中文属性，例如门派、身份关系、境界、材质、时代、氛围。\n视觉状态表示该资产在当前剧情中的稳定外观或形态，如“少年期·布衣”“宗门弟子服”“战损”；正面、侧面、背面属于同一状态的参考图，不要单列为状态。\n只基于原文明确内容，不要编造。\n判断资产价值时参考分镜概要：在多个分镜中出现、或承载关键剧情/镜头重点的应提取；只出现一次且无辨识要求的不要提取。`
+}
+
+/**
+ * 批量统计候选资产在分镜中的出现数（确定性计算，不依赖模型）：
+ * 对每个分镜的扫描文本（画面+对白+旁白+提示词）做长名优先、命中区间消费的名称匹配，
+ * 按分镜计数（出现在 N 个分镜中），返回 候选 id → 分镜数。
+ */
+export function countCandidatesAppearances(
+  candidates: Array<Pick<LongProjectAssetExtractionCandidate, 'id' | 'name' | 'aliases'>>,
+  panels: LongProjectStoryboardPanel[],
+): Record<string, number> {
+  const counts: Record<string, number> = {}
+  if (!panels.length) return counts
+  // 名称索引：候选名 + 全部别名（≥2 字），长名优先
+  const entries = candidates
+    .flatMap((candidate) => [candidate.name, ...(candidate.aliases ?? [])]
+      .map((name) => name.trim())
+      .filter((name) => name.length >= 2)
+      .map((name) => ({ name, candidateId: candidate.id })))
+    .sort((a, b) => b.name.length - a.name.length)
+  if (!entries.length) return counts
+  for (const panel of panels) {
+    const text = [panel.content, panel.dialogue, panel.narration, panel.imagePrompt].filter(Boolean).join('\n')
+    if (!text) continue
+    const spans: Array<{ start: number; end: number; candidateId: string }> = []
+    for (const entry of entries) {
+      let searchFrom = 0
+      for (;;) {
+        const pos = text.indexOf(entry.name, searchFrom)
+        if (pos < 0) break
+        searchFrom = pos + entry.name.length
+        // 与更长名称的命中区间重叠时跳过，避免"小雨"误吃"小雨伞"
+        if (spans.some(({ start, end }) => pos < end && pos + entry.name.length > start)) continue
+        spans.push({ start: pos, end: pos + entry.name.length, candidateId: entry.candidateId })
+      }
+    }
+    for (const { candidateId } of spans) counts[candidateId] = (counts[candidateId] ?? 0) + 1
+  }
+  return counts
 }
 
 export async function extractChapterAssets(options: {
@@ -230,10 +353,25 @@ export async function extractChapterAssets(options: {
   template: PromptTemplate
   chapterContent: string
   existingAssets: LongProjectAsset[]
+  /** 新管线上下文：原文分析 / 剧本 / 分镜（用于提示词与出现次数统计） */
+  analysis?: string
+  script?: string
+  panels?: LongProjectStoryboardPanel[]
   prompt?: string
 }) {
-  const prompt = options.prompt ?? buildAssetExtractionPrompt(options.template.content, options.chapterContent, options.existingAssets)
+  const prompt = options.prompt ?? buildAssetExtractionPrompt(options.template.content, options.chapterContent, {
+    analysis: options.analysis,
+    script: options.script,
+    panelsOutline: options.panels?.length ? options.panels.map((panel) => `分镜${panel.order}：${panel.content}`).join('\n') : undefined,
+    existingAssets: options.existingAssets,
+  })
   const result = await llmService.call({ modelConfig: options.model, userMessage: prompt })
   if (!result.success || !result.content) throw new Error(result.error || '模型没有返回内容')
-  return { rawResponse: result.content, candidates: parseAssetExtractionResponse(result.content, options.existingAssets) }
+  const candidates = parseAssetExtractionResponse(result.content, options.existingAssets)
+  // 确定性统计每个候选在本章分镜文本中的出现数，供审核页参考重要性
+  if (options.panels?.length) {
+    const counts = countCandidatesAppearances(candidates, options.panels)
+    for (const candidate of candidates) candidate.panelAppearances = counts[candidate.id] ?? 0
+  }
+  return { rawResponse: result.content, candidates }
 }

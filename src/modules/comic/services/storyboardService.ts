@@ -2,19 +2,19 @@ import { v4 as uuidv4 } from 'uuid'
 import type { LongProjectAsset, LongProjectStoryboardAssetBinding, LongProjectStoryboardPanel, ModelConfig, PromptTemplate } from '@comic/types'
 import { llmService } from './llmService'
 
-function assetContext(assets: LongProjectAsset[]): string {
-  if (!assets.length) return '当前项目资产库为空。'
-  return assets.map((asset) => {
-    const states = asset.variants.map((variant) => variant.name).join('、') || '默认状态'
-    return `- ${asset.name}（${asset.type}；可用视觉状态：${states}）`
-  }).join('\n')
-}
-
-export function buildStoryboardPrompt(templateContent: string, chapterContent: string, assets: LongProjectAsset[]): string {
-  const template = templateContent.includes('{{chapter_content}}')
-    ? templateContent.replace(/\{\{chapter_content\}\}/g, chapterContent)
-    : `${templateContent}\n\n【章节原文】\n${chapterContent}`
-  return `${template}\n\n【项目资产库】\n${assetContext(assets)}\n\n【系统固定输出协议】\n只输出中文 Markdown，不要解释、代码块或 JSON。每个分镜以 ## 分镜 N 开始；其余信息每行写为 - 属性名：内容。\n每个分镜必须有：画面、镜头、出场资产。画面要完整具体，内容较长时可换行续写（续行不要重复“- 画面：”前缀）。出场资产格式为“资产名称（视觉状态）”，多个资产用顿号分隔；仅引用项目资产库中存在的名称和状态。\n可选填写：绘画提示词、对白、旁白。按重要剧情拆分，避免复述全部原文。`
+/**
+ * 组装"分镜生成"提示词：漫画剧本（主输入）+ 原文分析（辅助上下文）+ 分镜规则模板。
+ * 新管线下分镜不再依赖资产库绑定；资产绑定在资产提取确认后按文本自动回填。
+ */
+export function buildStoryboardPrompt(templateContent: string, scriptContent: string, analysis?: string): string {
+  let template = templateContent
+  const appended: string[] = []
+  if (/\{\{script_content\}\}/.test(template)) template = template.replace(/\{\{script_content\}\}/g, scriptContent)
+  else appended.push(`【漫画剧本】\n${scriptContent}`)
+  if (/\{\{analysis\}\}/.test(template)) template = template.replace(/\{\{analysis\}\}/g, analysis ?? '（本章尚未生成原文分析）')
+  else if (analysis?.trim()) appended.push(`【原文分析（辅助上下文）】\n${analysis}`)
+  const body = appended.length ? `${template}\n\n${appended.join('\n\n')}` : template
+  return `${body}\n\n【系统固定输出协议】\n只输出中文 Markdown，不要解释、代码块或 JSON。每个分镜以 ## 分镜 N 开始；其余信息每行写为 - 属性名：内容。\n每个分镜必须有：画面、镜头。画面要完整具体，内容较长时可换行续写（续行不要重复“- 画面：”前缀）。\n可选填写：绘画提示词、对白、旁白。按剧本场景拆分镜头：一个场景拆成 3~8 个镜头，重要动作给独立镜头，重要道具首次出现可用特写，对白镜头考虑正反打，高潮处适当增加镜头密度，保持人物空间关系连续。`
 }
 
 function findAsset(name: string, assets: LongProjectAsset[]) { return assets.find((asset) => [asset.name, ...asset.aliases].some((item) => item.trim() === name.trim())) }
@@ -85,9 +85,14 @@ export function parseStoryboardResponse(content: string, assets: LongProjectAsse
   return panels
 }
 
-export async function generateStoryboard(options: { model: ModelConfig; template: PromptTemplate; chapterContent: string; assets: LongProjectAsset[]; chapterId: string; chapterOrders: Record<string, number>; prompt?: string }) {
-  const prompt = options.prompt ?? buildStoryboardPrompt(options.template.content, options.chapterContent, options.assets)
+/**
+ * 生成分镜：剧本为主输入、原文分析为辅助上下文。
+ * prompt 为 PromptRunBar 组装好的最终提示词（优先）；未提供时用 template + 输入现场组装。
+ * assets 仅用于解析旧模板仍输出"出场资产"行时的绑定回填（新管线传空数组即可）。
+ */
+export async function generateStoryboard(options: { model: ModelConfig; template?: PromptTemplate; scriptContent: string; analysis?: string; assets?: LongProjectAsset[]; chapterId: string; chapterOrders: Record<string, number>; prompt?: string }) {
+  const prompt = options.prompt ?? buildStoryboardPrompt(options.template?.content ?? '', options.scriptContent, options.analysis)
   const result = await llmService.call({ modelConfig: options.model, userMessage: prompt })
   if (!result.success || !result.content) throw new Error(result.error || '模型没有返回内容')
-  return { rawResponse: result.content, panels: parseStoryboardResponse(result.content, options.assets, options.chapterId, options.chapterOrders) }
+  return { rawResponse: result.content, panels: parseStoryboardResponse(result.content, options.assets ?? [], options.chapterId, options.chapterOrders) }
 }

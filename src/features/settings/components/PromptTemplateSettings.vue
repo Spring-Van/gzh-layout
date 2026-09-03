@@ -98,7 +98,7 @@
           </span>
         </label>
         <label class="block text-xs text-text-secondary">
-          <span class="mb-1.5 flex items-center justify-between gap-3"><span>提示词内容</span><button v-if="form.type === 'extract'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedExtractionTemplate">填入推荐资产提取模板</button><button v-else-if="form.type === 'storyboard'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedStoryboardTemplate">填入推荐分镜模板</button><button v-else-if="form.type === 'asset-prompt'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedAssetPromptTemplate">填入推荐资产绘画提示词模板</button><button v-else-if="form.type === 'panel-prompt'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedPanelPromptTemplate">填入推荐分镜画面描述模板</button></span>
+          <span class="mb-1.5 flex items-center justify-between gap-3"><span>提示词内容</span><button v-if="form.type === 'extract'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedExtractionTemplate">填入推荐资产提取模板</button><button v-else-if="form.type === 'analysis'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedAnalysisTemplate">填入推荐原文分析模板</button><button v-else-if="form.type === 'script'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedScriptTemplate">填入推荐漫画剧本模板</button><button v-else-if="form.type === 'storyboard'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedStoryboardTemplate">填入推荐分镜模板</button><button v-else-if="form.type === 'asset-prompt'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedAssetPromptTemplate">填入推荐资产绘画提示词模板</button><button v-else-if="form.type === 'panel-prompt'" type="button" class="text-cyan-400 hover:text-cyan-300" @click="applyRecommendedPanelPromptTemplate">填入推荐分镜画面描述模板</button></span>
           <textarea
             v-model="form.content"
             rows="7"
@@ -127,6 +127,7 @@ import { onMounted, reactive, ref } from 'vue';
 import { v4 as uuidv4 } from 'uuid';
 import { Copy, GripVertical, Pencil, Trash2 } from 'lucide-vue-next';
 import { comicDb } from '@/api/comic';
+import { DEFAULT_ANALYSIS_TEMPLATE, DEFAULT_SCRIPT_TEMPLATE } from '@comic/services/chapterDocService';
 import type { PromptTemplate, TemplateType } from '@comic/types';
 import IconButton from './SettingsIconButton.vue';
 import SettingsFieldInput from './SettingsFieldInput.vue';
@@ -143,6 +144,8 @@ const recommendedAssetOutputProtocol = `只输出中文，不要解释、不要�
 const typeOptions: Array<{ value: TemplateType; label: string }> = [
   { value: 'style', label: '风格模板' },
   { value: 'extract', label: '资产提取模板' },
+  { value: 'analysis', label: '原文分析模板' },
+  { value: 'script', label: '漫画剧本模板' },
   { value: 'story', label: '故事模板' },
   { value: 'storyboard', label: '分镜模板' },
   { value: 'asset-prompt', label: '资产绘画提示词模板' },
@@ -232,7 +235,7 @@ const recommendedPanelPromptPrompt = `你是一名专业的漫画分镜画面描
 - 输出为一段完整、连贯的中文描述。`;
 
 function typeLabel(type: TemplateType): string {
-  return ({ style: '风格', extract: '资产提取', story: '故事', storyboard: '分镜', 'asset-prompt': '资产绘画提示词', 'panel-prompt': '分镜画面描述' })[type] ?? type;
+  return ({ style: '风格', extract: '资产提取', analysis: '原文分析', script: '漫画剧本', story: '故事', storyboard: '分镜', 'asset-prompt': '资产绘画提示词', 'panel-prompt': '分镜画面描述' })[type] ?? type;
 }
 
 async function load() {
@@ -249,6 +252,18 @@ function applyRecommendedExtractionTemplate() {
   form.name = form.name.trim() || '长篇章节资产提取';
   form.description = form.description.trim() || '从章节原文中识别人物、场景、道具，并输出可审核的结构化资产。';
   form.content = recommendedExtractionPrompt;
+}
+
+function applyRecommendedAnalysisTemplate() {
+  form.name = form.name.trim() || '长篇章节原文分析';
+  form.description = form.description.trim() || '通读章节原文，结构化输出人物/场景/道具/事件/时间线/关系/对白/情绪/重要视觉信息。';
+  form.content = DEFAULT_ANALYSIS_TEMPLATE;
+}
+
+function applyRecommendedScriptTemplate() {
+  form.name = form.name.trim() || '长篇章节漫画剧本';
+  form.description = form.description.trim() || '基于章节原文与原文分析，按场景改编为漫画剧本。';
+  form.content = DEFAULT_SCRIPT_TEMPLATE;
 }
 
 function applyRecommendedStoryboardTemplate() {

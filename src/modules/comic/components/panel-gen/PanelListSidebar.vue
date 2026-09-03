@@ -9,9 +9,10 @@
       <button
         v-for="(item, index) in items"
         :key="item.panel.id"
-        class="group mb-1 flex w-full items-start gap-2 rounded-lg border p-2 text-left transition-colors"
+        class="mb-1 flex w-full cursor-context-menu items-start gap-2 rounded-lg border p-2 text-left transition-colors"
         :class="index === currentIndex ? 'border-cyan-500/40 bg-cyan-500/10' : 'border-transparent hover:bg-app-bg'"
         @click="$emit('select', index)"
+        @contextmenu.prevent="$emit('contextmenu', { event: $event, panel: item.panel })"
       >
         <span class="w-5 shrink-0 pt-0.5 text-center text-[11px] font-medium" :class="index === currentIndex ? 'text-cyan-400' : 'text-text-muted'">{{ item.panel.order }}</span>
 
@@ -28,16 +29,6 @@
             <span class="text-[10px]" :class="statusTextClass(item)">{{ statusLabel(item) }}</span>
           </span>
         </span>
-
-        <!-- hover 显示的单镜推导快捷按钮：不打断选中点击 -->
-        <span
-          class="group-hover:flex hidden shrink-0 items-center"
-          :title="item.artwork?.promptStatus === 'running' ? '正在推导' : '单独推导该分镜的画面描述'"
-          @click.stop="$emit('infer', index)"
-        >
-          <LoaderCircle v-if="item.artwork?.promptStatus === 'running'" :size="13" class="animate-spin text-cyan-400" />
-          <Sparkles v-else :size="13" class="text-text-muted hover:text-cyan-400" />
-        </span>
       </button>
 
       <p v-if="!items.length" class="px-2 py-6 text-center text-xs text-text-muted">本章暂无分镜</p>
@@ -48,9 +39,10 @@
 <script setup lang="ts">
 /**
  * 分镜生图工作台左栏：分镜列表 + 推导/成图状态角标。
+ * 右键分镜触发 contextmenu 事件（合并/拆分/复制等操作由父级菜单承载）。
  */
 import { computed } from 'vue'
-import { ImageIcon, LoaderCircle, Sparkles } from 'lucide-vue-next'
+import { ImageIcon, LoaderCircle } from 'lucide-vue-next'
 import type { LongProjectPanelArtwork, LongProjectStoryboardPanel } from '@comic/types'
 
 export interface PanelListItem {
@@ -62,7 +54,7 @@ const props = defineProps<{ items: PanelListItem[]; currentIndex: number }>()
 
 defineEmits<{
   (e: 'select', index: number): void
-  (e: 'infer', index: number): void
+  (e: 'contextmenu', payload: { event: MouseEvent; panel: LongProjectStoryboardPanel }): void
 }>()
 
 const describedCount = computed(() => props.items.filter((item) => item.artwork?.imagePrompt?.trim()).length)

@@ -26,7 +26,24 @@ type StateCard = { entry: LongProjectChapterAsset; asset: LongProjectAsset; vari
 const props = defineProps<{ entries: LongProjectChapterAsset[]; assets: LongProjectAsset[] }>();
 const meta = { character: { label: '人物', icon: UserRound, tone: 'text-cyan-400' }, scene: { label: '场景', icon: MapPin, tone: 'text-emerald-400' }, prop: { label: '道具', icon: Package, tone: 'text-amber-400' } };
 /** 将章节资产引用解析为「资产 × 视觉状态」卡片；展示 AI 生成图（generatedImageIds），无状态的资产也生成一张默认卡 */
-const resolved = computed<StateCard[]>(() => { const cards: StateCard[] = []; for (const entry of props.entries) { const asset = props.assets.find(item => item.id === entry.assetId); if (!asset) continue; if (asset.variants.length) asset.variants.forEach(variant => cards.push({ entry, asset, variant, images: (variant.generatedImageIds ?? []).filter(isImageSource) })); else cards.push({ entry, asset, images: [] }); } return cards });
+const resolved = computed<StateCard[]>(() => {
+  const cards: StateCard[] = [];
+  const seen = new Set<string>();
+  for (const entry of props.entries) {
+    const asset = props.assets.find(item => item.id === entry.assetId);
+    if (!asset) continue;
+    // 引用指定了状态时只展示该状态；未指定（旧数据）时展示资产全部状态
+    const variants = entry.variantId ? asset.variants.filter(variant => variant.id === entry.variantId) : asset.variants;
+    const list = variants.length ? variants : [undefined];
+    for (const variant of list) {
+      const key = `${asset.id}:${variant?.id ?? ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      cards.push({ entry, asset, variant, images: variant ? (variant.generatedImageIds ?? []).filter(isImageSource) : [] });
+    }
+  }
+  return cards;
+});
 const groups = computed(() => (Object.keys(meta) as LongProjectAssetType[]).map(type => ({ type, ...meta[type], items: resolved.value.filter(item => item.asset.type === type) })));
 function isImageSource(value: string) { return /^(https?:|data:|blob:|file:|\/)/i.test(value) }
 

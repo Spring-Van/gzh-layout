@@ -49,7 +49,7 @@ export interface ImageGenConfig {
 export type ComicProjectType = 'short' | 'long'
 
 export type LongProjectNodeType = 'folder' | 'chapter'
-export type LongChapterStage = 'empty' | 'source-ready' | 'assets-ready' | 'storyboard-ready' | 'prompts-ready' | 'completed'
+export type LongChapterStage = 'empty' | 'source-ready' | 'analysis-ready' | 'script-ready' | 'assets-ready' | 'storyboard-ready' | 'prompts-ready' | 'completed'
 export type LongProjectAssetType = 'character' | 'scene' | 'prop'
 export type AssetAttributeValueType = 'text' | 'tags' | 'number' | 'select'
 
@@ -124,6 +124,30 @@ export interface LongProjectChapterAsset {
 export type AssetExtractionCandidateDecision = 'pending' | 'create' | 'merge' | 'ignore'
 export type AssetExtractionRunStatus = 'running' | 'completed' | 'failed' | 'confirmed'
 
+/**
+ * 章节级 AI 文档（原文分析 / 漫画剧本）：每章一份，可编辑，作为后续环节的上下文输入。
+ * sourceContent 记录生成时的原文快照，用于检测"原文已变更"。
+ */
+export type ChapterDocKind = 'analysis' | 'script'
+
+export interface LongProjectChapterDoc {
+  id: string
+  chapterId: string
+  /** 当前内容（Markdown，可编辑） */
+  content: string
+  modelId: string
+  templateId: string
+  /** 实际发送的最终提示词快照（发送前确认可修改） */
+  prompt: string
+  /** 生成时的章节原文快照，用于检测原文已变更 */
+  sourceContent: string
+  sourceWordCount: number
+  status: 'running' | 'completed' | 'failed'
+  error?: string
+  createdAt: number
+  updatedAt: number
+}
+
 /** 单次提取出的一个视觉状态候选，含与项目已有状态的匹配建议。 */
 export interface LongProjectExtractedState {
   id: string
@@ -159,6 +183,8 @@ export interface LongProjectAssetExtractionCandidate {
   attributes?: Record<string, string | string[] | number>
   suggestedAssetId?: string
   decision: AssetExtractionCandidateDecision
+  /** 该候选（名称/别名）在本章分镜文本中出现的分镜数，确定性计算，供审核页参考重要性。 */
+  panelAppearances?: number
 }
 
 export interface LongProjectStoryboardAssetBinding {
@@ -316,6 +342,10 @@ export interface LongProjectData {
   assetPromptRuns?: AssetPromptRun[]
   /** 资产生图配置（项目级默认） */
   assetGenConfig?: AssetGenConfig
+  /** 每章一份的原文分析文档（管线第一环节产物） */
+  chapterAnalyses?: LongProjectChapterDoc[]
+  /** 每章一份的漫画剧本文档（管线第二环节产物） */
+  chapterScripts?: LongProjectChapterDoc[]
 }
 
 export interface ComicProject {
@@ -387,7 +417,7 @@ export interface OpenAIImageParams {
   compatibleMode?: boolean
 }
 
-export type TemplateType = 'style' | 'extract' | 'story' | 'storyboard' | 'asset-prompt' | 'panel-prompt'
+export type TemplateType = 'style' | 'extract' | 'story' | 'storyboard' | 'asset-prompt' | 'panel-prompt' | 'analysis' | 'script'
 
 export interface PromptTemplate {
   id: string
