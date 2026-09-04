@@ -82,7 +82,7 @@
             @run="(prompt) => emit('run', prompt)"
           />
         </div>
-        <button class="primary-button ms-auto shrink-0 px-4" title="进入分镜生图工作台（无剧本时将以原文兜底生成）" @click="emit('open-panel-gen')">进入分镜生图<ArrowRight :size="15" /></button>
+        <button class="primary-button ms-auto shrink-0 px-4" title="进入分镜页签（无剧本时将以原文兜底生成）" @click="emit('open-panel-gen')">进入分镜<ArrowRight :size="15" /></button>
       </div>
     </section>
   </div>
@@ -92,7 +92,7 @@
 /**
  * 长篇章节「剧本」页签：左列只读章节原文，右列为 AI 漫画剧本（Markdown 预览 ⇋ 编辑）。
  * 剧本 = 原文 + 原文分析 + 剧本规则；分析缺失时黄条提示并以原文兜底。
- * 底部提供「进入分镜生图」入口（跳转生图工作台）。
+ * 底部提供「进入分镜」入口（切换到主页面分镜页签）。
  */
 import { computed, ref, watch } from "vue";
 import { ArrowRight, FileText, LoaderCircle, Pencil, ScrollText, TriangleAlert } from "lucide-vue-next";

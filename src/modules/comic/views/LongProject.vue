@@ -78,14 +78,20 @@
       </section>
 
       <section v-else class="flex h-full flex-col">
-        <div class="shrink-0 border-b border-border-subtle bg-surface px-6 pt-4">
-          <nav class="flex gap-6" aria-label="章节创作阶段">
-            <button v-for="tab in chapterTabs" :key="tab.key" class="border-b-2 px-0.5 pb-2.5 text-sm transition-colors" :class="activeTab === tab.key ? 'border-cyan-400 text-cyan-400' : 'border-transparent text-text-muted hover:text-text-primary'" @click="activeTab = tab.key">{{ tab.label }}</button>
-          </nav>
+        <!-- 顶栏：左侧三个按钮页签（原文/剧本/分镜），右侧为分镜 tab 的操作按钮区（由分镜 tab Teleport 注入） -->
+        <div class="shrink-0 border-b border-border-subtle bg-surface px-6">
+          <div class="flex h-12 items-center justify-between gap-4">
+            <nav class="flex shrink-0 gap-1" aria-label="章节创作阶段">
+              <button v-for="tab in chapterTabs" :key="tab.key" class="flex h-7 items-center gap-1.5 rounded-lg px-3 text-xs transition-colors" :class="activeTab === tab.key ? 'bg-cyan-500/15 text-cyan-400' : 'text-text-muted hover:bg-app-bg hover:text-text-secondary'" @click="setActiveTab(tab.key)">
+                <component :is="tab.icon" :size="13" />{{ tab.label }}
+              </button>
+            </nav>
+            <div v-show="activeTab === 'storyboard'" id="storyboard-actions" class="flex min-w-0 items-center gap-2" />
+          </div>
         </div>
 
         <LongProjectSourceTab
-          v-if="activeTab === 'source'"
+          v-show="activeTab === 'source'"
           v-model:draft="draftContent"
           v-model:model-id="selectedModelByKind.analysis"
           v-model:template-id="selectedTemplateByKind.analysis"
@@ -99,7 +105,7 @@
         />
 
         <LongProjectScriptTab
-          v-else
+          v-show="activeTab === 'script'"
           v-model:model-id="selectedModelByKind.script"
           v-model:template-id="selectedTemplateByKind.script"
           :source-content="draftContent"
@@ -111,6 +117,19 @@
           @run="runScript"
           @save-script="saveScript"
           @open-panel-gen="openPanelGen"
+        />
+
+        <!-- 分镜 tab：首次进入时挂载，之后常驻（批量推导/生图切页签不中断） -->
+        <LongProjectStoryboardTab
+          v-if="storyboardOpened"
+          v-show="activeTab === 'storyboard'"
+          :project-id="projectId"
+          :chapter-id="selectedChapterId ?? ''"
+          :project="project"
+          :models="models"
+          :templates="promptTemplates"
+          :mutate-long-project-data="mutateLongProjectData"
+          @image-config-saved="loadProject"
         />
       </section>
     </main>
@@ -132,14 +151,15 @@
 
 <script setup lang="ts">
 /**
- * 长篇项目主页面：侧栏章节树 + 资产库树；正文区只有「原文｜剧本」两个页签。
- * 原文页签 = 原文编辑 + AI 原文分析；剧本页签 = 原文只读 + AI 漫画剧本。
- * 分镜与资产环节迁至生图工作台（/comic/panel-gen）。
+ * 长篇项目主页面：侧栏章节树 + 资产库树；正文区「原文｜剧本｜分镜」三个页签。
+ * 原文页签 = 原文编辑 + AI 原文分析；剧本页签 = 原文只读 + AI 漫画剧本；
+ * 分镜页签 = 分镜生图工作台（含资产），由 LongProjectStoryboardTab 承载，
+ * 其顶部操作按钮经 Teleport 注入页签行右侧 #storyboard-actions 容器。
  */
 import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { v4 as uuidv4 } from "uuid";
-import { ArrowLeft, ArrowRight, Boxes, FileImage, FilePlus2, FileText, FolderPlus, ListTree, PanelLeftClose, PanelLeftOpen, Pencil, ScanText, ScrollText, Trash2, Workflow } from "lucide-vue-next";
+import { ArrowLeft, ArrowRight, Boxes, Clapperboard, FileImage, FilePlus2, FileText, FolderPlus, ListTree, PanelLeftClose, PanelLeftOpen, Pencil, ScanText, ScrollText, Trash2, Workflow } from "lucide-vue-next";
 import { comicDb } from "@/api/comic";
 import ConfirmDialog from "@comic/components/ConfirmDialog.vue";
 import LongProjectNodeDialog from "@comic/components/LongProjectNodeDialog.vue";
@@ -148,6 +168,7 @@ import LongProjectAssetLibraryTree, { type AssetLibraryCategory } from "@comic/c
 import LongProjectAssetLibrary from "@comic/components/LongProjectAssetLibrary.vue";
 import LongProjectSourceTab from "@comic/components/LongProjectSourceTab.vue";
 import LongProjectScriptTab from "@comic/components/LongProjectScriptTab.vue";
+import LongProjectStoryboardTab from "@comic/components/LongProjectStoryboardTab.vue";
 import { useToast } from "@comic/composables/useToast";
 import { useLongProjectPersistence } from "@comic/composables/useLongProjectPersistence";
 import { useChapterDocRun } from "@comic/composables/useChapterDocRun";
@@ -167,7 +188,9 @@ const expandedFolders = ref(new Set<string>());
 const selectedChapterId = ref<string | null>(null);
 const selectedAssetCategory = ref<AssetLibraryCategory | null>(null);
 const draftContent = ref("");
-const activeTab = ref<"source" | "script">("source");
+const activeTab = ref<"source" | "script" | "storyboard">("source");
+/** 分镜 tab 首次进入时才挂载（挂载后常驻，批量任务切页签不中断）。 */
+const storyboardOpened = ref(false);
 const models = ref<ModelConfig[]>([]);
 const promptTemplates = ref<PromptTemplate[]>([]);
 const nodeDialogVisible = ref(false);
@@ -210,9 +233,16 @@ const workflowSteps = [
   { title: "资产与生图", description: "固定视觉并绘制", icon: FileImage },
 ];
 const chapterTabs = [
-  { key: "source" as const, label: "原文" },
-  { key: "script" as const, label: "剧本" },
+  { key: "source" as const, label: "原文", icon: FileText },
+  { key: "script" as const, label: "剧本", icon: ScrollText },
+  { key: "storyboard" as const, label: "分镜", icon: Clapperboard },
 ];
+
+/** 切换创作阶段页签（分镜页签首次进入时挂载其组件）。 */
+const setActiveTab = (key: "source" | "script" | "storyboard") => {
+  activeTab.value = key;
+  if (key === "storyboard") storyboardOpened.value = true;
+};
 
 function sortNodes(a: LongProjectNode, b: LongProjectNode) { return a.order - b.order || a.createdAt - b.createdAt; }
 
@@ -273,13 +303,20 @@ const saveScript = (content: string) => {
   if (selectedChapter.value) void saveDocContent("script", selectedChapter.value.id, content);
 };
 
-/** 进入当前章节的分镜生图工作台。 */
+/** 剧本页签「进入分镜」：切换到分镜页签。 */
 const openPanelGen = () => {
-  if (selectedChapter.value) router.push(`/comic/panel-gen/${projectId}/${selectedChapter.value.id}`);
+  setActiveTab("storyboard");
 };
 
 const toggleFolder = (folderId: string) => { const next = new Set(expandedFolders.value); next.has(folderId) ? next.delete(folderId) : next.add(folderId); expandedFolders.value = next; };
-const selectChapter = async (chapter: LongProjectNode) => { if (isDirty.value) await saveCurrentChapter(false); selectedAssetCategory.value = null; selectedChapterId.value = chapter.id; draftContent.value = chapter.content ?? ""; activeTab.value = "source"; };
+const selectChapter = async (chapter: LongProjectNode) => {
+  if (isDirty.value) await saveCurrentChapter(false);
+  selectedAssetCategory.value = null;
+  selectedChapterId.value = chapter.id;
+  draftContent.value = chapter.content ?? "";
+  // 分镜页签内切换章节时保持页签，其余页签回到原文
+  if (activeTab.value !== "storyboard") activeTab.value = "source";
+};
 const selectAssetCategory = async (category: AssetLibraryCategory) => { if (isDirty.value) await saveCurrentChapter(false); selectedChapterId.value = null; selectedAssetCategory.value = category; };
 const openCreateDialog = (type: LongProjectNodeType, parentId: string | null) => { editingNode.value = null; nodeDialogType.value = type; nodeDialogParentId.value = parentId; nodeDialogVisible.value = true; contextMenu.value = null; };
 const openRenameDialog = (node: LongProjectNode) => { editingNode.value = node; nodeDialogType.value = node.type; nodeDialogParentId.value = node.parentId; contextMenu.value = null; nodeDialogVisible.value = true; };
@@ -367,41 +404,18 @@ onMounted(async () => {
     initDefaults(models.value, promptTemplates.value);
     // 异常恢复：页面刚加载时不可能有进行中的文档任务，残留 running 标记为失败
     await recoverInterrupted();
-    applyReturnQuery();
   } finally { loading.value = false; }
 });
 
 /**
- * keep-alive 激活（从生图工作台返回）时重载项目，
- * 合并另一页面在持久化队列外可能产生的数据变更。
+ * keep-alive 激活（从其他应用页面返回）时重载项目，
+ * 合并持久化队列之外可能产生的数据变更（如绘图配置直写）。
  */
 onActivated(async () => {
   if (loading.value) return;
   if (isDirty.value) await saveCurrentChapter(false);
   await loadProject();
 });
-
-/**
- * 应用工作台返回参数（?tab=script&chapter=xxx）：
- * 选中对应章节并停留在剧本页签。legacy ?tab=storyboard 映射到剧本页签。
- * 组件被 keep-alive 缓存，返回时 onMounted 不重跑，因此同时 watch route.query。
- */
-function applyReturnQuery() {
-  if (route.name !== "ComicLongProject" || route.params.projectId !== projectId) return;
-  const queryChapter = typeof route.query.chapter === "string" ? route.query.chapter : "";
-  if (queryChapter && queryChapter !== selectedChapterId.value) {
-    const chapter = nodes.value.find((node) => node.id === queryChapter);
-    if (chapter) {
-      if (isDirty.value) void saveCurrentChapter(false);
-      selectedAssetCategory.value = null;
-      selectedChapterId.value = chapter.id;
-      draftContent.value = chapter.content ?? "";
-    }
-  }
-  if (route.query.tab === "script" || route.query.tab === "storyboard") activeTab.value = "script";
-}
-
-watch(() => route.query, () => { if (route.name === "ComicLongProject") applyReturnQuery(); });
 </script>
 
 <style scoped>

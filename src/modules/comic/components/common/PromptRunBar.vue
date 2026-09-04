@@ -1,51 +1,21 @@
 <template>
-  <!-- 容器查询：宽度 ≥600px 平铺原始布局；不足时折叠为配置按钮 + 向上弹层 -->
-  <div class="@container flex w-full items-center gap-2">
-    <!-- 窄形态：配置按钮（模型 · 模板 摘要，点击向上弹出配置面板） -->
-    <div class="relative min-w-0 flex @min-[600px]:hidden">
+  <div ref="rootRef" class="flex w-full items-center gap-2">
+    <!-- 窄形态（可用宽度 < 600px）：配置按钮（模型 · 模板 摘要，点击弹层选择） -->
+    <div v-if="compact" class="relative min-w-0 flex">
       <button
         class="secondary-button h-9 min-w-0 max-w-full gap-1.5 px-3 text-xs"
         :class="missingConfig ? 'text-amber-300' : ''"
         :title="missingConfig ? '请选择大模型与提示词模板' : `${modelName} · ${templateName}`"
-        @click.stop="configOpen = !configOpen"
+        @click.stop="openConfig"
       >
         <SlidersHorizontal :size="14" class="shrink-0" :class="missingConfig ? 'text-amber-400' : 'text-cyan-400'" />
         <span class="truncate">{{ configSummary }}</span>
         <ChevronDown :size="13" class="shrink-0 text-text-muted transition-transform" :class="configOpen ? 'rotate-180' : ''" />
       </button>
-
-      <!-- 点击外部关闭 -->
-      <div v-if="configOpen" class="fixed inset-0 z-40" @click="configOpen = false" />
-      <Transition name="fade">
-        <div
-          v-if="configOpen"
-          class="absolute bottom-full left-0 z-50 mb-2 w-80 rounded-lg border border-border-subtle bg-surface p-3 shadow-xl shadow-black/25"
-          @click.stop
-        >
-          <label class="block">
-            <span class="mb-1 block text-[11px] text-text-muted">大模型</span>
-            <select class="run-select w-full" :value="modelId" @change="emit('update:modelId', ($event.target as HTMLSelectElement).value)">
-              <option value="" disabled>选择模型</option>
-              <option v-for="model in models" :key="model.id" :value="model.id">{{ model.name }}</option>
-            </select>
-          </label>
-          <label class="mt-2.5 block">
-            <span class="mb-1 block text-[11px] text-text-muted">提示词模板</span>
-            <select class="run-select w-full" :value="templateId" @change="emit('update:templateId', ($event.target as HTMLSelectElement).value)">
-              <option value="" disabled>选择提示词模板</option>
-              <option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }}</option>
-            </select>
-          </label>
-          <label class="mt-3 flex cursor-pointer items-center gap-2 text-xs text-text-secondary" title="执行前查看并编辑最终发送给模型的提示词">
-            <input v-model="confirmBeforeRun" type="checkbox" class="h-3.5 w-3.5 accent-cyan-400" @change="saveConfirmPreference" />
-            发送前确认
-          </label>
-        </div>
-      </Transition>
     </div>
 
-    <!-- 宽形态：模型 / 模板 / 发送前确认 平铺一行（原始布局） -->
-    <div class="hidden min-w-0 flex-1 items-center gap-3 @min-[600px]:flex">
+    <!-- 宽形态（可用宽度 ≥ 600px）：模型 / 模板 / 发送前确认 平铺一行 -->
+    <div v-else class="flex min-w-0 flex-1 items-center gap-3">
       <label class="h-9 w-44 min-w-32 max-w-60 grow">
         <span class="sr-only">选择模型</span>
         <select class="run-select" :value="modelId" @change="emit('update:modelId', ($event.target as HTMLSelectElement).value)">
@@ -74,21 +44,60 @@
 
     <!-- 发送前确认：可临时修改最终提示词 -->
     <PromptPreviewDialog :visible="previewVisible" :content="previewContent" @update:content="previewContent = $event" @confirm="handleConfirm" @close="previewVisible = false" />
+
+    <!-- 窄形态配置弹层：Teleport 到 body（逃离 overflow 裁剪），fixed 定位按按钮位置动态决定上/下弹 -->
+    <Teleport to="body">
+      <div v-if="configOpen" class="fixed inset-0 z-[60]" @click="configOpen = false" />
+      <Transition name="fade">
+        <div
+          v-if="configOpen"
+          class="fixed z-[70] w-80 rounded-lg border border-border-subtle bg-surface p-3 shadow-xl shadow-black/25"
+          :style="popStyle"
+          @click.stop
+        >
+          <label class="block">
+            <span class="mb-1 block text-[11px] text-text-muted">大模型</span>
+            <select class="run-select w-full" :value="modelId" @change="emit('update:modelId', ($event.target as HTMLSelectElement).value)">
+              <option value="" disabled>选择模型</option>
+              <option v-for="model in models" :key="model.id" :value="model.id">{{ model.name }}</option>
+            </select>
+          </label>
+          <label class="mt-2.5 block">
+            <span class="mb-1 block text-[11px] text-text-muted">提示词模板</span>
+            <select class="run-select w-full" :value="templateId" @change="emit('update:templateId', ($event.target as HTMLSelectElement).value)">
+              <option value="" disabled>选择提示词模板</option>
+              <option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }}</option>
+            </select>
+          </label>
+          <label class="mt-3 flex cursor-pointer items-center gap-2 text-xs text-text-secondary" title="执行前查看并编辑最终发送给模型的提示词">
+            <input v-model="confirmBeforeRun" type="checkbox" class="h-3.5 w-3.5 accent-cyan-400" @change="saveConfirmPreference" />
+            发送前确认
+          </label>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
 /**
- * AI 任务执行底栏（容器查询自适应）：
- * 宽度 ≥600px：大模型 + 提示词模板 + 发送前确认 平铺一行（原始布局）；
- * 宽度不足：折叠为「⚙ 模型 · 模板」配置按钮，点击向上弹层选择。
+ * AI 任务执行底栏（ResizeObserver 自适应）：
+ * 可用宽度 ≥600px：大模型 + 提示词模板 + 发送前确认 平铺一行（原始布局）；
+ * 宽度不足：折叠为「⚙ 模型 · 模板」配置按钮，点击弹层选择（Teleport 到 body 的 fixed 浮层，
+ * 按按钮位置动态决定向上/向下弹，避免被 overflow 祖先裁剪）。
  * 点击执行时通过 buildPrompt 回调生成最终提示词；勾选"发送前确认"则先弹窗可编辑，
  * 确认或未勾选都以最终提示词触发 run 事件。抽取自长篇项目主页面，供四个管线环节复用。
  */
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ArrowRight, ChevronDown, LoaderCircle, SlidersHorizontal } from 'lucide-vue-next'
 import PromptPreviewDialog from '@comic/components/common/PromptPreviewDialog.vue'
 import type { ModelConfig, PromptTemplate } from '@comic/types'
+
+/** 宽/窄形态切换阈值（组件自身可用宽度，px）。 */
+const COMPACT_THRESHOLD = 600
+/** 弹层尺寸估算（px）：左右边界钳制与上下方向判定用。 */
+const POP_WIDTH = 320
+const POP_HEIGHT = 210
 
 const props = defineProps<{
   models: ModelConfig[]
@@ -115,6 +124,9 @@ const confirmBeforeRun = ref(localStorage.getItem(props.confirmStorageKey) !== '
 const previewVisible = ref(false)
 const previewContent = ref('')
 const configOpen = ref(false)
+const popStyle = ref<Record<string, string>>({})
+const compact = ref(false)
+const rootRef = ref<HTMLElement>()
 
 const modelName = computed(() => props.models.find((model) => model.id === props.modelId)?.name ?? '')
 const templateName = computed(() => props.templates.find((template) => template.id === props.templateId)?.name ?? '')
@@ -124,6 +136,44 @@ const configSummary = computed(() => {
   const parts = [modelName.value, templateName.value].filter(Boolean)
   return parts.join(' · ') || '选择模型与模板'
 })
+
+// ========== 自适应：监听组件自身宽度切换宽/窄形态 ==========
+
+let widthObserver: ResizeObserver | undefined
+
+onMounted(() => {
+  if (!rootRef.value) return
+  widthObserver = new ResizeObserver((entries) => {
+    compact.value = (entries[0]?.contentRect.width ?? 0) < COMPACT_THRESHOLD
+  })
+  widthObserver.observe(rootRef.value)
+  // 弹层打开期间页面滚动/缩放会使其错位，直接关闭
+  window.addEventListener('scroll', closeConfig, true)
+  window.addEventListener('resize', closeConfig)
+})
+
+onBeforeUnmount(() => {
+  widthObserver?.disconnect()
+  window.removeEventListener('scroll', closeConfig, true)
+  window.removeEventListener('resize', closeConfig)
+})
+
+function closeConfig() { configOpen.value = false }
+
+/**
+ * 打开配置弹层：按按钮视口位置计算 fixed 坐标——
+ * 上方空间充足则向上弹（底部场景），否则向下弹（顶部场景）；右侧越界时右对齐。
+ */
+function openConfig(event: MouseEvent) {
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  const style: Record<string, string> = {}
+  if (rect.left + POP_WIDTH > window.innerWidth - 8) style.right = `${Math.max(8, window.innerWidth - rect.right)}px`
+  else style.left = `${rect.left}px`
+  if (rect.top > POP_HEIGHT + 16) style.bottom = `${window.innerHeight - rect.top + 8}px`
+  else style.top = `${rect.bottom + 8}px`
+  popStyle.value = style
+  configOpen.value = true
+}
 
 /** 持久化发送前确认偏好（按环节隔离） */
 function saveConfirmPreference() { localStorage.setItem(props.confirmStorageKey, String(confirmBeforeRun.value)) }

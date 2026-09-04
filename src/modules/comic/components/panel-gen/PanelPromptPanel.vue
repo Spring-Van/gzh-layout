@@ -1,14 +1,5 @@
 <template>
   <div class="flex h-full flex-col overflow-hidden">
-    <!-- 顶部工具栏：标题 + 状态（与短篇提示词模式一致） -->
-    <div class="flex shrink-0 items-center gap-2 border-b border-border-subtle bg-surface px-3 py-2.5">
-      <span class="text-[11px] font-medium text-text-primary">提示词编辑</span>
-      <span v-if="promptBusy" class="flex items-center gap-1 text-[10px] text-cyan-400"><LoaderCircle :size="10" class="animate-spin" />推导中</span>
-      <span v-else-if="artwork?.promptStatus === 'stale'" class="rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-300" title="分镜已重新生成，描述可能过期，建议重新推导">已过期</span>
-      <span v-else-if="artwork?.promptSource === 'manual'" class="text-[10px] text-text-muted">人工编辑</span>
-      <span v-if="panel.shot" class="ml-auto rounded border border-border-subtle bg-app-bg px-1.5 py-0.5 text-[11px] text-text-muted">{{ panel.shot }}</span>
-    </div>
-
     <!-- 内容区 -->
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
       <!-- 提示词输入框：叠加高亮层（textarea 文字透明，背后渲染资产名高亮，点击资产名查看参考图） -->

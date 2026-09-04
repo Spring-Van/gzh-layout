@@ -9,24 +9,25 @@
       <button
         v-for="(item, index) in items"
         :key="item.panel.id"
-        class="mb-1 flex w-full cursor-context-menu items-start gap-2 rounded-lg border p-2 text-left transition-colors"
-        :class="index === currentIndex ? 'border-cyan-500/40 bg-cyan-500/10' : 'border-transparent hover:bg-app-bg'"
+        class="mb-1.5 flex w-full cursor-context-menu items-center gap-2.5 rounded-lg border p-2.5 text-left transition-colors"
+        :class="index === currentIndex ? 'border border-cyan-500/20 bg-cyan-500/10' : 'border-border-subtle bg-surface hover:border-border-default hover:bg-elevated'"
         @click="$emit('select', index)"
         @contextmenu.prevent="$emit('contextmenu', { event: $event, panel: item.panel })"
       >
-        <span class="w-5 shrink-0 pt-0.5 text-center text-[11px] font-medium" :class="index === currentIndex ? 'text-cyan-400' : 'text-text-muted'">{{ item.panel.order }}</span>
-
-        <span class="relative h-11 w-11 shrink-0 overflow-hidden rounded-md border border-border-subtle bg-app-bg">
-          <img v-if="item.artwork?.selectedImageId" :src="item.artwork.selectedImageId" class="h-full w-full object-cover" :alt="`分镜${item.panel.order}成图`" />
+        <!-- 缩略图（同短篇页面列表：生成中转圈 / 成图 / 占位） -->
+        <span class="relative h-12 w-10 shrink-0 overflow-hidden rounded-lg border border-border-subtle bg-surface">
+          <img v-if="item.artwork?.selectedImageId" :src="item.artwork.selectedImageId" class="h-full w-full object-cover" loading="lazy" :alt="`分镜${item.panel.order}成图`" />
           <ImageIcon v-else class="h-full w-full p-2.5 text-text-muted/40" :size="18" />
           <span v-if="item.artwork?.genStatus === 'running'" class="absolute inset-0 flex items-center justify-center bg-black/50"><LoaderCircle :size="15" class="animate-spin text-cyan-300" /></span>
+          <span v-if="index === currentIndex" class="absolute right-0 top-0 rounded-bl bg-cyan-500 px-1 py-px text-[7px] font-medium leading-none text-white">当前</span>
         </span>
 
-        <span class="min-w-0 flex-1">
-          <span class="line-clamp-2 text-xs leading-4 text-text-primary">{{ item.panel.content }}</span>
-          <span class="mt-1 flex items-center gap-1.5">
-            <span class="status-dot" :class="dotClass(item)" :title="statusLabel(item)" />
-            <span class="text-[10px]" :class="statusTextClass(item)">{{ statusLabel(item) }}</span>
+        <!-- 标题 + 状态 -->
+        <span class="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+          <span class="truncate text-xs font-medium text-text-primary">第 {{ item.panel.order }} 话</span>
+          <span class="flex items-center gap-1.5">
+            <span class="status-dot" :class="dotClass(item)" />
+            <span class="text-[11px]" :class="statusTextClass(item)">{{ statusLabel(item) }}</span>
           </span>
         </span>
       </button>
@@ -38,7 +39,7 @@
 
 <script setup lang="ts">
 /**
- * 分镜生图工作台左栏：分镜列表 + 推导/成图状态角标。
+ * 分镜生图工作台左栏：分镜缩略图列表（同短篇页面列表风格：缩略图 + 状态，无序号与文字描述）。
  * 右键分镜触发 contextmenu 事件（合并/拆分/复制等操作由父级菜单承载）。
  */
 import { computed } from 'vue'
