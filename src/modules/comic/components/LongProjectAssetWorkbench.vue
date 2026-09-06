@@ -24,35 +24,55 @@
         <p v-if="!visibleAssets.length" class="px-2 py-4 text-xs text-text-muted">{{ filterMissing ? '全部资产都已有参考图' : '本章暂无资产' }}</p>
       </aside>
 
-      <div class="custom-scrollbar min-w-0 flex-1 overflow-y-auto p-4">
-        <template v-if="selectedItem">
-          <div class="mb-3 flex items-center gap-2">
-            <component :is="typeIcon(selectedItem.asset.type)" :size="16" class="text-text-muted" />
-            <h3 class="min-w-0 truncate text-sm font-medium text-text-primary">{{ selectedItem.asset.name }}</h3>
-            <span class="text-xs text-text-muted">{{ selectedItem.asset.variants.length }} 个视觉状态</span>
-          </div>
-          <div class="flex flex-col gap-3">
-            <AssetVariantCard
-              v-for="variant in selectedItem.asset.variants"
-              :key="variant.id"
-              :variant="variant"
-              :is-first-for-chapter="isFirstForChapter(variant.id)"
-              :prompt-busy="promptBusyIds.has(variant.id)"
-              :gen-busy="genBusyIds.has(variant.id)"
-              @update:prompt="(value) => updatePrompt(selectedItem!.asset, variant, value)"
-              @rewrite-prompt="(v) => openRewriteModal(selectedItem!.asset, v)"
-              @generate="(v) => generateImage(selectedItem!.asset, v)"
-              @remove-gen-image="(payload) => removeGeneratedImage(selectedItem!.asset, payload)"
-              @remove-image="(payload) => removeImage(selectedItem!.asset, payload)"
-              @add-image="(payload) => addImage(selectedItem!.asset, payload)"
-              @preview="(payload) => openPreview(payload)"
-            />
-          </div>
-        </template>
-        <div v-else class="flex h-full flex-col items-center justify-center text-center">
-          <Boxes :size="26" class="mb-3 text-text-muted" />
-          <p class="text-sm text-text-secondary">选择左侧资产查看视觉状态</p>
+      <div v-if="selectedItem" class="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <!-- 资产头：类型图标 + 名称 + 状态数 -->
+        <div class="flex shrink-0 items-center gap-2 border-b border-border-subtle px-4 py-2.5">
+          <component :is="typeIcon(selectedItem.asset.type)" :size="16" class="shrink-0 text-text-muted" />
+          <h3 class="min-w-0 truncate text-sm font-medium text-text-primary">{{ selectedItem.asset.name }}</h3>
+          <span class="shrink-0 text-xs text-text-muted">{{ selectedItem.asset.variants.length }} 个视觉状态</span>
         </div>
+
+        <!-- 视觉状态 tab：多状态时 tab 切换（不上下滚动）；状态点 = 是否已有生成图 -->
+        <div v-if="selectedItem.asset.variants.length > 1" class="custom-scrollbar flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border-subtle px-4 py-2">
+          <button
+            v-for="variant in selectedItem.asset.variants"
+            :key="variant.id"
+            class="flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs transition-colors"
+            :class="selectedVariant?.id === variant.id ? 'bg-cyan-500/15 text-cyan-300' : 'text-text-muted hover:bg-app-bg hover:text-text-secondary'"
+            @click="selectedVariantId = variant.id"
+          >
+            <LoaderCircle v-if="promptBusyIds.has(variant.id) || genBusyIds.has(variant.id)" :size="12" class="shrink-0 animate-spin text-cyan-400" />
+            <span
+              v-else
+              class="h-1.5 w-1.5 shrink-0 rounded-full"
+              :class="(variant.generatedImageIds ?? []).length ? 'bg-emerald-400' : 'bg-amber-400'"
+              :title="(variant.generatedImageIds ?? []).length ? '已有生成图' : '缺生成图'"
+            />
+            <span class="max-w-40 truncate">{{ variant.name }}</span>
+          </button>
+        </div>
+
+        <!-- 当前视觉状态卡片（单卡片展示，随 tab 切换） -->
+        <div class="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-4">
+          <AssetVariantCard
+            v-if="selectedVariant"
+            :variant="selectedVariant"
+            :prompt-busy="promptBusyIds.has(selectedVariant.id)"
+            :gen-busy="genBusyIds.has(selectedVariant.id)"
+            @update:prompt="(value) => updatePrompt(selectedItem!.asset, selectedVariant!, value)"
+            @rewrite-prompt="(v) => openRewriteModal(selectedItem!.asset, v)"
+            @generate="(v) => generateImage(selectedItem!.asset, v)"
+            @remove-gen-image="(payload) => removeGeneratedImage(selectedItem!.asset, payload)"
+            @remove-image="(payload) => removeImage(selectedItem!.asset, payload)"
+            @add-image="(payload) => addImage(selectedItem!.asset, payload)"
+            @pick-images="(v) => openAssetPicker(selectedItem!.asset, v)"
+            @preview="(payload) => openPreview(payload)"
+          />
+        </div>
+      </div>
+      <div v-else class="flex min-w-0 flex-1 flex-col items-center justify-center text-center">
+        <Boxes :size="26" class="mb-3 text-text-muted" />
+        <p class="text-sm text-text-secondary">选择左侧资产查看视觉状态</p>
       </div>
     </div>
 
@@ -104,20 +124,31 @@
       :alt="previewAlt"
       @remove="removePreviewImage"
     />
+
+    <!-- 资产图选择弹窗：从资产库勾选图片追加为参考图 -->
+    <AssetImagePickerModal
+      v-model="pickerVisible"
+      :assets="pickerAssets"
+      append
+      include-generated
+      @confirm="appendAssetImages"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 /**
- * 长篇章节资产生图工作台：批量/单条提示词生成 + 批量/单张参考图生图 + 本地上传。
+ * 长篇章节资产生图工作台：批量/单条提示词生成 + 批量/单张参考图生图 + 本地上传 + 资产库选图。
  * 数据（assets / assetGenConfig）由父组件传入并回写持久化；本组件只编排交互。
+ * 右侧视觉状态多状态时以 tab 切换展示，单卡片不再上下滚动。
  */
-import { computed, reactive, ref, toRaw } from 'vue'
-import { Boxes, MapPin, Package, UserRound } from 'lucide-vue-next'
+import { computed, reactive, ref, toRaw, watch } from 'vue'
+import { Boxes, LoaderCircle, MapPin, Package, UserRound } from 'lucide-vue-next'
 import AssetVariantCard from './AssetVariantCard.vue'
 import AssetPromptGenerateModal from './AssetPromptGenerateModal.vue'
 import AssetImageGenDrawer from './AssetImageGenDrawer.vue'
 import AssetImagePreviewModal from './AssetImagePreviewModal.vue'
+import AssetImagePickerModal from './AssetImagePickerModal.vue'
 import { useToast } from '@comic/composables/useToast'
 import { imageGenerationService } from '@comic/services/imageGenerationService'
 import { buildAssetPromptPrompt, buildSingleAssetPrompt, buildStyleContext, generateAssetPrompts, rewriteAssetPrompt, type AssetPromptTarget } from '@comic/services/assetPromptService'
@@ -126,7 +157,8 @@ import type { AssetGenConfig, LongProjectAsset, LongProjectAssetVariant, ModelCo
 interface Props {
   /** 本章涉及的资产（已按章节引用过滤出相关 variants） */
   assets: LongProjectAsset[]
-  chapterId: string
+  /** 项目全部资产（资产图选择弹窗数据源；缺省退回本章工作资产） */
+  allAssets?: LongProjectAsset[]
   llmModels: ModelConfig[]
   imageModels: ModelConfig[]
   templates: PromptTemplate[]
@@ -147,6 +179,8 @@ const toast = useToast()
 
 // ========== 视图状态 ==========
 const selectedAssetId = ref<string | null>(props.assets[0]?.id ?? null)
+/** 当前选中的视觉状态 id（null = 回退第一个）。 */
+const selectedVariantId = ref<string | null>(null)
 const filterMissing = ref(false)
 const promptModalVisible = ref(false)
 const configDrawerVisible = ref(false)
@@ -154,6 +188,9 @@ const previewVisible = ref(false)
 const previewImages = ref<string[]>([])
 const previewIndex = ref(0)
 const previewAlt = ref('')
+/** 资产图选择弹窗：目标视觉状态（追加参考图）。 */
+const pickerVisible = ref(false)
+const pickerTarget = ref<{ asset: LongProjectAsset; variant: LongProjectAssetVariant } | null>(null)
 /** 当前预览的图片来源：生成预览暂存区 / 正式参考图区。 */
 const previewSource = ref<'generated' | 'reference'>('reference')
 const promptBusyIds = reactive(new Set<string>())
@@ -171,13 +208,18 @@ const workAssets = computed(() => props.assets.map((asset) => ({
 })))
 const visibleAssets = computed(() => filterMissing.value ? workAssets.value.filter((item) => item.missing) : workAssets.value)
 const selectedItem = computed(() => workAssets.value.find((item) => item.asset.id === selectedAssetId.value) ?? visibleAssets.value[0] ?? null)
+/** 当前选中的视觉状态（id 失效或未选时回退第一个）。 */
+const selectedVariant = computed(() => {
+  const variants = selectedItem.value?.asset.variants ?? []
+  return variants.find((variant) => variant.id === selectedVariantId.value) ?? variants[0] ?? null
+})
+// 切换资产（含筛选导致回退）时重置视觉状态选中
+watch(() => selectedItem.value?.asset.id, () => { selectedVariantId.value = null })
 const assetPromptTemplates = computed(() => props.templates.filter((t) => t.type === 'asset-prompt').sort((a, b) => a.sortOrder - b.sortOrder))
 const styleContext = computed(() => buildStyleContext(props.sharedBlocks ?? [], props.paintingStyle ?? ''))
 const currentImageModel = computed(() => props.imageModels.find((m) => m.id === props.assetGenConfig?.imageModelId))
-/** 本章新状态 id 集合（variant.firstAppearanceChapterId === chapterId）。 */
-const chapterNewVariantIds = computed(() => new Set(
-  props.assets.flatMap((asset) => asset.variants.filter((v) => v.firstAppearanceChapterId === props.chapterId).map((v) => v.id)),
-))
+/** 资产图选择弹窗数据源：项目全部资产。 */
+const pickerAssets = computed(() => props.allAssets ?? props.assets)
 /** 提示词生成目标（仅缺提示词的状态）：默认「仅补缺失」。 */
 const promptTargets = computed<AssetPromptTarget[]>(() => props.assets
   .map((asset) => ({ asset, variants: asset.variants.filter((v) => !v.imagePrompt?.trim()) }))
@@ -492,8 +534,22 @@ function removePreviewImage(index: number) {
   if (previewIndex.value >= previewImages.value.length) previewIndex.value = Math.max(0, previewImages.value.length - 1)
 }
 
-function isFirstForChapter(variantId: string): boolean {
-  return chapterNewVariantIds.value.has(variantId)
+// ========== 资产图选择（追加为参考图） ==========
+
+/** 打开资产图选择弹窗：从项目资产库勾选图片追加为该视觉状态的参考图。 */
+function openAssetPicker(asset: LongProjectAsset, variant: LongProjectAssetVariant) {
+  pickerTarget.value = { asset, variant }
+  pickerVisible.value = true
+}
+
+/** 弹窗确认：把选中的资产图去重后追加到当前视觉状态参考图。 */
+function appendAssetImages(images: string[]) {
+  const target = pickerTarget.value
+  if (!target?.variant || !images.length) return
+  const existing = target.variant.referenceImageIds
+  const additions = images.filter((url) => !existing.includes(url))
+  if (!additions.length) return
+  emit('update:asset', { assetId: target.asset.id, variantId: target.variant.id, patch: { referenceImageIds: [...existing, ...additions] } })
 }
 
 function typeIcon(type: LongProjectAsset['type']) {

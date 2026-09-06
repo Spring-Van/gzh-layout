@@ -65,25 +65,6 @@
           <p class="mt-2 max-w-sm text-xs leading-5 text-text-secondary">基于章节原文与原文分析，把这一章改编成按场景组织的漫画剧本（剧情、人物、动作、情绪、对白、剧情目的），供分镜生成使用。</p>
         </div>
       </div>
-
-      <!-- 执行底栏：生成剧本 + 进入分镜生图（窄宽度时按钮折行右对齐） -->
-      <div class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-t border-border-subtle px-4 py-3">
-        <div class="min-w-0 flex-1 basis-64">
-          <PromptRunBar
-            v-model:model-id="modelId"
-            v-model:template-id="templateId"
-            :models="models"
-            :templates="templates"
-            :action-label="scriptDoc ? '重新生成' : '生成剧本'"
-            :disabled="!sourceContent.trim() || !modelId || !templateId"
-            :busy="scriptDoc?.status === 'running'"
-            confirm-storage-key="comic-long-script-confirm"
-            :build-prompt="buildPrompt"
-            @run="(prompt) => emit('run', prompt)"
-          />
-        </div>
-        <button class="primary-button ms-auto shrink-0 px-4" title="进入分镜页签（无剧本时将以原文兜底生成）" @click="emit('open-panel-gen')">进入分镜<ArrowRight :size="15" /></button>
-      </div>
     </section>
   </div>
 </template>
@@ -92,14 +73,12 @@
 /**
  * 长篇章节「剧本」页签：左列只读章节原文，右列为 AI 漫画剧本（Markdown 预览 ⇋ 编辑）。
  * 剧本 = 原文 + 原文分析 + 剧本规则；分析缺失时黄条提示并以原文兜底。
- * 底部提供「进入分镜」入口（切换到主页面分镜页签）。
+ * 执行栏由主页面渲染在页签行右侧。
  */
-import { computed, ref, watch } from "vue";
-import { ArrowRight, FileText, LoaderCircle, Pencil, ScrollText, TriangleAlert } from "lucide-vue-next";
+import { ref, watch } from "vue";
+import { FileText, LoaderCircle, Pencil, ScrollText, TriangleAlert } from "lucide-vue-next";
 import MarkdownView from "@comic/components/common/MarkdownView.vue";
-import PromptRunBar from "@comic/components/common/PromptRunBar.vue";
-import { buildScriptPrompt } from "@comic/services/chapterDocService";
-import type { LongProjectChapterDoc, ModelConfig, PromptTemplate } from "@comic/types";
+import type { LongProjectChapterDoc } from "@comic/types";
 
 const props = defineProps<{
   /** 章节原文（只读展示） */
@@ -110,23 +89,11 @@ const props = defineProps<{
   scriptDoc?: LongProjectChapterDoc;
   /** 剧本生成后原文是否已变更 */
   sourceChanged: boolean;
-  models: ModelConfig[];
-  /** 已按 type=script 过滤的模板列表 */
-  templates: PromptTemplate[];
-  modelId: string;
-  templateId: string;
 }>();
 
 const emit = defineEmits<{
-  (e: "update:modelId", value: string): void;
-  (e: "update:templateId", value: string): void;
-  (e: "run", prompt: string): void;
   (e: "save-script", content: string): void;
-  (e: "open-panel-gen"): void;
 }>();
-
-const modelId = computed({ get: () => props.modelId, set: (value: string) => emit("update:modelId", value) });
-const templateId = computed({ get: () => props.templateId, set: (value: string) => emit("update:templateId", value) });
 
 /** 字数统计（去空白字符）。 */
 function wordCount(content: string) { return content.replace(/\s/g, "").length; }
@@ -148,17 +115,9 @@ function commitScriptDraft() {
   if (!props.scriptDoc) return;
   if (scriptDraft.value !== props.scriptDoc.content) emit("save-script", scriptDraft.value);
 }
-
-/** 生成最终发送提示词（模板 + 章节原文 + 原文分析）。 */
-function buildPrompt(): string {
-  const template = props.templates.find((item) => item.id === props.templateId);
-  return buildScriptPrompt(template?.content ?? "", props.sourceContent, props.analysisContent);
-}
 </script>
 
 <style scoped>
-.primary-button { display: flex; height: 2.25rem; align-items: center; justify-content: center; gap: 0.4rem; border-radius: 0.5rem; background: #06b6d4; font-size: 0.8125rem; font-weight: 500; color: #020617; transition: background-color 0.15s ease; }
-.primary-button:hover { background: #22d3ee; }
 .secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: 0.5rem; border: 1px solid var(--border-default); color: var(--text-secondary); font-weight: 500; transition: color 0.15s ease, border-color 0.15s ease; background: transparent; }
 .secondary-button:hover { color: var(--text-primary); border-color: var(--border-strong); }
 .doc-ring { animation: doc-ring 1.8s ease-out infinite; }

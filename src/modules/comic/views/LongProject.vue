@@ -78,7 +78,8 @@
       </section>
 
       <section v-else class="flex h-full flex-col">
-        <!-- 顶栏：左侧三个按钮页签（原文/剧本/分镜），右侧为分镜 tab 的操作按钮区（由分镜 tab Teleport 注入） -->
+        <!-- 顶栏：左侧三个按钮页签（原文/剧本/分镜）；右侧为当前 tab 的操作按钮区：
+             原文/剧本的执行栏直接渲染（状态在父级），分镜的操作按钮由分镜 tab Teleport 注入 #storyboard-actions -->
         <div class="shrink-0 border-b border-border-subtle bg-surface px-6">
           <div class="flex h-12 items-center justify-between gap-4">
             <nav class="flex shrink-0 gap-1" aria-label="章节创作阶段">
@@ -86,6 +87,38 @@
                 <component :is="tab.icon" :size="13" />{{ tab.label }}
               </button>
             </nav>
+            <div v-show="activeTab === 'source'" class="flex min-w-0 items-center gap-2">
+              <div class="min-w-0 max-w-2xl">
+                <PromptRunBar
+                  v-model:model-id="selectedModelByKind.analysis"
+                  v-model:template-id="selectedTemplateByKind.analysis"
+                  :models="llmModels"
+                  :templates="analysisTemplates"
+                  :action-label="analysisDoc ? '重新分析' : '分析原文'"
+                  :disabled="!draftContent.trim() || !selectedModelByKind.analysis || !selectedTemplateByKind.analysis"
+                  :busy="analysisDoc?.status === 'running'"
+                  confirm-storage-key="comic-long-analysis-confirm"
+                  :build-prompt="buildAnalysisRunPrompt"
+                  @run="runAnalysis"
+                />
+              </div>
+            </div>
+            <div v-show="activeTab === 'script'" class="flex min-w-0 items-center gap-2">
+              <div class="min-w-0 max-w-2xl">
+                <PromptRunBar
+                  v-model:model-id="selectedModelByKind.script"
+                  v-model:template-id="selectedTemplateByKind.script"
+                  :models="llmModels"
+                  :templates="scriptTemplates"
+                  :action-label="scriptDoc ? '重新生成' : '生成剧本'"
+                  :disabled="!draftContent.trim() || !selectedModelByKind.script || !selectedTemplateByKind.script"
+                  :busy="scriptDoc?.status === 'running'"
+                  confirm-storage-key="comic-long-script-confirm"
+                  :build-prompt="buildScriptRunPrompt"
+                  @run="runScript"
+                />
+              </div>
+            </div>
             <div v-show="activeTab === 'storyboard'" id="storyboard-actions" class="flex min-w-0 items-center gap-2" />
           </div>
         </div>
@@ -93,30 +126,19 @@
         <LongProjectSourceTab
           v-show="activeTab === 'source'"
           v-model:draft="draftContent"
-          v-model:model-id="selectedModelByKind.analysis"
-          v-model:template-id="selectedTemplateByKind.analysis"
           :save-status="saveStatus"
           :analysis-doc="analysisDoc"
           :source-changed="analysisSourceChanged"
-          :models="llmModels"
-          :templates="analysisTemplates"
-          @run="runAnalysis"
           @save-analysis="saveAnalysis"
         />
 
         <LongProjectScriptTab
           v-show="activeTab === 'script'"
-          v-model:model-id="selectedModelByKind.script"
-          v-model:template-id="selectedTemplateByKind.script"
           :source-content="draftContent"
           :analysis-content="analysisDoc?.content ?? ''"
           :script-doc="scriptDoc"
           :source-changed="scriptSourceChanged"
-          :models="llmModels"
-          :templates="scriptTemplates"
-          @run="runScript"
           @save-script="saveScript"
-          @open-panel-gen="openPanelGen"
         />
 
         <!-- 分镜 tab：首次进入时挂载，之后常驻（批量推导/生图切页签不中断） -->
@@ -153,6 +175,7 @@
 /**
  * 长篇项目主页面：侧栏章节树 + 资产库树；正文区「原文｜剧本｜分镜」三个页签。
  * 原文页签 = 原文编辑 + AI 原文分析；剧本页签 = 原文只读 + AI 漫画剧本；
+ * 原文/剧本的执行栏（模型/模板/发送前确认/执行）直接渲染在页签行右侧；
  * 分镜页签 = 分镜生图工作台（含资产），由 LongProjectStoryboardTab 承载，
  * 其顶部操作按钮经 Teleport 注入页签行右侧 #storyboard-actions 容器。
  */
@@ -162,6 +185,7 @@ import { v4 as uuidv4 } from "uuid";
 import { ArrowLeft, ArrowRight, Boxes, Clapperboard, FileImage, FilePlus2, FileText, FolderPlus, ListTree, PanelLeftClose, PanelLeftOpen, Pencil, ScanText, ScrollText, Trash2, Workflow } from "lucide-vue-next";
 import { comicDb } from "@/api/comic";
 import ConfirmDialog from "@comic/components/ConfirmDialog.vue";
+import PromptRunBar from "@comic/components/common/PromptRunBar.vue";
 import LongProjectNodeDialog from "@comic/components/LongProjectNodeDialog.vue";
 import LongProjectTree from "@comic/components/LongProjectTree.vue";
 import LongProjectAssetLibraryTree, { type AssetLibraryCategory } from "@comic/components/LongProjectAssetLibraryTree.vue";
@@ -172,6 +196,7 @@ import LongProjectStoryboardTab from "@comic/components/LongProjectStoryboardTab
 import { useToast } from "@comic/composables/useToast";
 import { useLongProjectPersistence } from "@comic/composables/useLongProjectPersistence";
 import { useChapterDocRun } from "@comic/composables/useChapterDocRun";
+import { buildAnalysisPrompt, buildScriptPrompt } from "@comic/services/chapterDocService";
 import type { LongProjectNode, LongProjectNodeType, ModelConfig, PromptTemplate } from "@comic/types";
 
 const route = useRoute();
@@ -267,6 +292,18 @@ const persistNodes = async (nextNodes: LongProjectNode[]) => {
   await mutateLongProjectData((data) => { data.nodes = serializableNodes; });
 };
 
+/** 组装原文分析的最终发送提示词（分析模板 + 章节原文），供页签行执行栏使用。 */
+const buildAnalysisRunPrompt = (): string => {
+  const template = analysisTemplates.value.find((item) => item.id === selectedTemplateByKind.value.analysis);
+  return buildAnalysisPrompt(template?.content ?? "", draftContent.value);
+};
+
+/** 组装漫画剧本的最终发送提示词（剧本模板 + 章节原文 + 原文分析）。 */
+const buildScriptRunPrompt = (): string => {
+  const template = scriptTemplates.value.find((item) => item.id === selectedTemplateByKind.value.script);
+  return buildScriptPrompt(template?.content ?? "", draftContent.value, analysisDoc.value?.content ?? "");
+};
+
 /** 执行原文分析（PromptRunBar 已完成发送前确认，prompt 为最终版）。 */
 const runAnalysis = async (prompt: string) => {
   const chapter = selectedChapter.value;
@@ -301,11 +338,6 @@ const saveAnalysis = (content: string) => {
 /** 保存漫画剧本编辑内容。 */
 const saveScript = (content: string) => {
   if (selectedChapter.value) void saveDocContent("script", selectedChapter.value.id, content);
-};
-
-/** 剧本页签「进入分镜」：切换到分镜页签。 */
-const openPanelGen = () => {
-  setActiveTab("storyboard");
 };
 
 const toggleFolder = (folderId: string) => { const next = new Set(expandedFolders.value); next.has(folderId) ? next.delete(folderId) : next.add(folderId); expandedFolders.value = next; };

@@ -72,24 +72,8 @@
         <div v-else class="flex h-full flex-col items-center justify-center text-center">
           <ScanText :size="26" class="text-text-muted" />
           <h3 class="mt-3 text-sm font-medium text-text-primary">尚未生成分析</h3>
-          <p class="mt-2 max-w-sm text-xs leading-5 text-text-secondary">录入原文后，在底部选择模型与提示词模板执行「分析原文」，梳理本章人物、场景、道具、事件与时间线，作为后续剧本、分镜与资产提取的依据。</p>
+          <p class="mt-2 max-w-sm text-xs leading-5 text-text-secondary">录入原文后，在顶部页签行右侧选择模型与提示词模板执行「分析原文」，梳理本章人物、场景、道具、事件与时间线，作为后续剧本、分镜与资产提取的依据。</p>
         </div>
-      </div>
-
-      <!-- 执行底栏：模型 / 模板 / 发送前确认 / 执行 -->
-      <div class="shrink-0 border-t border-border-subtle px-4 py-3">
-        <PromptRunBar
-          v-model:model-id="modelId"
-          v-model:template-id="templateId"
-          :models="models"
-          :templates="templates"
-          :action-label="analysisDoc ? '重新分析' : '分析原文'"
-          :disabled="!draft.trim() || !modelId || !templateId"
-          :busy="analysisDoc?.status === 'running'"
-          confirm-storage-key="comic-long-analysis-confirm"
-          :build-prompt="buildPrompt"
-          @run="(prompt) => emit('run', prompt)"
-        />
       </div>
     </section>
   </div>
@@ -98,15 +82,13 @@
 <script setup lang="ts">
 /**
  * 长篇章节「原文」页签：左列编辑章节原文（含文本整理工具栏），
- * 右列为 AI 原文分析（Markdown 预览 ⇋ 编辑），底部执行栏负责生成。
+ * 右列为 AI 原文分析（Markdown 预览 ⇋ 编辑）；执行栏由主页面渲染在页签行右侧。
  * 分析结果可编辑，编辑内容实时回传父级持久化。
  */
 import { computed, ref, watch } from "vue";
 import { AlignJustify, Ellipsis, Eraser, ListX, LoaderCircle, Pencil, Rows3, ScanText, TextAlignStart, Undo2 } from "lucide-vue-next";
 import MarkdownView from "@comic/components/common/MarkdownView.vue";
-import PromptRunBar from "@comic/components/common/PromptRunBar.vue";
-import { buildAnalysisPrompt } from "@comic/services/chapterDocService";
-import type { LongProjectChapterDoc, ModelConfig, PromptTemplate } from "@comic/types";
+import type { LongProjectChapterDoc } from "@comic/types";
 
 const props = defineProps<{
   /** 章节原文草稿（父级自动保存） */
@@ -117,23 +99,12 @@ const props = defineProps<{
   analysisDoc?: LongProjectChapterDoc;
   /** 分析生成后原文是否已变更 */
   sourceChanged: boolean;
-  models: ModelConfig[];
-  /** 已按 type=analysis 过滤的模板列表 */
-  templates: PromptTemplate[];
-  modelId: string;
-  templateId: string;
 }>();
 
 const emit = defineEmits<{
   (e: "update:draft", value: string): void;
-  (e: "update:modelId", value: string): void;
-  (e: "update:templateId", value: string): void;
-  (e: "run", prompt: string): void;
   (e: "save-analysis", content: string): void;
 }>();
-
-const modelId = computed({ get: () => props.modelId, set: (value: string) => emit("update:modelId", value) });
-const templateId = computed({ get: () => props.templateId, set: (value: string) => emit("update:templateId", value) });
 
 // ========== 文本整理工具栏（撤销栈本地持有） ==========
 const contentHistory = ref<string[]>([]);
@@ -191,12 +162,6 @@ function toggleEditing() {
 function commitAnalysisDraft() {
   if (!props.analysisDoc) return;
   if (analysisDraft.value !== props.analysisDoc.content) emit("save-analysis", analysisDraft.value);
-}
-
-/** 生成最终发送提示词（模板 + 章节原文）。 */
-function buildPrompt(): string {
-  const template = props.templates.find((item) => item.id === props.templateId);
-  return buildAnalysisPrompt(template?.content ?? "", props.draft);
 }
 </script>
 

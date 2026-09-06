@@ -78,7 +78,7 @@
       v-else
       ref="workbenchRef"
       :assets="workbenchAssets"
-      :chapter-id="chapter.id"
+      :all-assets="assets"
       :llm-models="llmModels"
       :image-models="imageModels"
       :templates="templates"

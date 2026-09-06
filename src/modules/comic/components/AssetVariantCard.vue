@@ -4,7 +4,6 @@
     <div class="flex flex-wrap items-center justify-between gap-2">
       <div class="flex min-w-0 items-center gap-2">
         <span class="truncate text-sm font-medium text-text-primary">{{ variant.name }}</span>
-        <span v-if="isFirstForChapter" class="shrink-0 rounded bg-cyan-500/10 px-1.5 py-0.5 text-[11px] text-cyan-400">本章新状态</span>
       </div>
       <div class="flex shrink-0 items-center gap-1.5">
         <button
@@ -55,7 +54,7 @@
       <div class="flex flex-wrap items-center justify-between gap-2">
         <span class="text-xs text-text-secondary">
           参考图{{ variant.referenceImageIds.length ? `（${variant.referenceImageIds.length}）` : '' }}
-          <span class="ml-1 text-[11px] text-text-muted">上传自己的图片，生图时作为参数发给模型</span>
+          <span class="ml-1 text-[11px] text-text-muted">上传或从资产库选择图片，生图时作为参数发给模型</span>
         </span>
         <div class="flex shrink-0 items-center gap-1.5">
           <div class="inline-flex h-6 rounded-md border border-border-subtle bg-elevated p-0.5" title="上传图片的存储方式：本地 = 转为 base64 直存；云端 = 上传云端图床">
@@ -84,7 +83,7 @@
             @click.stop="$emit('remove-image', { variant, index })"
           ><X :size="12" /></button>
         </div>
-        <!-- 上传预览框：始终显示，点击/拖拽上传参考图 -->
+        <!-- 上传预览框：点击/拖拽上传本地或云端参考图 -->
         <button
           class="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-border-subtle text-[11px] text-text-muted transition-colors hover:border-cyan-500/50 hover:text-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
           :disabled="model.uploading"
@@ -98,6 +97,15 @@
             <Upload :size="18" />
             <span>上传参考图</span>
           </template>
+        </button>
+        <!-- 资产库选择：从项目资产图勾选追加为参考图 -->
+        <button
+          class="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-border-subtle text-[11px] text-text-muted transition-colors hover:border-cyan-500/50 hover:text-cyan-400"
+          title="从项目资产库选择图片作为参考图"
+          @click="$emit('pick-images', variant)"
+        >
+          <Images :size="18" />
+          <span>从资产选择</span>
         </button>
       </div>
     </div>
@@ -171,13 +179,13 @@
 
 <script setup lang="ts">
 /**
- * 资产视觉状态卡片：提示词编辑 + 参考图区（用户上传，生图参数）+ 生成预览区（AI 结果，瀑布流）。
- * 参考图在上方：上传后作为参数随提示词一起发给生图模型；
+ * 资产视觉状态卡片：提示词编辑 + 参考图区（本地上传 / 云端 / 资产库选图，生图参数）+ 生成预览区（AI 结果，瀑布流）。
+ * 参考图在上方：上传或从资产库选择后作为参数随提示词一起发给生图模型；
  * 生成预览在下方：模型返回的图片按原始比例瀑布流展示。
  * 数据回写与持久化由父组件（工作台）统一处理，本组件只发事件。
  */
 import { computed, reactive, ref, watch } from 'vue'
-import { ImagePlus, LoaderCircle, Sparkles, Upload, X } from 'lucide-vue-next'
+import { ImagePlus, Images, LoaderCircle, Sparkles, Upload, X } from 'lucide-vue-next'
 import type { LongProjectAssetVariant } from '@comic/types'
 import { processImage, type ImageStorageMode } from '@comic/services/uploadService'
 
@@ -186,8 +194,6 @@ type ImageSource = 'generated' | 'reference'
 
 interface Props {
   variant: LongProjectAssetVariant
-  /** 是否本章首次出现的状态（用于标记） */
-  isFirstForChapter?: boolean
   /** 提示词是否正在生成（批量/单条 AI） */
   promptBusy?: boolean
   /** 图片是否正在生成 */
@@ -195,7 +201,6 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  isFirstForChapter: false,
   promptBusy: false,
   genBusy: false,
 })
@@ -207,6 +212,7 @@ const emit = defineEmits<{
   (e: 'remove-gen-image', payload: { variant: LongProjectAssetVariant; index: number }): void
   (e: 'remove-image', payload: { variant: LongProjectAssetVariant; index: number }): void
   (e: 'add-image', payload: { variant: LongProjectAssetVariant; url: string }): void
+  (e: 'pick-images', variant: LongProjectAssetVariant): void
   (e: 'preview', payload: { images: string[]; index: number; source: ImageSource }): void
 }>()
 
