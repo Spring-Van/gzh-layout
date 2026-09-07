@@ -348,6 +348,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'SetupView' });
 import { ref } from "vue";
 import { useProjectStore } from "../stores/project";
 import { useTypesetNavigation } from "../composables/useTypesetNavigation";

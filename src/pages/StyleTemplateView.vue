@@ -2,14 +2,6 @@
   <section class="w-full h-full flex flex-col bg-slate-50">
     <header class="px-6 py-4 bg-white border-b border-slate-200 flex items-center justify-between flex-shrink-0">
       <div class="flex items-center gap-3">
-        <button
-          class="p-2 rounded-lg hover:bg-slate-100 transition-colors"
-          @click="$router.back()"
-        >
-          <svg class="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
-          </svg>
-        </button>
         <div>
           <h1 class="text-lg font-bold text-slate-800">样式模板</h1>
           <p class="text-xs text-slate-500 mt-0.5">管理正文编辑用的样式模板，支持增删改查</p>
@@ -154,6 +146,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'StyleTemplateView' });
 import { ref, reactive } from 'vue';
 import { useStyleTemplateStore } from '../stores/styleTemplate';
 import type { StyleTemplate } from '../types';

@@ -4,7 +4,7 @@
  * 所有 comic 模块的子路由都在此布局下渲染
  */
 <template>
-  <div class="h-screen flex flex-col overflow-hidden">
+  <div class="h-full flex flex-col overflow-hidden">
     <main class="flex-1 overflow-hidden relative">
       <router-view />
     </main>
@@ -13,6 +13,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'ComicLayout' });
 import { ref, onMounted } from 'vue';
 import Toast from './components/Toast.vue';
 import { registerToast } from './composables/useToast';

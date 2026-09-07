@@ -1,25 +1,8 @@
 <template>
   <header class="h-16 bg-surface border-b border-border-subtle flex items-center justify-between px-6 flex-shrink-0 z-20 shadow-sm">
-    <!-- 左：返回 + Logo + 标题 -->
+    <!-- 左：标题 -->
     <div class="flex items-center gap-3 min-w-0">
-      <button
-        class="p-2 rounded-lg hover:bg-elevated transition-colors"
-        @click="$router.push('/')"
-        title="返回首页"
-      >
-        <svg class="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
-        </svg>
-      </button>
-      <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded flex items-center justify-center text-white font-bold shadow">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6.115 5.19l.319 1.913A6 6 0 008.11 10.36L9.75 12l-.387.775c-.217.433-.132.956.21 1.298l1.348 1.348c.21.21.329.497.329.795v1.089c0 .426.24.815.622 1.006l.153.076c.433.217.956.132 1.298-.21l.723-.723a8.7 8.7 0 002.288-4.042 1.087 1.087 0 00-.358-1.099l-1.33-1.108c-.251-.21-.582-.299-.905-.245l-1.17.195a1.125 1.125 0 01-.98-.314l-.295-.295a1.125 1.125 0 010-1.591l.13-.132a1.125 1.125 0 011.3-.21l.603.302a.809.809 0 001.086-1.086L14.25 7.5l1.256-.837a4.5 4.5 0 001.528-1.732l.146-.292M6.115 5.19A9 9 0 1017.18 4.64M6.115 5.19A8.965 8.965 0 0112 3c1.929 0 3.716.607 5.18 1.64"></path>
-        </svg>
-      </div>
-      <div class="min-w-0">
-        <h1 class="text-base font-bold text-text-primary leading-tight">公众号矩阵</h1>
-        <p class="text-xs text-text-secondary leading-tight hidden md:block">批量排版，一键同步到微信公众号</p>
-      </div>
+      <h1 class="text-sm font-semibold text-text-primary">公众号矩阵</h1>
     </div>
 
     <!-- 中间向导步骤 -->
@@ -47,23 +30,6 @@
 
     <!-- 右侧操作区 -->
     <div class="flex items-center gap-1">
-      <!-- 主题切换 -->
-      <button
-        class="flex items-center justify-center w-9 h-9 text-text-secondary hover:text-text-primary hover:bg-elevated rounded-lg transition"
-        :title="theme === 'dark' ? '切换到浅色' : '切换到深色'"
-        @click="toggleTheme"
-      >
-        <!-- 太阳：dark 模式下显示，点击切到浅色 -->
-        <svg v-if="theme === 'dark'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
-        </svg>
-        <!-- 月亮：light 模式下显示，点击切到深色 -->
-        <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
-        </svg>
-      </button>
-
-      <!-- 全局配置 - 下拉菜单 -->
       <div class="relative" ref="dropdownRef">
         <button
           class="flex items-center gap-2 px-3 py-2 text-sm text-text-secondary hover:text-primary hover:bg-elevated rounded-lg transition"
@@ -144,7 +110,6 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { useTheme } from '@/theme/useTheme';
 
 const steps = [
   { id: 'home', label: '项目主页' },
@@ -164,8 +129,6 @@ const currentStepIndex = computed(() => steps.findIndex(s => s.id === props.curr
 
 const showDropdown = ref(false);
 const dropdownRef = ref<HTMLElement | null>(null);
-
-const { theme, toggle: toggleTheme } = useTheme();
 
 function handleOpenModal(type: string) {
   showDropdown.value = false;

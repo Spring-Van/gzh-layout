@@ -1,6 +1,6 @@
 <template>
   <div
-    class="h-screen flex flex-col overflow-hidden relative bg-app-bg"
+    class="h-full flex flex-col overflow-hidden relative bg-app-bg"
   >
     <!-- 背景装饰 -->
     <div
@@ -185,6 +185,7 @@ import type {
 } from "@comic/types";
 import ImagePreviewModal from "@comic/components/ImagePreviewModal.vue";
 import MaterialLibrary from "@comic/components/MaterialLibrary.vue";
+import { useTabStore, resolveMatchKey } from "@/stores/tab";
 import ProjectAssetsToolbar from "@comic/components/ProjectAssetsToolbar.vue";
 import ProjectAssetSidebar from "@comic/components/ProjectAssetSidebar.vue";
 import CharacterReferenceEditor from "@comic/components/CharacterReferenceEditor.vue";
@@ -192,6 +193,8 @@ import OutfitEditor from "@comic/components/OutfitEditor.vue";
 
 const route = useRoute();
 const router = useRouter();
+const tabStore = useTabStore();
+const tabKey = resolveMatchKey(route);
 const projectId = route.params.projectId as string;
 
 const projectName = ref("");
@@ -251,6 +254,7 @@ const loadProject = async () => {
   const project = await comicDb.getProject(projectId);
   if (project) {
     projectName.value = project.name;
+    tabStore.setLabel(tabKey, project.name);
     // "插入人物描述"和"插入服装描述"开关均已迁移为按人物控制，
     // 存到 ProjectAsset.insertCharacterDescription / insertOutfitDescription
   }

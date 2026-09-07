@@ -1,6 +1,6 @@
 <template>
   <div
-    class="h-screen flex flex-col overflow-hidden relative bg-app-bg"
+    class="h-full flex flex-col overflow-hidden relative bg-app-bg"
   >
     <div
       class="absolute top-10 right-1/4 w-96 h-96 bg-cyan-500/8 rounded-full blur-[120px] pointer-events-none"
@@ -130,10 +130,13 @@ import ExportInfoPanel from "./ExportInfoPanel.vue";
 import ExportImageGrid from "./ExportImageGrid.vue";
 import ExportActionPanel from "./ExportActionPanel.vue";
 import type { ComicPageData } from "./types";
+import { useTabStore, resolveMatchKey } from "@/stores/tab";
 
 const route = useRoute();
 const router = useRouter();
 const toast = useToast();
+const tabStore = useTabStore();
+const tabKey = resolveMatchKey(route);
 const projectId = route.params.projectId as string;
 
 const projectName = ref("");
@@ -306,6 +309,7 @@ onMounted(async () => {
   const project = await comicDb.getProject(projectId);
   if (project) {
     projectName.value = project.name;
+    tabStore.setLabel(tabKey, project.name);
     if (project.pageData) {
       comicData.value = {
         title: project.pageData.title || "",

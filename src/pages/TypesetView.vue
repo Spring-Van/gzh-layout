@@ -240,6 +240,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'TypesetView' });
 import { ref, computed, onMounted } from "vue";
 import { useProjectStore } from "../stores/project";
 import { useTemplateStore } from "../stores/template";

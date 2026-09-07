@@ -195,6 +195,22 @@
       </div>
     </div>
 
+    <!-- 快捷入口 -->
+    <div class="px-5 pt-3 shrink-0 flex items-center gap-2">
+      <button
+        class="flex-1 py-1.5 rounded-lg text-xs font-medium border border-border-subtle text-text-secondary hover:text-text-primary hover:border-border-default transition-colors"
+        @click="router.push('/gallery')"
+      >
+        画夹
+      </button>
+      <button
+        class="flex-1 py-1.5 rounded-lg text-xs font-medium border border-border-subtle text-text-secondary hover:text-text-primary hover:border-border-default transition-colors"
+        @click="router.push('/prompt-templates')"
+      >
+        常用提示词
+      </button>
+    </div>
+
     <!-- 底部生成按钮 -->
     <div class="px-5 pb-5 pt-3 shrink-0">
       <button

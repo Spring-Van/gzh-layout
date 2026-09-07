@@ -1,31 +1,7 @@
 <template>
-  <div class="h-screen flex flex-col overflow-hidden relative bg-app-bg">
+  <div class="h-full flex flex-col overflow-hidden relative bg-app-bg">
     <div class="absolute top-10 right-1/4 w-96 h-96 bg-cyan-500/8 rounded-full blur-[120px] pointer-events-none" />
     <div class="absolute bottom-10 left-1/3 w-80 h-80 bg-blue-600/8 rounded-full blur-[100px] pointer-events-none" />
-
-    <header class="h-16 bg-surface border-b border-border-subtle flex items-center justify-between px-6 shrink-0 z-20 shadow-sm">
-      <div class="flex items-center gap-3 min-w-0">
-        <button class="p-2 rounded-lg hover:bg-elevated transition-colors" title="返回" @click="$router.push('/')">
-          <ArrowLeft class="w-5 h-5 text-text-secondary" />
-        </button>
-        <div class="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-600 rounded flex items-center justify-center text-white shadow">
-          <Settings class="w-5 h-5" />
-        </div>
-        <div class="min-w-0">
-          <h1 class="text-base font-bold text-text-primary leading-tight">系统设置</h1>
-          <p class="text-xs text-text-secondary leading-tight hidden md:block">配置模型、公众号和系统参数</p>
-        </div>
-      </div>
-
-      <button
-        class="flex items-center justify-center w-9 h-9 text-text-secondary hover:text-text-primary hover:bg-elevated rounded-lg transition"
-        :title="theme === 'dark' ? '切换到浅色' : '切换到深色'"
-        @click="toggleTheme"
-      >
-        <Sun v-if="theme === 'dark'" class="w-5 h-5" />
-        <Moon v-else class="w-5 h-5" />
-      </button>
-    </header>
 
     <main class="flex-1 flex flex-col overflow-hidden relative">
       <div class="shrink-0 px-8 pt-8 max-w-5xl mx-auto w-full">
@@ -88,22 +64,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, type Component } from 'vue';
+defineOptions({ name: 'SettingsView' });
+import { computed, ref, watch, type Component } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import {
-  ArrowLeft,
   BotMessageSquare,
   FileText,
   FolderOpen,
   Image,
   MessageCircle,
-  Moon,
   Plus,
-  Settings,
-  Sun,
   Video,
 } from 'lucide-vue-next';
 import type { ModelCategory } from '@comic/types';
-import { useTheme } from '@/theme/useTheme';
 import ModelSettings from '@/features/settings/components/ModelSettings.vue';
 import PromptTemplateSettings from '@/features/settings/components/PromptTemplateSettings.vue';
 import StorageSettingsPanel from '@/features/settings/components/StorageSettingsPanel.vue';
@@ -117,8 +90,34 @@ interface TabItem {
   icon: Component;
 }
 
-const { theme, toggle: toggleTheme } = useTheme();
 const activeCategory = ref<SettingsTab>('llm');
+
+// ?tab= 直达与同步(如 #/settings?tab=image 直达图片模型)
+const route = useRoute();
+const router = useRouter();
+const validTabs: string[] = ['llm', 'image', 'video', 'template', 'wechat', 'paths'];
+
+function normalizeTab(v: unknown): SettingsTab | null {
+  return typeof v === 'string' && validTabs.includes(v) ? (v as SettingsTab) : null;
+}
+
+const initialTab = normalizeTab(route.query.tab);
+if (initialTab) activeCategory.value = initialTab;
+
+watch(activeCategory, (v) => {
+  if (route.query.tab !== v) {
+    router.replace({ query: { tab: v } });
+  }
+});
+
+watch(
+  () => route.query.tab,
+  (v) => {
+    const t = normalizeTab(v);
+    if (t && t !== activeCategory.value) activeCategory.value = t;
+  }
+);
+
 const modelSettingsRef = ref<InstanceType<typeof ModelSettings> | null>(null);
 const templateSettingsRef = ref<InstanceType<typeof PromptTemplateSettings> | null>(null);
 const wechatSettingsRef = ref<InstanceType<typeof WechatAccountSettings> | null>(null);

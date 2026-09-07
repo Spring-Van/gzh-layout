@@ -1,5 +1,5 @@
 <template>
-  <div class="h-screen flex flex-col overflow-hidden relative bg-app-bg">
+  <div class="h-full flex flex-col overflow-hidden relative bg-app-bg">
     <!-- 背景装饰 -->
     <div class="absolute top-10 right-1/4 w-96 h-96 bg-[#07c160]/8 rounded-full blur-[120px] pointer-events-none" />
     <div class="absolute bottom-10 left-1/3 w-80 h-80 bg-[#07c160]/5 rounded-full blur-[100px] pointer-events-none" />
@@ -346,6 +346,7 @@ import { useStyleTemplateStore } from '@/stores/styleTemplate'
 import { useWechatAccountStore } from '@/stores/wechatAccount'
 import { useCoverGenerator } from '@/composables/useCoverGenerator'
 import { useWechatUpload, extractLocalImagePaths } from '@/composables/useWechatUpload'
+import { useTabStore, resolveMatchKey } from '@/stores/tab'
 import { expandTemplateWithImages } from '@/composables/useTemplateRender'
 import { useImagePreload } from '@comic/composables/useImagePreload'
 import { getCoverSlotRatios } from '@/utils/coverSlotRatios'
@@ -370,6 +371,8 @@ import SyncConfigPanel from './SyncConfigPanel.vue'
 const router = useRouter()
 const route = useRoute()
 const toast = useToast()
+const tabStore = useTabStore()
+const tabKey = resolveMatchKey(route)
 const projectId = route.params.projectId as string
 
 const comicSync = useComicSyncStore()
@@ -557,6 +560,7 @@ onMounted(async () => {
 
   // 加载项目信息（标题、标签、创作备注），用于左侧"项目信息" tab 展示
   loadProjectInfo(project)
+  tabStore.setLabel(tabKey, project.name)
 
   comicSync.init(
     projectId,

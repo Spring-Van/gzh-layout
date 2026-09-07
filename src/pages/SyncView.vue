@@ -306,6 +306,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'SyncView' });
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import SyncItem from "../components/common/SyncItem.vue";

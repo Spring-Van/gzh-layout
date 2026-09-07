@@ -1,6 +1,6 @@
 <template>
   <div
-    class="h-screen flex flex-col overflow-hidden relative bg-app-bg"
+    class="h-full flex flex-col overflow-hidden relative bg-app-bg"
   >
     <!-- 背景装饰 -->
     <div
@@ -9,73 +9,6 @@
     <div
       class="absolute bottom-10 left-1/3 w-80 h-80 bg-blue-600/8 rounded-full blur-[100px] pointer-events-none"
     />
-
-    <!-- 顶部 Header -->
-    <header
-      class="h-16 bg-surface border-b border-border-subtle flex items-center justify-between px-6 flex-shrink-0 z-20 shadow-sm"
-    >
-      <!-- 左：返回 + Logo + 标题 -->
-      <div class="flex items-center gap-3 min-w-0">
-        <button
-          class="p-2 rounded-lg hover:bg-elevated transition-colors"
-          @click="router.push('/')"
-          title="返回首页"
-        >
-          <svg
-            class="w-5 h-5 text-text-secondary"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M10 19l-7-7m0 0l7-7m-7 7h18"
-            />
-          </svg>
-        </button>
-        <div
-          class="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-600 rounded flex items-center justify-center text-white font-bold shadow"
-        >
-          <svg
-            class="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M13 10V3L4 14h7v7l9-11h-7z"
-            />
-          </svg>
-        </div>
-        <div class="min-w-0">
-          <h1 class="text-base font-bold text-text-primary leading-tight">
-            漫画工作台
-          </h1>
-          <p class="text-xs text-text-secondary leading-tight hidden md:block">
-            AI 驱动的一站式漫画创作工作流
-          </p>
-        </div>
-      </div>
-
-      <!-- 右：主题切换 -->
-      <button
-        class="flex items-center justify-center w-9 h-9 text-text-secondary hover:text-text-primary hover:bg-elevated rounded-lg transition"
-        :title="theme === 'dark' ? '切换到浅色' : '切换到深色'"
-        @click="toggleTheme"
-      >
-        <svg v-if="theme === 'dark'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
-        </svg>
-        <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
-        </svg>
-      </button>
-    </header>
 
     <!-- 主内容区 -->
     <main class="flex-1 flex flex-col overflow-hidden relative">
@@ -451,12 +384,13 @@ import type {
 import { llmService } from "@comic/services/llmService";
 import { useToast } from "@comic/composables/useToast";
 import ConfirmDialog from "@comic/components/ConfirmDialog.vue";
-import { useTheme } from "@/theme/useTheme";
+import { useTabStore, resolveMatchKey } from "@/stores/tab";
 
 const toast = useToast();
 const route = useRoute();
 const router = useRouter();
-const { theme, toggle: toggleTheme } = useTheme();
+const tabStore = useTabStore();
+const tabKey = resolveMatchKey(route);
 
 const projectId = route.params.projectId as string;
 const projectName = ref("");
@@ -856,6 +790,7 @@ const loadProject = async () => {
   const project = await comicDb.getProject(projectId);
   if (project) {
     projectName.value = project.name;
+    tabStore.setLabel(tabKey, project.name);
   }
 };
 

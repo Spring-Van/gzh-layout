@@ -1,6 +1,6 @@
 <template>
   <div
-    class="h-screen flex flex-col overflow-hidden relative bg-app-bg"
+    class="h-full flex flex-col overflow-hidden relative bg-app-bg"
   >
     <!-- 背景装饰 -->
     <div
@@ -139,10 +139,13 @@ import PageContentPanel from "./PageContentPanel.vue";
 import type { RefImageConfig } from "./PageContentPanel.vue";
 import ImageConfigDrawer from "@comic/components/ImageConfigDrawer.vue";
 import PageEditorHeader from "@comic/components/PageEditorHeader.vue";
+import { useTabStore, resolveMatchKey } from "@/stores/tab";
 
 const toast = useToast();
 const router = useRouter();
 const route = useRoute();
+const tabStore = useTabStore();
+const tabKey = resolveMatchKey(route);
 const projectId = route.params.projectId as string;
 
 /** 正在生成的任务信息，用于页面恢复时重新检查 */
@@ -1305,6 +1308,7 @@ const loadProject = async () => {
   const project = await comicDb.getProject(projectId);
   if (project) {
     projectName.value = project.name;
+    tabStore.setLabel(tabKey, project.name);
   }
 };
 

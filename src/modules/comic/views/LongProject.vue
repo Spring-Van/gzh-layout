@@ -1,5 +1,5 @@
 <template>
-  <div class="flex h-screen overflow-hidden bg-app-bg text-text-primary" @click="contextMenu = null">
+  <div class="flex h-full overflow-hidden bg-app-bg text-text-primary" @click="contextMenu = null">
     <aside class="flex shrink-0 flex-col border-r border-border-subtle bg-surface transition-[width] duration-200" :class="sidebarCollapsed ? 'w-14' : 'w-72'">
       <template v-if="!sidebarCollapsed">
         <div class="flex h-14 shrink-0 items-center gap-2 border-b border-border-subtle px-3">
@@ -184,6 +184,7 @@ import { useRoute, useRouter } from "vue-router";
 import { v4 as uuidv4 } from "uuid";
 import { ArrowLeft, ArrowRight, Boxes, Clapperboard, FileImage, FilePlus2, FileText, FolderPlus, ListTree, PanelLeftClose, PanelLeftOpen, Pencil, ScanText, ScrollText, Trash2, Workflow } from "lucide-vue-next";
 import { comicDb } from "@/api/comic";
+import { useTabStore, resolveMatchKey } from "@/stores/tab";
 import ConfirmDialog from "@comic/components/ConfirmDialog.vue";
 import PromptRunBar from "@comic/components/common/PromptRunBar.vue";
 import LongProjectNodeDialog from "@comic/components/LongProjectNodeDialog.vue";
@@ -203,7 +204,16 @@ const route = useRoute();
 const router = useRouter();
 const toast = useToast();
 const projectId = String(route.params.projectId);
+const tabStore = useTabStore();
+const tabKey = resolveMatchKey(route);
 const { project, loading, loadProject, mutateLongProjectData } = useLongProjectPersistence(projectId);
+watch(
+  () => project.value?.name,
+  (name) => {
+    if (name) tabStore.setLabel(tabKey, name);
+  },
+  { immediate: true }
+);
 const { selectedModelByKind, selectedTemplateByKind, initDefaults, getDoc, saveDocContent, runDoc, recoverInterrupted } = useChapterDocRun({ project, mutateLongProjectData });
 
 const saving = ref(false);
