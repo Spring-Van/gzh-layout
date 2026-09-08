@@ -16,6 +16,7 @@
         <div class="flex min-w-0 items-center gap-2">
           <ScrollText :size="15" class="shrink-0 text-cyan-400" />
           <h2 class="text-sm font-semibold text-text-primary">漫画剧本</h2>
+          <span v-if="scriptDoc?.source === 'manual'" class="shrink-0 rounded border border-violet-400/30 bg-violet-400/10 px-1.5 py-0.5 text-[10px] text-violet-300" title="由外部 AI 生成后手动导入">手动导入</span>
           <span v-if="sourceChanged" class="shrink-0 rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-300" title="剧本生成后原文发生过修改，建议重新生成">原文已变更</span>
         </div>
         <button v-if="scriptDoc?.status === 'completed'" class="secondary-button h-7 px-2 text-[11px]" @click="toggleEditing">
@@ -63,6 +64,7 @@
           <ScrollText :size="26" class="text-text-muted" />
           <h3 class="mt-3 text-sm font-medium text-text-primary">尚未生成剧本</h3>
           <p class="mt-2 max-w-sm text-xs leading-5 text-text-secondary">基于章节原文与原文分析，把这一章改编成按场景组织的漫画剧本（剧情、人物、动作、情绪、对白、剧情目的），供分镜生成使用。</p>
+          <button class="mt-4 secondary-button h-8 px-3 text-xs" @click="emit('import-script')"><ClipboardPaste :size="14" />手动写入剧本结果</button>
         </div>
       </div>
     </section>
@@ -76,7 +78,7 @@
  * 执行栏由主页面渲染在页签行右侧。
  */
 import { ref, watch } from "vue";
-import { FileText, LoaderCircle, Pencil, ScrollText, TriangleAlert } from "lucide-vue-next";
+import { ClipboardPaste, FileText, LoaderCircle, Pencil, ScrollText, TriangleAlert } from "lucide-vue-next";
 import MarkdownView from "@comic/components/common/MarkdownView.vue";
 import type { LongProjectChapterDoc } from "@comic/types";
 
@@ -93,6 +95,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "save-script", content: string): void;
+  (e: "import-script"): void;
 }>();
 
 /** 字数统计（去空白字符）。 */

@@ -137,5 +137,30 @@ export function useChapterDocRun(options: {
     })
   }
 
-  return { running, selectedModelByKind, selectedTemplateByKind, initDefaults, getDoc, buildPrompt, saveDocContent, runDoc, recoverInterrupted }
+  /**
+   * 手动导入结果（外部 AI 代跑）：直接写入一份 completed 文档，跳过模型调用。
+   * upsert 覆盖本章已有文档；复用 stage 推进逻辑（只升不降）。
+   */
+  async function importDoc(kind: ChapterDocKind, params: { chapterId: string; content: string; sourceContent: string }) {
+    const now = Date.now()
+    const doc: LongProjectChapterDoc = {
+      id: uuidv4(), chapterId: params.chapterId, content: params.content,
+      modelId: '', templateId: '', prompt: '',
+      sourceContent: params.sourceContent, sourceWordCount: wordCount(params.sourceContent),
+      status: 'completed', source: 'manual', createdAt: now, updatedAt: now,
+    }
+    await options.mutateLongProjectData((data) => {
+      const list = data[docKey[kind]] ?? []
+      data[docKey[kind]] = [...list.filter((item) => item.chapterId !== params.chapterId), doc]
+      data.nodes = (data.nodes ?? []).map((node) => {
+        if (node.id !== params.chapterId) return node
+        const nextStage = stageOnComplete[kind]
+        return stageOrder.indexOf(node.stage ?? 'empty') < stageOrder.indexOf(nextStage)
+          ? { ...node, stage: nextStage, updatedAt: now }
+          : { ...node, updatedAt: now }
+      })
+    })
+  }
+
+  return { running, selectedModelByKind, selectedTemplateByKind, initDefaults, getDoc, buildPrompt, saveDocContent, runDoc, importDoc, recoverInterrupted }
 }

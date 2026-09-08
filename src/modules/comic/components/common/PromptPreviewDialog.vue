@@ -17,6 +17,7 @@
         <footer class="flex shrink-0 items-center justify-between border-t border-border-subtle px-5 py-3">
           <p class="text-xs text-text-muted">{{ content.length.toLocaleString() }} 个字符</p>
           <div class="flex items-center gap-3">
+            <button class="secondary-button" title="复制最终提示词，可粘贴到外部 AI 生成后手动导入结果" @click="copyContent"><Copy :size="14" />复制提示词</button>
             <button class="secondary-button" @click="emit('close')">取消</button>
             <button class="primary-button h-9 px-4 text-xs" :disabled="!content.trim()" @click="emit('confirm', content)">确认发送<ArrowRight :size="15" /></button>
           </div>
@@ -30,15 +31,29 @@
 /**
  * 发送前确认弹窗：调用大模型前展示并允许修改最终发送的提示词。
  * 抽取自长篇项目主页面，供原文分析 / 剧本 / 分镜 / 资产提取等全部 AI 环节复用。
+ * 「复制提示词」：外部 AI 代跑工作流——复制最终提示词到外部生成，结果经「手动导入」写回。
  */
-import { ArrowRight, X } from 'lucide-vue-next'
+import { ArrowRight, Copy, X } from 'lucide-vue-next'
+import { useToast } from '@comic/composables/useToast'
 
-defineProps<{ visible: boolean; content: string }>()
+const props = defineProps<{ visible: boolean; content: string }>()
 const emit = defineEmits<{
   (e: 'update:content', value: string): void
   (e: 'confirm', content: string): void
   (e: 'close'): void
 }>()
+
+const toast = useToast()
+
+/** 复制当前提示词全文（弹窗保持打开，可继续编辑再复制）。 */
+async function copyContent() {
+  try {
+    await navigator.clipboard.writeText(props.content)
+    toast.success('已复制提示词，可粘贴到外部 AI')
+  } catch {
+    toast.error('复制失败，请手动全选复制')
+  }
+}
 </script>
 
 <style scoped>

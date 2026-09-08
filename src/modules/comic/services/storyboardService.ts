@@ -1,20 +1,19 @@
 import { v4 as uuidv4 } from 'uuid'
 import type { LongProjectAsset, LongProjectStoryboardAssetBinding, LongProjectStoryboardPanel, ModelConfig, PromptTemplate } from '@comic/types'
 import { llmService } from './llmService'
+import { renderPromptTemplate } from './promptTemplateRegistry'
 
 /**
  * 组装"分镜生成"提示词：漫画剧本（主输入）+ 原文分析（辅助上下文）+ 分镜规则模板。
+ * 变量：{{漫画剧本}} / {{原文分析}}；无剧本时调用方已用章节原文兜底并提示。
  * 新管线下分镜不再依赖资产库绑定；资产绑定在资产提取确认后按文本自动回填。
  */
 export function buildStoryboardPrompt(templateContent: string, scriptContent: string, analysis?: string): string {
-  let template = templateContent
-  const appended: string[] = []
-  if (/\{\{script_content\}\}/.test(template)) template = template.replace(/\{\{script_content\}\}/g, scriptContent)
-  else appended.push(`【漫画剧本】\n${scriptContent}`)
-  if (/\{\{analysis\}\}/.test(template)) template = template.replace(/\{\{analysis\}\}/g, analysis ?? '（本章尚未生成原文分析）')
-  else if (analysis?.trim()) appended.push(`【原文分析（辅助上下文）】\n${analysis}`)
-  const body = appended.length ? `${template}\n\n${appended.join('\n\n')}` : template
-  return `${body}\n\n【系统固定输出协议】\n只输出中文 Markdown，不要解释、代码块或 JSON。每个分镜以 ## 分镜 N 开始；其余信息每行写为 - 属性名：内容。\n每个分镜必须有：画面、镜头。画面要完整具体，内容较长时可换行续写（续行不要重复“- 画面：”前缀）。\n可选填写：绘画提示词、对白、旁白。按剧本场景拆分镜头：一个场景拆成 3~8 个镜头，重要动作给独立镜头，重要道具首次出现可用特写，对白镜头考虑正反打，高潮处适当增加镜头密度，保持人物空间关系连续。`
+  return renderPromptTemplate({
+    type: 'storyboard',
+    content: templateContent,
+    values: { 漫画剧本: scriptContent, 原文分析: analysis },
+  })
 }
 
 function findAsset(name: string, assets: LongProjectAsset[]) { return assets.find((asset) => [asset.name, ...asset.aliases].some((item) => item.trim() === name.trim())) }

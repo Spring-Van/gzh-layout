@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid'
 import { llmService } from './llmService'
+import { renderPromptTemplate } from './promptTemplateRegistry'
 import type {
   LongProjectAsset,
   LongProjectAssetExtractionCandidate,
@@ -288,25 +289,30 @@ export interface AssetExtractionContext {
 }
 
 /**
- * 组装"资产提取"提示词：原文 + 原文分析 + 漫画剧本 + 分镜概要 + 已有资产上下文。
+ * 组装"资产提取"提示词：章节原文 + 原文分析 + 漫画剧本 + 分镜概要 + 已有资产。
+ * 变量：{{章节原文}} / {{原文分析}} / {{漫画剧本}} / {{分镜概要}} / {{已有资产}}；
+ * 未插入的辅助上下文按 if-nonempty 策略追加到模板末尾。
  * 分镜概要告诉模型"哪些东西真的会被画出来、出现了几次"，辅助判断是否建立资产。
  */
 export function buildAssetExtractionPrompt(templateContent: string, chapterContent: string, context: AssetExtractionContext = {}): string {
-  const template = templateContent.includes('{{chapter_content}}')
-    ? templateContent.replace(/\{\{chapter_content\}\}/g, chapterContent)
-    : `${templateContent}\n\n【章节原文】\n${chapterContent}`
   const existingAssets = context.existingAssets ?? []
-  const sections: string[] = []
-  if (context.analysis?.trim()) sections.push(`【原文分析】\n${context.analysis}`)
-  if (context.script?.trim()) sections.push(`【漫画剧本】\n${context.script}`)
-  if (context.panelsOutline?.trim()) sections.push(`【本章分镜概要（已确定会被绘制的画面）】\n${context.panelsOutline}`)
-  const assetContext = existingAssets.length
-    ? `\n\n【项目已有资产】\n${existingAssets.map((asset) => {
+  const existingAssetsText = existingAssets.length
+    ? `${existingAssets.map((asset) => {
         const states = asset.variants.map((variant) => variant.name).join('、') || '无'
         return `- ${asset.name}（${asset.type === 'character' ? '人物' : asset.type === 'scene' ? '场景' : '道具'}；已有视觉状态：${states}）`
-      }).join('\n')}\n规则：资产已存在且本章外观未变化时，视觉状态名必须与已有状态名完全一致；仅当原文出现明确外观变化时才新建视觉状态。\n`
-    : ''
-  return `${template}${sections.length ? `\n\n${sections.join('\n\n')}` : ''}${assetContext}\n\n【系统固定输出协议】\n只输出中文 Markdown，不要解释、代码块或 JSON。\n一级标题只能是 # 人物、# 场景、# 道具；没有该类资产则不输出该标题。\n每项资产必须以 ## 资产名称 开始；其余信息每行写为 - 属性名：属性内容。\n每个视觉状态必须以 ### 视觉状态：状态名 单独成块，块内使用字段：视觉描述、状态标签、绘画提示词；同一资产可输出多个视觉状态。\n系统识别字段：姓名、别名、重要性（主要/次要）、描述、原文依据、视觉描述、状态标签、绘画提示词；视觉状态只能通过 ### 视觉状态：状态名 标题声明，不要以字段形式重复输出。\n除系统识别字段外，你可根据模板规则自由输出中文属性，例如门派、身份关系、境界、材质、时代、氛围。\n视觉状态表示该资产在当前剧情中的稳定外观或形态，如“少年期·布衣”“宗门弟子服”“战损”；正面、侧面、背面属于同一状态的参考图，不要单列为状态。\n只基于原文明确内容，不要编造。\n判断资产价值时参考分镜概要：在多个分镜中出现、或承载关键剧情/镜头重点的应提取；只出现一次且无辨识要求的不要提取。`
+      }).join('\n')}\n规则：资产已存在且本章外观未变化时，视觉状态名必须与已有状态名完全一致；仅当原文出现明确外观变化时才新建视觉状态。`
+    : undefined
+  return renderPromptTemplate({
+    type: 'extract',
+    content: templateContent,
+    values: {
+      章节原文: chapterContent,
+      原文分析: context.analysis,
+      漫画剧本: context.script,
+      分镜概要: context.panelsOutline,
+      已有资产: existingAssetsText,
+    },
+  })
 }
 
 /**

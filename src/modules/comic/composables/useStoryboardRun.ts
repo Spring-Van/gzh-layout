@@ -1,6 +1,6 @@
 import { ref, type Ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
-import { generateStoryboard } from '@comic/services/storyboardService'
+import { generateStoryboard, parseStoryboardResponse } from '@comic/services/storyboardService'
 import { migratePanelArtworks } from '@comic/services/panelPromptService'
 import type { ComicProject, LongProjectNode, LongProjectStoryboardRun, ModelConfig, PromptTemplate } from '@comic/types'
 
@@ -99,5 +99,30 @@ export function useStoryboardRun(options: {
     })
   }
 
-  return { selectedModelId, selectedTemplateId, initDefaults, runStoryboard, recoverInterrupted }
+  /**
+   * 手动导入分镜（外部 AI 代跑）：解析粘贴的 Markdown 文本为分镜数组，跳过模型调用。
+   * 与 runStoryboard 同语义：记录旧分镜 → 对位迁移已推导描述与成图（panelArtworks）。
+   * 解析失败抛错（调用方在弹窗内展示），不落库。
+   */
+  async function importStoryboard(content: string) {
+    const chapter = options.getCurrentChapter()
+    if (!chapter) return
+    const now = Date.now()
+    const previousPanels = latestCompletedRun(chapter.id)?.panels ?? []
+    const panels = parseStoryboardResponse(content, [], chapter.id, options.getChapterOrders())
+    const run: LongProjectStoryboardRun = {
+      id: uuidv4(), chapterId: chapter.id, sourceContent: chapter.content ?? '',
+      modelId: '', templateId: '', prompt: '',
+      status: 'completed', panels, rawResponse: content, source: 'manual',
+      createdAt: now, updatedAt: now,
+    }
+    await options.mutateLongProjectData((data) => {
+      data.storyboardRuns = [...(data.storyboardRuns ?? []), run]
+      data.nodes = (data.nodes ?? []).map((node) =>
+        node.id === chapter.id ? { ...node, stage: 'storyboard-ready' as const, updatedAt: now } : node)
+      data.panelArtworks = migratePanelArtworks(data.panelArtworks ?? [], previousPanels, panels, chapter.id)
+    })
+  }
+
+  return { selectedModelId, selectedTemplateId, initDefaults, runStoryboard, importStoryboard, recoverInterrupted }
 }

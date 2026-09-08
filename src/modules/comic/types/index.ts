@@ -63,12 +63,6 @@ export interface AssetCustomFieldDefinition {
   showInSummary?: boolean
 }
 
-export interface AssetExtractionConfig {
-  enabledTypes: LongProjectAssetType[]
-  includeVisualVersion: boolean
-  customFields: AssetCustomFieldDefinition[]
-}
-
 export interface LongProjectAssetVariant {
   id: string
   name: string
@@ -144,6 +138,8 @@ export interface LongProjectChapterDoc {
   sourceWordCount: number
   status: 'running' | 'completed' | 'failed'
   error?: string
+  /** 来源：llm = 内置大模型生成；manual = 手动粘贴外部 AI 结果导入。缺省视为 llm（旧数据兼容）。 */
+  source?: 'llm' | 'manual'
   createdAt: number
   updatedAt: number
 }
@@ -221,6 +217,8 @@ export interface LongProjectStoryboardRun {
   panels: LongProjectStoryboardPanel[]
   rawResponse?: string
   error?: string
+  /** 来源：llm = 内置大模型生成；manual = 手动粘贴外部 AI 结果导入。缺省视为 llm。 */
+  source?: 'llm' | 'manual'
   createdAt: number
   updatedAt: number
 }
@@ -233,13 +231,14 @@ export interface LongProjectAssetExtractionRun {
   sourceWordCount: number
   modelId: string
   templateId: string
-  extractionConfig?: AssetExtractionConfig
   /** 实际发送给模型的最终提示词，可能在发送前确认时被临时修改。 */
   prompt: string
   status: AssetExtractionRunStatus
   candidates: LongProjectAssetExtractionCandidate[]
   rawResponse?: string
   error?: string
+  /** 来源：llm = 内置大模型生成；manual = 手动粘贴外部 AI 结果导入。缺省视为 llm。 */
+  source?: 'llm' | 'manual'
   createdAt: number
   updatedAt: number
 }
@@ -425,10 +424,8 @@ export interface PromptTemplate {
   type: TemplateType
   description: string
   content: string
-  /** 自定义输出协议：拼接时附加在 prompt 末尾的返回要求；留空 = 不附加任何输出限制（需要解析回填的批量场景由系统兜底）。 */
+  /** 自定义输出协议：拼接时附加在 prompt 末尾的返回要求；留空 = 使用系统默认输出协议（见 promptTemplateRegistry）。 */
   outputProtocol?: string
-  /** 仅资产提取模板使用。核心资产协议由系统固定，模板只配置提取范围与扩展字段。 */
-  assetExtractionConfig?: AssetExtractionConfig
   sortOrder: number
   createdAt: number
   updatedAt: number

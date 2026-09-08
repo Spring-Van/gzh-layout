@@ -35,18 +35,21 @@
           <CircleAlert :size="14" class="mt-0.5 shrink-0" />
           <span class="leading-5">{{ runError || '上次分镜生成失败，可重新生成。' }}</span>
         </div>
-        <PromptRunBar
-          v-model:model-id="modelId"
-          v-model:template-id="templateId"
-          :models="models"
-          :templates="templates"
-          :action-label="panelsCount ? '重新生成分镜' : '生成分镜'"
-          :disabled="!sourceContent.trim() || !modelId || !templateId"
-          :busy="runStatus === 'running'"
-          confirm-storage-key="comic-long-storyboard-confirm"
-          :build-prompt="buildPrompt"
-          @run="(prompt) => emit('run', prompt)"
-        />
+        <div class="flex items-center gap-2">
+          <PromptRunBar
+            v-model:model-id="modelId"
+            v-model:template-id="templateId"
+            :models="models"
+            :templates="templates"
+            :action-label="panelsCount ? '重新生成分镜' : '生成分镜'"
+            :disabled="!sourceContent.trim() || !modelId || !templateId"
+            :busy="runStatus === 'running'"
+            confirm-storage-key="comic-long-storyboard-confirm"
+            :build-prompt="buildPrompt"
+            @run="(prompt) => emit('run', prompt)"
+          />
+          <button class="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border-subtle px-2.5 text-xs text-text-secondary transition-colors hover:text-text-primary" title="粘贴外部 AI 生成的分镜结果，解析后导入（与内置大模型相同解析流程）" @click="emit('import')"><ClipboardPaste :size="14" />手动导入</button>
+        </div>
         <p v-if="!scriptContent.trim()" class="text-[11px] leading-4 text-amber-300">本章尚未生成漫画剧本，将以章节原文兜底生成分镜。</p>
       </div>
     </div>
@@ -61,7 +64,7 @@
  * 底部为分镜生成操作区（PromptRunBar + 运行/失败状态），与「提示词」模式底部同构。
  */
 import { ref, watch } from "vue";
-import { CircleAlert, ListTree, LoaderCircle } from "lucide-vue-next";
+import { CircleAlert, ClipboardPaste, ListTree, LoaderCircle } from "lucide-vue-next";
 import PromptRunBar from "@comic/components/common/PromptRunBar.vue";
 import { buildStoryboardPrompt } from "@comic/services/storyboardService";
 import type { LongProjectStoryboardPanel, ModelConfig, PromptTemplate } from "@comic/types";
@@ -95,6 +98,7 @@ const emit = defineEmits<{
   (e: "update:templateId", value: string): void;
   (e: "run", prompt: string): void;
   (e: "save-panel", payload: { panelId: string; fields: PanelEditFields }): void;
+  (e: "import"): void;
 }>();
 
 const modelId = ref(props.modelId);

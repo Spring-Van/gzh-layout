@@ -251,6 +251,7 @@ function buildPromptPreview(template: PromptTemplate, scope?: 'missing' | 'all',
       variant: toRaw(first.variant),
       currentPrompt: first.variant.imagePrompt,
       styleContext: styleContext.value,
+      targetImageModel: currentImageModel.value?.name,
       templateContent: template.content,
       outputProtocol: template.outputProtocol,
     })
@@ -262,7 +263,6 @@ function buildPromptPreview(template: PromptTemplate, scope?: 'missing' | 'all',
     styleContext: styleContext.value,
     targetImageModel: currentImageModel.value?.name,
     outputProtocol: template.outputProtocol,
-    requireParseable: true,
   })
 }
 
@@ -297,6 +297,7 @@ async function runBatchPrompts(options: { modelId: string; templateId: string; p
               variant: toRaw(variant),
               currentPrompt: variant.imagePrompt,
               styleContext: styleContext.value,
+              targetImageModel: currentImageModel.value?.name,
               templateContent: template.content,
               outputProtocol: template.outputProtocol,
             })
@@ -352,7 +353,7 @@ function openRewriteModal(asset: LongProjectAsset, variant: LongProjectAssetVari
   rewriteModalVisible.value = true
 }
 
-/** 构建单条生成/重写的最终 prompt（模板 + 该状态信息；输出协议取模板自定义，未自定义则不附加）。 */
+/** 构建单条生成/重写的最终 prompt（模板 + 该状态信息；输出协议取模板自定义，未自定义则用逐条默认协议）。 */
 function buildRewritePreview(template: PromptTemplate): string {
   const target = rewriteTarget.value
   if (!target) return ''
@@ -361,6 +362,7 @@ function buildRewritePreview(template: PromptTemplate): string {
     variant: toRaw(target.variant),
     currentPrompt: target.variant.imagePrompt,
     styleContext: styleContext.value,
+    targetImageModel: currentImageModel.value?.name,
     templateContent: template.content,
     outputProtocol: template.outputProtocol,
   })

@@ -32,6 +32,7 @@
         <div class="flex min-w-0 items-center gap-2">
           <ScanText :size="15" class="shrink-0 text-cyan-400" />
           <h2 class="text-sm font-semibold text-text-primary">原文分析</h2>
+          <span v-if="analysisDoc?.source === 'manual'" class="shrink-0 rounded border border-violet-400/30 bg-violet-400/10 px-1.5 py-0.5 text-[10px] text-violet-300" title="由外部 AI 生成后手动导入">手动导入</span>
           <span v-if="sourceChanged" class="shrink-0 rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-300" title="分析生成后原文发生过修改，建议重新分析">原文已变更</span>
         </div>
         <button v-if="analysisDoc?.status === 'completed'" class="secondary-button h-7 px-2 text-[11px]" @click="toggleEditing">
@@ -73,6 +74,7 @@
           <ScanText :size="26" class="text-text-muted" />
           <h3 class="mt-3 text-sm font-medium text-text-primary">尚未生成分析</h3>
           <p class="mt-2 max-w-sm text-xs leading-5 text-text-secondary">录入原文后，在顶部页签行右侧选择模型与提示词模板执行「分析原文」，梳理本章人物、场景、道具、事件与时间线，作为后续剧本、分镜与资产提取的依据。</p>
+          <button class="mt-4 secondary-button h-8 px-3 text-xs" @click="emit('import-analysis')"><ClipboardPaste :size="14" />手动写入分析结果</button>
         </div>
       </div>
     </section>
@@ -86,7 +88,7 @@
  * 分析结果可编辑，编辑内容实时回传父级持久化。
  */
 import { computed, ref, watch } from "vue";
-import { AlignJustify, Ellipsis, Eraser, ListX, LoaderCircle, Pencil, Rows3, ScanText, TextAlignStart, Undo2 } from "lucide-vue-next";
+import { AlignJustify, ClipboardPaste, Ellipsis, Eraser, ListX, LoaderCircle, Pencil, Rows3, ScanText, TextAlignStart, Undo2 } from "lucide-vue-next";
 import MarkdownView from "@comic/components/common/MarkdownView.vue";
 import type { LongProjectChapterDoc } from "@comic/types";
 
@@ -104,6 +106,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "update:draft", value: string): void;
   (e: "save-analysis", content: string): void;
+  (e: "import-analysis"): void;
 }>();
 
 // ========== 文本整理工具栏（撤销栈本地持有） ==========

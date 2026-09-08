@@ -1,5 +1,6 @@
 import { llmService } from './llmService'
-import { applyOutputProtocol, buildStyleContext } from './assetPromptService'
+import { renderPromptTemplate } from './promptTemplateRegistry'
+import { buildStyleContext } from './assetPromptService'
 import type { LongProjectAsset, LongProjectPanelArtwork, LongProjectStoryboardPanel, ModelConfig, SharedPromptBlock } from '@comic/types'
 
 /** 内置默认分镜画面描述模板：无用户模板时使用，与 panel-prompt 模板使用相同变量。 */
@@ -67,7 +68,9 @@ export function buildPanelAssetsContext(panel: LongProjectStoryboardPanel, asset
 
 /**
  * 拼装单镜推导的最终提示词。
- * 输出协议：模板自定义 outputProtocol 优先；未自定义则不附加任何输出限制（结果直接取全文回填，无需解析）。
+ * 变量：{{当前分镜}} / {{镜头}} / {{前文分镜}} / {{本章分镜概要}} / {{绑定资产}} / {{风格上下文}} / {{目标生图模型}}；
+ * 未插入的关键上下文（当前分镜）按 always 策略追加，辅助上下文（风格）按 if-nonempty 追加。
+ * 输出协议：模板自定义 outputProtocol 优先，未自定义使用逐条默认协议（结果直接取全文回填，无需解析）。
  */
 export function buildPanelPromptPrompt(options: {
   templateContent: string
@@ -80,29 +83,24 @@ export function buildPanelPromptPrompt(options: {
   outputProtocol?: string
 }): string {
   const { panel } = options
-  const replacements: Array<[RegExp, string]> = [
-    [/\{\{panel_content\}\}/g, panel.content],
-    [/\{\{shot\}\}/g, panel.shot || '未指定'],
-    [/\{\{prev_panels\}\}/g, buildPrevPanelsContext(options.prevEntries)],
-    [/\{\{chapter_outline\}\}/g, options.chapterOutline],
-    [/\{\{assets\}\}/g, buildPanelAssetsContext(panel, options.assets)],
-    [/\{\{style\}\}/g, options.styleContext ?? '无特殊风格要求'],
-    [/\{\{target_model\}\}/g, options.targetImageModel ?? '未指定'],
-  ]
-  let template = options.templateContent
-  let hasVariables = false
-  for (const [pattern, value] of replacements) {
-    if (pattern.test(template)) hasVariables = true
-    template = template.replace(pattern, value)
-  }
-  const info = `【当前分镜】
-分镜序号：${panel.order}
+  const info = `分镜序号：${panel.order}
 镜头：${panel.shot || '未指定'}
-画面内容：${panel.content}
-${panel.imagePrompt ? `分镜参考描述：${panel.imagePrompt}` : ''}`
-  const body = hasVariables ? template : `${template}\n\n${info}`
-  const style = options.styleContext ? `\n\n【风格上下文】\n${options.styleContext}` : ''
-  return applyOutputProtocol(`${body}${style}`, options.outputProtocol, false)
+画面内容：${panel.content}${panel.imagePrompt ? `\n分镜参考描述：${panel.imagePrompt}` : ''}`
+  return renderPromptTemplate({
+    type: 'panel-prompt',
+    content: options.templateContent,
+    values: {
+      当前分镜: info,
+      镜头: panel.shot ?? '',
+      前文分镜: buildPrevPanelsContext(options.prevEntries),
+      本章分镜概要: options.chapterOutline,
+      绑定资产: buildPanelAssetsContext(panel, options.assets),
+      风格上下文: options.styleContext ?? '',
+      目标生图模型: options.targetImageModel ?? '',
+    },
+    customProtocol: options.outputProtocol,
+    protocolMode: 'per-item',
+  })
 }
 
 /** 单镜推导执行：一次 LLM 调用只返回当前分镜的画面描述。 */

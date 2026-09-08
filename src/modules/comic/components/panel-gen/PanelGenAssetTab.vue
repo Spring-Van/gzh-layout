@@ -65,6 +65,7 @@
         <div class="flex h-14 w-14 items-center justify-center rounded-lg border border-border-subtle bg-surface"><ScanText :size="24" class="text-text-muted" /></div>
         <h3 class="mt-4 text-sm font-medium text-text-primary">本章尚未提取资产</h3>
         <p class="mt-2 max-w-sm text-xs leading-5 text-text-secondary">在页面顶部选择模型与模板执行「提取资产」，结合原文分析、剧本与分镜，识别需要固定长相的人物、场景和道具。</p>
+        <button class="mt-4 secondary-button h-8 px-3 text-xs" @click="emit('import-extraction')"><ClipboardPaste :size="14" />手动导入资产</button>
       </div>
     </div>
 
@@ -102,7 +103,7 @@
  * 确认后写回资产与章节引用，并按文本自动回填本章分镜绑定。
  */
 import { computed, ref } from "vue";
-import { FileText, Images, LoaderCircle, MapPin, Package, Palette, ScanText, UserRound } from "lucide-vue-next";
+import { FileText, ClipboardPaste, Images, LoaderCircle, MapPin, Package, Palette, ScanText, UserRound } from "lucide-vue-next";
 import LongProjectAssetExtractionReview from "@comic/components/LongProjectAssetExtractionReview.vue";
 import LongProjectChapterAssets from "@comic/components/LongProjectChapterAssets.vue";
 import LongProjectAssetWorkbench from "@comic/components/LongProjectAssetWorkbench.vue";
@@ -153,6 +154,8 @@ const emit = defineEmits<{
   (e: "update:view", value: AssetView): void;
   /** 失败视图「重新提取」：由页面沿用上次提示词重跑。 */
   (e: "retry-extraction"): void;
+  /** 手动导入资产（外部 AI 代跑）：由页面弹出导入弹窗。 */
+  (e: "import-extraction"): void;
 }>();
 
 const toast = useToast();
@@ -292,6 +295,8 @@ defineExpose({
 <style scoped>
 .primary-button { display: flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: 0.5rem; background: #06b6d4; padding: 0.625rem 1.25rem; font-size: 0.875rem; font-weight: 500; color: #020617; transition: background-color 0.15s ease; }
 .primary-button:hover { background: #22d3ee; }
+.secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: 0.5rem; border: 1px solid var(--border-default); color: var(--text-secondary); font-weight: 500; transition: color 0.15s ease, border-color 0.15s ease; background: transparent; }
+.secondary-button:hover { color: var(--text-primary); border-color: var(--border-strong); }
 .extraction-ring { animation: extraction-ring 1.8s ease-out infinite; }
 .extraction-step-icon { animation: extraction-step 1.5s ease-in-out infinite; }
 .loading-dot { width: 0.3rem; height: 0.3rem; border-radius: 999px; background: #22d3ee; animation: extraction-loading-dot 1.2s ease-in-out infinite; }

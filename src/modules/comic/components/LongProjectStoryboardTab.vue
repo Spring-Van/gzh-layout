@@ -76,6 +76,11 @@
             />
           </div>
           <button
+            class="secondary-button h-9 shrink-0 px-2.5 text-xs"
+            title="粘贴外部 AI 生成的资产提取结果，解析后进入审核确认"
+            @click="extractImportVisible = true"
+          ><ClipboardPaste :size="14" />手动导入</button>
+          <button
             class="primary-button h-9 shrink-0 px-3 text-xs"
             :disabled="!assetTabRef?.canConfirmReview"
             :title="assetTabRef?.canConfirmReview ? '将审核结果保存为本章资产，并自动回填分镜绑定' : '暂无待审核的资产提取结果，请先执行提取'"
@@ -136,6 +141,7 @@
         :shared-blocks="project?.imageGenConfig?.sharedBlocks"
         :mutate-long-project-data="mutateLongProjectData"
         @retry-extraction="retryExtraction"
+        @import-extraction="extractImportVisible = true"
       />
       <div v-else class="flex h-full items-center justify-center text-sm text-text-secondary">请先选择章节</div>
     </div>
@@ -219,6 +225,7 @@
             @update:model-id="storyboardModelId = $event"
             @update:template-id="storyboardTemplateId = $event"
             @run="runStoryboardFromEditor"
+            @import="storyboardImportVisible = true"
             @save-panel="savePanelEdit"
           />
           <PanelPromptPanel
@@ -327,6 +334,26 @@
       :project-id="projectId"
       @save="handleSaveImageConfig"
     />
+
+    <!-- 手动导入分镜（外部 AI 代跑）：粘贴 → 解析预览 → 确认导入 -->
+    <ManualResultImportDialog
+      :visible="storyboardImportVisible"
+      title="手动导入分镜"
+      placeholder="粘贴外部 AI 生成的分镜结果…"
+      :parse="parseStoryboardPreview"
+      @confirm="confirmStoryboardImport"
+      @close="storyboardImportVisible = false"
+    />
+
+    <!-- 手动导入资产（外部 AI 代跑）：粘贴 → 解析预览 → 确认后进入审核链路 -->
+    <ManualResultImportDialog
+      :visible="extractImportVisible"
+      title="手动导入资产"
+      placeholder="粘贴外部 AI 生成的资产提取结果…"
+      :parse="parseExtractionPreview"
+      @confirm="confirmExtractionImport"
+      @close="extractImportVisible = false"
+    />
   </div>
 </template>
 
@@ -345,12 +372,13 @@
  */
 import { computed, onMounted, reactive, ref, toRaw, watch, type Ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
-import { Boxes, CheckCircle2, Download, ListTree, LoaderCircle, Settings2, SlidersHorizontal, Sparkles, Undo2 } from 'lucide-vue-next'
+import { Boxes, CheckCircle2, ClipboardPaste, Download, ListTree, LoaderCircle, Settings2, SlidersHorizontal, Sparkles, Undo2 } from 'lucide-vue-next'
 import { comicDb, comicDownload } from '@/api/comic'
 import { useToast } from '@comic/composables/useToast'
 import PromptRunBar from '@comic/components/common/PromptRunBar.vue'
+import ManualResultImportDialog from '@comic/components/common/ManualResultImportDialog.vue'
 import { imageGenerationService } from '@comic/services/imageGenerationService'
-import { buildAssetExtractionPrompt, extractChapterAssets } from '@comic/services/assetExtractionService'
+import { buildAssetExtractionPrompt, extractChapterAssets, parseAssetExtractionResponse, countCandidatesAppearances } from '@comic/services/assetExtractionService'
 import {
   DEFAULT_PANEL_PROMPT_TEMPLATE,
   DEFAULT_PREV_PANEL_WINDOW,
@@ -362,7 +390,7 @@ import {
   type PrevPanelContextEntry,
 } from '@comic/services/panelPromptService'
 import { buildAssetNameIndex, computeAutoBindings } from '@comic/services/promptAssetService'
-import { defaultVariant } from '@comic/services/storyboardService'
+import { defaultVariant, parseStoryboardResponse } from '@comic/services/storyboardService'
 import { useStoryboardRun } from '@comic/composables/useStoryboardRun'
 import { useStoryboardOps } from '@comic/composables/useStoryboardOps'
 import PanelListSidebar from '@comic/components/panel-gen/PanelListSidebar.vue'
@@ -593,7 +621,7 @@ async function runExtraction(prompt: string) {
   const run: LongProjectAssetExtractionRun = {
     id: uuidv4(), chapterId: chapter.id, sourceContent: chapterContent,
     sourceWordCount: chapterContent.replace(/\s/g, '').length,
-    modelId: model.id, templateId: template.id, extractionConfig: template.assetExtractionConfig,
+    modelId: model.id, templateId: template.id,
     prompt, status: 'running', candidates: [], createdAt: now, updatedAt: now,
   }
   await props.mutateLongProjectData((data) => {
@@ -619,6 +647,51 @@ function retryExtraction() {
   const run = latestExtractRun.value
   if (!run?.prompt) return
   void runExtraction(run.prompt)
+}
+
+// ========== 资产手动导入（外部 AI 代跑） ==========
+
+const extractImportVisible = ref(false)
+
+/** 资产导入解析预览：返回标题与候选摘要（解析失败抛错）。 */
+function parseExtractionPreview(content: string): { title: string; items: string[] } {
+  const candidates = parseAssetExtractionResponse(content, assets.value)
+  if (!candidates.length) throw new Error('未识别到任何资产，请检查内容是否符合「# 人物 / # 场景 / # 道具」格式。')
+  const typeLabel: Record<string, string> = { character: '人物', scene: '场景', prop: '道具' }
+  return {
+    title: `解析到 ${candidates.length} 项资产候选`,
+    items: candidates.map((candidate) => `${typeLabel[candidate.type] ?? candidate.type} · ${candidate.name}（${candidate.decision === 'merge' ? '并入已有资产' : '新建'}）`),
+  }
+}
+
+/** 确认导入资产：解析为候选 → 创建 completed run → 复用 AssetExtractionReview 审核确认链路。 */
+async function confirmExtractionImport(content: string) {
+  const chapter = currentChapter.value
+  if (!chapter || !content.trim()) return
+  if (latestExtractRun.value && !window.confirm('本章已有资产提取结果，导入将生成新一版候选，是否继续？')) return
+  try {
+    const candidates = parseAssetExtractionResponse(content, assets.value)
+    if (!candidates.length) throw new Error('未识别到任何资产，请检查格式。')
+    if (panels.value.length) {
+      const counts = countCandidatesAppearances(candidates, panels.value)
+      for (const candidate of candidates) candidate.panelAppearances = counts[candidate.id] ?? 0
+    }
+    const now = Date.now()
+    const run: LongProjectAssetExtractionRun = {
+      id: uuidv4(), chapterId: chapter.id, sourceContent: chapter.content ?? '',
+      sourceWordCount: (chapter.content ?? '').replace(/\s/g, '').length,
+      modelId: '', templateId: '', prompt: '',
+      status: 'completed', candidates, rawResponse: content, source: 'manual',
+      createdAt: now, updatedAt: now,
+    }
+    await props.mutateLongProjectData((data) => {
+      data.assetExtractionRuns = [...(data.assetExtractionRuns ?? []), run]
+    })
+    extractImportVisible.value = false
+    toast.success(`已导入 ${candidates.length} 项资产候选，请审核确认`)
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : '资产解析失败')
+  }
 }
 
 const panelPromptTemplates = computed(() =>
@@ -719,6 +792,7 @@ const {
   selectedTemplateId: storyboardTemplateId,
   initDefaults: initStoryboardDefaults,
   runStoryboard,
+  importStoryboard,
   recoverInterrupted: recoverStoryboardRun,
 } = useStoryboardRun({
   project,
@@ -739,6 +813,32 @@ async function runStoryboardFromEditor(prompt: string) {
     return
   }
   await runStoryboard({ model, templateId: storyboardTemplateId.value, prompt })
+}
+
+// ========== 分镜手动导入（外部 AI 代跑） ==========
+
+const storyboardImportVisible = ref(false)
+
+/** 分镜导入解析预览：返回标题与每镜摘要（解析失败抛错，由弹窗展示红字）。 */
+function parseStoryboardPreview(content: string): { title: string; items: string[] } {
+  const panels = parseStoryboardResponse(content, [], currentChapter.value?.id ?? '', chapterOrders.value)
+  return {
+    title: `解析到 ${panels.length} 个分镜`,
+    items: panels.map((panel) => `分镜 ${panel.order}：${panel.content.slice(0, 40)}${panel.content.length > 40 ? '…' : ''}`),
+  }
+}
+
+/** 确认导入分镜：覆盖已有分镜前提示（已推导描述与成图将自动对位迁移）。 */
+async function confirmStoryboardImport(content: string) {
+  if (!currentChapter.value) return
+  if (panels.value.length && !window.confirm('本章已有分镜，导入将生成新一版分镜并自动对位迁移已推导描述与成图，是否继续？')) return
+  try {
+    await importStoryboard(content)
+    storyboardImportVisible.value = false
+    toast.success(`已导入分镜`)
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : '分镜解析失败')
+  }
 }
 
 // ========== 分镜结构操作（右键合并/拆分/复制/撤销） ==========

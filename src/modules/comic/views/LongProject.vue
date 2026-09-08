@@ -1,6 +1,6 @@
 <template>
   <div class="flex h-full overflow-hidden bg-app-bg text-text-primary" @click="contextMenu = null">
-    <aside class="flex shrink-0 flex-col border-r border-border-subtle bg-surface transition-[width] duration-200" :class="sidebarCollapsed ? 'w-14' : 'w-72'">
+    <aside class="relative flex shrink-0 flex-col border-r border-border-subtle bg-surface transition-[width] duration-200" :class="sidebarCollapsed ? 'w-14' : 'w-72'">
       <template v-if="!sidebarCollapsed">
         <div class="flex h-14 shrink-0 items-center gap-2 border-b border-border-subtle px-3">
           <button class="icon-button" title="返回项目列表" @click="router.push('/comic/projects')"><ArrowLeft :size="18" /></button>
@@ -27,14 +27,21 @@
       </template>
 
       <template v-else>
-        <div class="flex h-full flex-col items-center gap-2 py-3">
+        <div class="flex h-full flex-col items-center gap-2 py-3" @mouseleave="onRailMouseleave">
           <button class="sidebar-icon" title="展开章节栏" @click="setSidebarCollapsed(false)"><PanelLeftOpen :size="19" /></button>
           <div class="my-1 h-px w-7 bg-border-subtle" />
-          <button v-for="chapter in chapters.slice(0, 8)" :key="chapter.id" class="sidebar-icon" :class="selectedChapterId === chapter.id ? 'bg-cyan-500/15 text-cyan-400' : ''" :title="chapter.name" @click="selectChapter(chapter)"><FileText :size="17" /></button>
-          <button class="sidebar-icon" :class="selectedAssetCategory ? 'bg-violet-500/15 text-violet-300' : ''" title="资产库" @click="selectAssetCategory('character')"><Boxes :size="18" /></button>
+          <!-- 章节浮层入口：hover/click 弹出分组章节列表（替代原 slice(0,8) 图标堆叠） -->
+          <button class="sidebar-icon relative" title="章节列表" @mouseenter="hoverChapterFlyout($event)" @mouseleave="flyoutRef?.triggerLeave()" @click="flyoutRef?.triggerClick(triggerTop($event))">
+            <ListTree :size="18" />
+            <span v-if="chapterCount" class="absolute -right-1 -top-1 min-w-[15px] rounded-full bg-violet-500 px-1 text-center text-[10px] leading-[15px] text-white">{{ chapterCount }}</span>
+          </button>
+          <button v-if="selectedChapter" class="sidebar-icon" :class="selectedChapterId ? 'bg-cyan-500/15 text-cyan-400' : ''" :title="selectedChapter.name" @mouseenter="hoverChapterFlyout($event)" @mouseleave="flyoutRef?.triggerLeave()" @click="flyoutRef?.triggerClick(triggerTop($event))"><FileText :size="18" /></button>
+          <button class="sidebar-icon" :class="selectedAssetCategory ? 'bg-violet-500/15 text-violet-300' : ''" title="资产库" @mouseenter="hoverAssetFlyout($event)" @mouseleave="assetFlyoutRef?.triggerLeave()" @click="assetFlyoutRef?.triggerClick(triggerTop($event))"><Boxes :size="18" /></button>
           <div class="flex-1" />
           <button class="sidebar-icon" title="返回项目列表" @click="router.push('/comic/projects')"><ArrowLeft :size="18" /></button>
         </div>
+        <LongProjectChapterFlyout ref="flyoutRef" :nodes="nodes" :selected-chapter-id="selectedChapterId" @select="selectChapter" />
+        <LongProjectAssetFlyout ref="assetFlyoutRef" :assets="projectAssets" :selected-category="selectedAssetCategory" @select="selectAssetCategory" />
       </template>
     </aside>
 
@@ -102,6 +109,7 @@
                   @run="runAnalysis"
                 />
               </div>
+              <button class="secondary-button h-9 shrink-0 px-2.5 text-xs" title="粘贴外部 AI 生成的原文分析结果，跳过内置大模型调用" @click="openManualImport('analysis')"><ClipboardPaste :size="14" />手动写入</button>
             </div>
             <div v-show="activeTab === 'script'" class="flex min-w-0 items-center gap-2">
               <div class="min-w-0 max-w-2xl">
@@ -118,6 +126,7 @@
                   @run="runScript"
                 />
               </div>
+              <button class="secondary-button h-9 shrink-0 px-2.5 text-xs" title="粘贴外部 AI 生成的漫画剧本结果，跳过内置大模型调用" @click="openManualImport('script')"><ClipboardPaste :size="14" />手动写入</button>
             </div>
             <div v-show="activeTab === 'storyboard'" id="storyboard-actions" class="flex min-w-0 items-center gap-2" />
           </div>
@@ -130,6 +139,7 @@
           :analysis-doc="analysisDoc"
           :source-changed="analysisSourceChanged"
           @save-analysis="saveAnalysis"
+          @import-analysis="openManualImport('analysis')"
         />
 
         <LongProjectScriptTab
@@ -139,6 +149,7 @@
           :script-doc="scriptDoc"
           :source-changed="scriptSourceChanged"
           @save-script="saveScript"
+          @import-script="openManualImport('script')"
         />
 
         <!-- 分镜 tab：首次进入时挂载，之后常驻（批量推导/生图切页签不中断） -->
@@ -168,6 +179,15 @@
 
     <LongProjectNodeDialog v-model="nodeDialogVisible" :node-type="nodeDialogType" :rename-mode="Boolean(editingNode)" :initial-name="editingNode?.name" :parent-name="nodeDialogParentName" @submit="handleNodeDialogSubmit" />
     <ConfirmDialog v-model="deleteDialogVisible" title="删除内容" :content="deleteDialogContent" confirm-text="确认删除" @confirm="confirmDelete" />
+
+    <!-- 手动导入结果（外部 AI 代跑）：分析/剧本共用 -->
+    <ManualResultImportDialog
+      :visible="Boolean(importKind)"
+      :title="importDialogConfig.title"
+      :placeholder="importDialogConfig.placeholder"
+      @confirm="confirmManualImport"
+      @close="importKind = null"
+    />
   </div>
 </template>
 
@@ -182,13 +202,16 @@
 import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { v4 as uuidv4 } from "uuid";
-import { ArrowLeft, ArrowRight, Boxes, Clapperboard, FileImage, FilePlus2, FileText, FolderPlus, ListTree, PanelLeftClose, PanelLeftOpen, Pencil, ScanText, ScrollText, Trash2, Workflow } from "lucide-vue-next";
+import { ArrowLeft, ArrowRight, Boxes, Clapperboard, ClipboardPaste, FileImage, FilePlus2, FileText, FolderPlus, ListTree, PanelLeftClose, PanelLeftOpen, Pencil, ScanText, ScrollText, Trash2, Workflow } from "lucide-vue-next";
 import { comicDb } from "@/api/comic";
 import { useTabStore, resolveMatchKey } from "@/stores/tab";
 import ConfirmDialog from "@comic/components/ConfirmDialog.vue";
 import PromptRunBar from "@comic/components/common/PromptRunBar.vue";
+import ManualResultImportDialog from "@comic/components/common/ManualResultImportDialog.vue";
 import LongProjectNodeDialog from "@comic/components/LongProjectNodeDialog.vue";
 import LongProjectTree from "@comic/components/LongProjectTree.vue";
+import LongProjectChapterFlyout from "@comic/components/LongProjectChapterFlyout.vue";
+import LongProjectAssetFlyout from "@comic/components/LongProjectAssetFlyout.vue";
 import LongProjectAssetLibraryTree, { type AssetLibraryCategory } from "@comic/components/LongProjectAssetLibraryTree.vue";
 import LongProjectAssetLibrary from "@comic/components/LongProjectAssetLibrary.vue";
 import LongProjectSourceTab from "@comic/components/LongProjectSourceTab.vue";
@@ -214,11 +237,20 @@ watch(
   },
   { immediate: true }
 );
-const { selectedModelByKind, selectedTemplateByKind, initDefaults, getDoc, saveDocContent, runDoc, recoverInterrupted } = useChapterDocRun({ project, mutateLongProjectData });
+const { selectedModelByKind, selectedTemplateByKind, initDefaults, getDoc, saveDocContent, runDoc, importDoc, recoverInterrupted } = useChapterDocRun({ project, mutateLongProjectData });
 
 const saving = ref(false);
 let autoSaveTimer: ReturnType<typeof setTimeout> | undefined;
 const sidebarCollapsed = ref(localStorage.getItem("comic-long-sidebar-collapsed") === "true");
+/** 收缩态章节/资产浮层实例（触发按钮 hover/click 转发给浮层管理显隐时机）。 */
+const flyoutRef = ref<InstanceType<typeof LongProjectChapterFlyout> | null>(null);
+const assetFlyoutRef = ref<InstanceType<typeof LongProjectAssetFlyout> | null>(null);
+/** hover 触发某浮层时先立即收起另一个（避免同位叠放），并把触发按钮的垂直位置作为浮层锚点。 */
+const triggerTop = (event: MouseEvent) => (event.currentTarget instanceof HTMLElement ? event.currentTarget.offsetTop : undefined);
+const hoverChapterFlyout = (event: MouseEvent) => { assetFlyoutRef.value?.close(); flyoutRef.value?.triggerEnter(triggerTop(event)); };
+const hoverAssetFlyout = (event: MouseEvent) => { flyoutRef.value?.close(); assetFlyoutRef.value?.triggerEnter(triggerTop(event)); };
+/** 鼠标离开收缩侧栏时，两个浮层都进入延迟收起。 */
+const onRailMouseleave = () => { flyoutRef.value?.triggerLeave(); assetFlyoutRef.value?.triggerLeave(); };
 const expandedFolders = ref(new Set<string>());
 const selectedChapterId = ref<string | null>(null);
 const selectedAssetCategory = ref<AssetLibraryCategory | null>(null);
@@ -349,6 +381,36 @@ const saveAnalysis = (content: string) => {
 const saveScript = (content: string) => {
   if (selectedChapter.value) void saveDocContent("script", selectedChapter.value.id, content);
 };
+
+// ========== 手动导入（外部 AI 代跑） ==========
+
+type ImportKind = 'analysis' | 'script' | null
+const importKind = ref<ImportKind>(null)
+
+/** 手动导入弹窗标题与占位文案。 */
+const importDialogConfig = computed(() => {
+  if (importKind.value === 'analysis') return { title: '手动导入原文分析', placeholder: '粘贴外部 AI 生成的原文分析结果…' }
+  if (importKind.value === 'script') return { title: '手动导入漫画剧本', placeholder: '粘贴外部 AI 生成的漫画剧本结果…' }
+  return { title: '', placeholder: '' }
+})
+
+/** 打开手动导入弹窗（kind 决定写入目标）。 */
+function openManualImport(kind: Exclude<ImportKind, null>) {
+  importKind.value = kind
+}
+
+/** 确认导入分析/剧本：覆盖本章已有文档前提示。 */
+async function confirmManualImport(content: string) {
+  const chapter = selectedChapter.value
+  const kind = importKind.value
+  if (!chapter || !kind || !content.trim()) return
+  if (isDirty.value) await saveCurrentChapter(false)
+  const existing = getDoc(kind, chapter.id)
+  if (existing && !window.confirm(`本章已有${kind === 'analysis' ? '原文分析' : '漫画剧本'}，导入将覆盖原内容，是否继续？`)) return
+  await importDoc(kind, { chapterId: chapter.id, content: content.trim(), sourceContent: draftContent.value })
+  importKind.value = null
+  toast.success(`已导入${kind === 'analysis' ? '原文分析' : '漫画剧本'}`)
+}
 
 const toggleFolder = (folderId: string) => { const next = new Set(expandedFolders.value); next.has(folderId) ? next.delete(folderId) : next.add(folderId); expandedFolders.value = next; };
 const selectChapter = async (chapter: LongProjectNode) => {
