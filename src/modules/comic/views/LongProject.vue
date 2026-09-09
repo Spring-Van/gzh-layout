@@ -129,7 +129,6 @@
               <button class="secondary-button h-9 shrink-0 px-2.5 text-xs" title="粘贴外部 AI 生成的漫画剧本结果，跳过内置大模型调用" @click="openManualImport('script')"><ClipboardPaste :size="14" />手动写入</button>
             </div>
             <div v-show="activeTab === 'storyboard'" id="storyboard-actions" class="flex min-w-0 items-center gap-2" />
-            <div v-show="activeTab === 'assets'" id="asset-actions" class="flex min-w-0 items-center gap-2" />
           </div>
         </div>
 
@@ -154,7 +153,7 @@
           @import-script="openManualImport('script')"
         />
 
-        <!-- 分镜 tab：首次进入时挂载，之后常驻（批量推导/生图切页签不中断） -->
+        <!-- 分镜 tab：首次进入时挂载，之后常驻（批量推导/生图切页签不中断；资产抽屉在其内部） -->
         <LongProjectStoryboardTab
           v-if="storyboardOpened"
           v-show="activeTab === 'storyboard'"
@@ -165,18 +164,6 @@
           :templates="promptTemplates"
           :mutate-long-project-data="mutateLongProjectData"
           @image-config-saved="loadProject"
-        />
-
-        <!-- 资产 tab（提取/审核/生图工作台）：首次进入时挂载，之后常驻 -->
-        <LongProjectAssetTab
-          v-if="assetsOpened"
-          v-show="activeTab === 'assets'"
-          :project-id="projectId"
-          :chapter-id="selectedChapterId ?? ''"
-          :project="project"
-          :models="models"
-          :templates="promptTemplates"
-          :mutate-long-project-data="mutateLongProjectData"
         />
       </section>
     </main>
@@ -269,11 +256,9 @@ const expandedFolders = ref(new Set<string>());
 const selectedChapterId = ref<string | null>(null);
 const selectedAssetCategory = ref<AssetLibraryCategory | null>(null);
 const draftContent = ref("");
-const activeTab = ref<"source" | "script" | "storyboard" | "assets">("source");
-/** 分镜 tab 首次进入时才挂载（挂载后常驻，批量任务切页签不中断）。 */
+const activeTab = ref<"source" | "script" | "storyboard">("source");
+/** 分镜 tab 首次进入时才挂载（挂载后常驻，批量任务切页签不中断；资产以抽屉形式内嵌）。 */
 const storyboardOpened = ref(false);
-/** 资产 tab 首次进入时才挂载（挂载后常驻，提取/批量生图切页签不中断）。 */
-const assetsOpened = ref(false);
 const models = ref<ModelConfig[]>([]);
 const promptTemplates = ref<PromptTemplate[]>([]);
 const nodeDialogVisible = ref(false);
@@ -315,22 +300,20 @@ const workflowSteps = [
   { title: "分镜", description: "拆解每格画面", icon: ListTree },
   { title: "资产与生图", description: "固定视觉并绘制", icon: FileImage },
 ];
-/** 章节创作阶段页签：「从剧本开始」的章节隐藏原文页签。 */
+/** 章节创作阶段页签：「从剧本开始」的章节隐藏原文页签（资产收在分镜页抽屉内）。 */
 const chapterTabs = computed(() => {
   const tabs = [
     { key: "source" as const, label: "原文", icon: FileText },
     { key: "script" as const, label: "剧本", icon: ScrollText },
     { key: "storyboard" as const, label: "分镜", icon: Clapperboard },
-    { key: "assets" as const, label: "资产", icon: Boxes },
   ];
   return selectedChapter.value?.startMode === "script" ? tabs.filter((tab) => tab.key !== "source") : tabs;
 });
 
-/** 切换创作阶段页签（分镜/资产页签首次进入时挂载其组件）。 */
-const setActiveTab = (key: "source" | "script" | "storyboard" | "assets") => {
+/** 切换创作阶段页签（分镜页签首次进入时挂载其组件）。 */
+const setActiveTab = (key: "source" | "script" | "storyboard") => {
   activeTab.value = key;
   if (key === "storyboard") storyboardOpened.value = true;
-  if (key === "assets") assetsOpened.value = true;
 };
 
 function sortNodes(a: LongProjectNode, b: LongProjectNode) { return a.order - b.order || a.createdAt - b.createdAt; }
@@ -440,8 +423,8 @@ const selectChapter = async (chapter: LongProjectNode) => {
   selectedAssetCategory.value = null;
   selectedChapterId.value = chapter.id;
   draftContent.value = chapter.content ?? "";
-  // 分镜/资产页签内切换章节时保持页签；其余回到本章首个可用页签（剧本起稿章节无原文页签）
-  if (activeTab.value !== "storyboard" && activeTab.value !== "assets") {
+  // 分镜页签内切换章节时保持页签；其余回到本章首个可用页签（剧本起稿章节无原文页签）
+  if (activeTab.value !== "storyboard") {
     activeTab.value = chapter.startMode === "script" ? "script" : "source";
   }
 };

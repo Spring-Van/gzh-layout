@@ -1,75 +1,7 @@
 <template>
-  <!-- 单根节点：保证父页面 v-show 页签切换生效 -->
+  <!-- 单根节点：抽屉/页面内均直接填充父容器 -->
   <div class="flex h-full min-h-0 flex-col overflow-hidden bg-app-bg text-text-primary">
-    <!-- 顶部操作按钮：Teleport 到主页面 tab 行右侧容器（#asset-actions），随资产子视图切换 -->
-    <Teleport to="#asset-actions">
-      <!-- 信息视图：资产提取操作区 + 确认本章资产 -->
-      <template v-if="assetView === 'info'">
-        <div class="min-w-0 max-w-2xl">
-          <PromptRunBar
-            v-model:model-id="extractModelId"
-            v-model:template-id="extractTemplateId"
-            :models="llmModels"
-            :templates="extractTemplates"
-            :action-label="extractActionLabel"
-            :disabled="extractDisabled"
-            :busy="extractBusy"
-            confirm-storage-key="comic-long-extract-confirm"
-            :build-prompt="buildExtractPrompt"
-            @run="runExtraction"
-          />
-        </div>
-        <span
-          v-if="scriptFallbackHint"
-          class="shrink-0 rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-1 text-[11px] text-amber-300"
-          title="本章无原文（从剧本开始创作），提取将以漫画剧本作为底稿"
-        >剧本兜底</span>
-        <button
-          class="secondary-button h-9 shrink-0 px-2.5 text-xs"
-          title="粘贴外部 AI 生成的资产提取结果，解析后进入审核确认"
-          @click="extractImportVisible = true"
-        ><ClipboardPaste :size="14" />手动导入</button>
-        <button
-          class="primary-button h-9 shrink-0 px-3 text-xs"
-          :disabled="!assetTabRef?.canConfirmReview"
-          :title="assetTabRef?.canConfirmReview ? '将审核结果保存为本章资产，并自动回填分镜绑定' : '暂无待审核的资产提取结果，请先执行提取'"
-          @click="assetTabRef?.confirmReview()"
-        >
-          <CheckCircle2 :size="14" />
-          确认本章资产
-        </button>
-      </template>
-
-      <!-- 生图工作台视图：批量提示词 / 批量生图 / 生图配置 -->
-      <template v-else-if="assetView === 'workbench'">
-        <button
-          class="secondary-button h-9 shrink-0 px-3 text-xs"
-          :disabled="!assetTabRef?.workbench?.hasPromptTargets || assetTabRef?.workbench?.promptBatchBusy"
-          :title="assetTabRef?.workbench?.hasPromptTargets ? '为视觉状态批量生成绘画提示词，可选仅补缺失或全部重新生成' : '本章暂无视觉状态，请先完成资产提取'"
-          @click="assetTabRef?.workbench?.openPromptModal()"
-        >
-          <LoaderCircle v-if="assetTabRef?.workbench?.promptBatchBusy" :size="14" class="animate-spin" />
-          <Sparkles v-else :size="14" />
-          批量生成提示词
-        </button>
-        <button
-          class="primary-button h-9 shrink-0 px-3 text-xs"
-          :disabled="!assetTabRef?.workbench?.hasGenTargets || assetTabRef?.workbench?.batchBusy"
-          :title="assetTabRef?.workbench?.hasGenTargets ? '串行生成视觉状态参考图' : '没有可生图的视觉状态（需先有提示词且未成图）'"
-          @click="assetTabRef?.workbench?.runBatchGen()"
-        >
-          <LoaderCircle v-if="assetTabRef?.workbench?.batchBusy" :size="14" class="animate-spin" />
-          批量生图{{ assetTabRef?.workbench?.batchBusy ? ` ${assetTabRef?.workbench?.batchDone}/${assetTabRef?.workbench?.batchTotal}` : '' }}
-        </button>
-        <button
-          class="secondary-button h-9 shrink-0 px-3 text-xs"
-          title="资产生图模型与共用属性配置"
-          @click="assetTabRef?.workbench?.openConfigDrawer()"
-        ><Settings2 :size="14" />生图配置</button>
-      </template>
-    </Teleport>
-
-    <!-- 资产主体：三子视图（信息 | 图片 | 生图工作台） -->
+    <!-- 资产主体：三子视图（信息 | 图片 | 生图工作台）；顶部操作按钮经 #actions 注入子 tab 行右侧 -->
     <div class="min-h-0 flex-1 overflow-hidden">
       <PanelGenAssetTab
         v-if="currentChapter"
@@ -87,10 +19,76 @@
         :asset-gen-config="assetGenConfig"
         :painting-style="project?.comicConfig?.paintingStyle"
         :shared-blocks="project?.imageGenConfig?.sharedBlocks"
+        :focus-target="focusTarget"
         :mutate-long-project-data="mutateLongProjectData"
         @retry-extraction="retryExtraction"
         @import-extraction="extractImportVisible = true"
-      />
+      >
+        <!-- 信息视图：资产提取操作区 + 确认本章资产 -->
+        <template v-if="assetView === 'info'" #actions>
+          <div class="min-w-0 max-w-2xl">
+            <PromptRunBar
+              v-model:model-id="extractModelId"
+              v-model:template-id="extractTemplateId"
+              :models="llmModels"
+              :templates="extractTemplates"
+              :action-label="extractActionLabel"
+              :disabled="extractDisabled"
+              :busy="extractBusy"
+              confirm-storage-key="comic-long-extract-confirm"
+              :build-prompt="buildExtractPrompt"
+              @run="runExtraction"
+            />
+          </div>
+          <span
+            v-if="scriptFallbackHint"
+            class="shrink-0 rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-1 text-[11px] text-amber-300"
+            title="本章无原文（从剧本开始创作），提取将以漫画剧本作为底稿"
+          >剧本兜底</span>
+          <button
+            class="secondary-button h-9 shrink-0 px-2.5 text-xs"
+            title="粘贴外部 AI 生成的资产提取结果，解析后进入审核确认"
+            @click="extractImportVisible = true"
+          ><ClipboardPaste :size="14" />手动导入</button>
+          <button
+            class="primary-button h-9 shrink-0 px-3 text-xs"
+            :disabled="!assetTabRef?.canConfirmReview"
+            :title="assetTabRef?.canConfirmReview ? '将审核结果保存为本章资产，并自动回填分镜绑定' : '暂无待审核的资产提取结果，请先执行提取'"
+            @click="assetTabRef?.confirmReview()"
+          >
+            <CheckCircle2 :size="14" />
+            确认本章资产
+          </button>
+        </template>
+
+        <!-- 生图工作台视图：批量提示词 / 批量生图 / 生图配置 -->
+        <template v-else-if="assetView === 'workbench'" #actions>
+          <button
+            class="secondary-button h-9 shrink-0 px-3 text-xs"
+            :disabled="!assetTabRef?.workbench?.hasPromptTargets || assetTabRef?.workbench?.promptBatchBusy"
+            :title="assetTabRef?.workbench?.hasPromptTargets ? '为视觉状态批量生成绘画提示词，可选仅补缺失或全部重新生成' : '本章暂无视觉状态，请先完成资产提取'"
+            @click="assetTabRef?.workbench?.openPromptModal()"
+          >
+            <LoaderCircle v-if="assetTabRef?.workbench?.promptBatchBusy" :size="14" class="animate-spin" />
+            <Sparkles v-else :size="14" />
+            批量生成提示词
+          </button>
+          <button
+            class="primary-button h-9 shrink-0 px-3 text-xs"
+            :disabled="!assetTabRef?.workbench?.hasGenTargets || assetTabRef?.workbench?.batchBusy"
+            :title="assetTabRef?.workbench?.hasGenTargets ? '串行生成视觉状态参考图' : '没有可生图的视觉状态（需先有提示词且未成图）'"
+            @click="assetTabRef?.workbench?.runBatchGen()"
+          >
+            <LoaderCircle v-if="assetTabRef?.workbench?.batchBusy" :size="14" class="animate-spin" />
+            批量生图{{ assetTabRef?.workbench?.batchBusy ? ` ${assetTabRef?.workbench?.batchDone}/${assetTabRef?.workbench?.batchTotal}` : '' }}
+          </button>
+          <button
+            class="secondary-button h-9 shrink-0 px-3 text-xs"
+            title="资产生图模型与共用属性配置"
+            @click="assetTabRef?.workbench?.openConfigDrawer()"
+          ><Settings2 :size="14" />生图配置</button>
+        </template>
+      </PanelGenAssetTab>
       <div v-else class="flex h-full items-center justify-center text-sm text-text-secondary">请先选择章节</div>
     </div>
 
@@ -108,12 +106,11 @@
 
 <script setup lang="ts">
 /**
- * 长篇项目「资产」顶级页签：资产提取 + 审核 + 资产生图工作台（PanelGenAssetTab 三子视图）。
+ * 长篇项目「资产」面板（分镜页全屏抽屉内容）：资产提取 + 审核 + 资产生图工作台（PanelGenAssetTab 三子视图）。
  * 提取底稿 = 章节原文优先，无原文（从剧本开始）时以漫画剧本兜底并加说明头；
  * 提取上下文 = 原文分析 + 漫画剧本 + 分镜概要（本章最近完成分镜）+ 已有资产。
  * 确认后写回资产与章节引用，并按文本自动回填本章分镜绑定。
- * 顶部操作按钮通过 Teleport 注入主页面 tab 行右侧（#asset-actions 容器），
- * 与分镜页签同构（props 注入项目数据，不独立读写库）。
+ * 顶部操作按钮经 #actions 插槽注入子 tab 行右侧（信息 = 提取 + 确认；生图工作台 = 批量提示词/生图/配置）。
  */
 import { computed, ref, watch, type Ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
@@ -145,6 +142,8 @@ const props = defineProps<{
   project: ComicProject | null
   models: ModelConfig[]
   templates: PromptTemplate[]
+  /** 资产接力定位目标（从分镜页跳转时携带，直达工作台具体资产/视觉状态）。 */
+  focusTarget?: { assetId: string; variantId?: string } | null
   mutateLongProjectData: (mutate: (data: NonNullable<ComicProject['longProjectData']>) => void) => Promise<void>
 }>()
 
@@ -178,14 +177,14 @@ const analysisDoc = computed(() => (project.value?.longProjectData?.chapterAnaly
 const scriptDoc = computed(() => (project.value?.longProjectData?.chapterScripts ?? []).find((doc) => doc.chapterId === chapterId.value))
 
 /** 本章最近一次已完成分镜（提取出现次数统计与确认后回填绑定的数据源，与分镜页签同口径）。 */
-const panels = computed<LongProjectStoryboardPanel[]>(() => {
+const latestStoryboardRun = computed(() => {
   const chapter = currentChapter.value
-  if (!chapter) return []
-  const run = (project.value?.longProjectData?.storyboardRuns ?? [])
+  if (!chapter) return null
+  return (project.value?.longProjectData?.storyboardRuns ?? [])
     .filter((item) => item.chapterId === chapter.id && item.status === 'completed')
-    .sort((a, b) => b.updatedAt - a.updatedAt)[0]
-  return run?.panels ?? []
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null
 })
+const panels = computed<LongProjectStoryboardPanel[]>(() => latestStoryboardRun.value?.panels ?? [])
 
 const llmModels = computed(() => props.models.filter((model) => model.category === 'llm'))
 
@@ -193,6 +192,11 @@ const llmModels = computed(() => props.models.filter((model) => model.category =
 watch(chapterId, () => {
   assetView.value = 'info'
 })
+
+/** 接力定位：携带目标（分镜页「无参考图」等入口跳转）时直达生图工作台。 */
+watch(() => props.focusTarget, (target) => {
+  if (target) assetView.value = 'workbench'
+}, { immediate: true })
 
 // ========== 资产提取（顶栏信息视图操作区） ==========
 

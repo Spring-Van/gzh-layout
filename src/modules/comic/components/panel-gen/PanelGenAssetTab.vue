@@ -1,7 +1,7 @@
 <template>
   <div class="flex h-full min-h-0 flex-col overflow-hidden">
-    <!-- 资产子 tab：信息 | 图片 | 生图工作台（右侧进度概览；提取操作区在页面顶栏） -->
-    <nav class="flex h-10 shrink-0 items-center gap-1 border-b border-border-subtle bg-surface px-4">
+    <!-- 资产子 tab：信息 | 图片 | 生图工作台；右侧由父组件注入操作按钮（#actions） -->
+    <nav class="flex h-12 shrink-0 items-center gap-1 border-b border-border-subtle bg-surface px-4">
       <button
         v-for="tab in assetTabs"
         :key="tab.id"
@@ -11,11 +11,16 @@
       >
         <component :is="tab.icon" :size="13" />
         {{ tab.label }}
+        <!-- 工作台进度提示（原有右侧两枚 chips 收纳到 tab 标签上） -->
+        <span
+          v-if="tab.id === 'workbench' && totalVariants"
+          class="text-[10px] text-text-muted"
+          :title="`已有绘画提示词的视觉状态 ${promptProgress}，已生成参考图的视觉状态 ${imageProgress}`"
+        >提示词 {{ promptProgress }} · 生成图 {{ imageProgress }}</span>
       </button>
 
-      <div class="ml-auto flex items-center gap-2">
-        <span class="rounded border border-border-subtle bg-app-bg px-1.5 py-0.5 text-[11px] text-text-secondary" title="已有绘画提示词的视觉状态数">提示词 {{ promptProgress }}</span>
-        <span class="rounded border border-border-subtle bg-app-bg px-1.5 py-0.5 text-[11px] text-text-secondary" title="已生成参考图的视觉状态数">生成图 {{ imageProgress }}</span>
+      <div class="ml-auto flex min-w-0 items-center gap-2">
+        <slot name="actions" />
       </div>
     </nav>
 
@@ -102,9 +107,10 @@
 /**
  * 生图工作台「资产」页签容器：三子 tab「信息 | 图片 | 生图工作台」。
  * - 信息：资产提取结果独立成页（主体为提取审核/加载/失败/空态）；
- *   提取操作区（PromptRunBar）与「确认本章资产」按钮在页面顶栏，重试通过 retry-extraction 事件回调页面。
+ *   提取操作区（PromptRunBar）与「确认本章资产」按钮经 #actions 插槽注入子 tab 行右侧，重试通过 retry-extraction 事件回调页面。
  * - 图片：本章资产浏览（LongProjectChapterAssets）。
- * - 生图工作台：资产视觉状态的提示词/参考图生产，批量操作按钮由页面顶栏承载。
+ * - 生图工作台：资产视觉状态的提示词/参考图生产，批量操作按钮经 #actions 插槽注入子 tab 行右侧。
+ * 工作台进度（提示词/生成图）以小字收纳在「生图工作台」tab 标签上。
  * 提取底稿 = 章节原文（无原文时以漫画剧本兜底，页面顶栏提示）；
  * 提取上下文 = 原文分析 + 漫画剧本 + 分镜概要（本章有已完成分镜时）+ 已有资产；
  * 确认后写回资产与章节引用，并按文本自动回填本章分镜绑定。
@@ -151,6 +157,8 @@ const props = defineProps<{
   assetGenConfig?: AssetGenConfig;
   paintingStyle?: string;
   sharedBlocks?: SharedPromptBlock[];
+  /** 资产接力定位目标（透传给生图工作台，选中具体资产/视觉状态）。 */
+  focusTarget?: { assetId: string; variantId?: string } | null;
   mutateLongProjectData: (mutate: (data: NonNullable<ComicProject["longProjectData"]>) => void) => Promise<void>;
 }>();
 

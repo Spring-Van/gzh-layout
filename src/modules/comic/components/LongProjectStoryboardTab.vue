@@ -35,6 +35,13 @@
         导出发布
       </button>
 
+      <!-- 资产：点击打开左侧抽屉（提取 / 审核 / 视觉状态生图，关闭不打断任务） -->
+      <button
+        class="secondary-button h-9 shrink-0 px-3 text-xs"
+        title="打开资产抽屉：提取 / 审核本章资产，生成视觉状态参考图"
+        @click="openAssetDrawer()"
+      ><Boxes :size="14" />资产</button>
+
       <!-- 绘图配置：点击打开抽屉（与短篇生图页一致） -->
       <button
         class="secondary-button h-9 shrink-0 px-3 text-xs"
@@ -42,6 +49,18 @@
         @click="configDrawerVisible = true"
       ><SlidersHorizontal :size="14" />绘图配置</button>
     </Teleport>
+
+    <!-- 资产接力引导条：有分镜但本章资产未就绪 → 一键打开资产抽屉提取（固定视觉，保证分镜间画面一致） -->
+    <div
+      v-if="showAssetHandoff"
+      class="flex shrink-0 items-center justify-between gap-3 border-b border-amber-400/25 bg-amber-400/10 px-4 py-2"
+    >
+      <p class="min-w-0 truncate text-xs text-amber-300">本章分镜已就绪，但资产尚未提取 —— 建议先固定人物 / 场景 / 道具的视觉状态，再生成分镜画面</p>
+      <button
+        class="flex shrink-0 items-center gap-1 rounded-lg border border-amber-400/40 px-2.5 py-1 text-xs text-amber-300 transition-colors hover:bg-amber-400/15"
+        @click="openAssetDrawer()"
+      >去提取资产 <ArrowRight :size="13" /></button>
+    </div>
 
     <!-- 分镜视图：左列表 + 中预览 + 右[分镜内容|提示词] -->
     <div class="flex min-h-0 flex-1 gap-3 p-3">
@@ -78,6 +97,7 @@
               :assets="assets"
               @update-variant-images="updateVariantImages"
               @preview="openPreview"
+              @go-asset-workbench="openAssetDrawer($event)"
             />
           </div>
         </template>
@@ -241,6 +261,43 @@
       @confirm="confirmStoryboardImport"
       @close="storyboardImportVisible = false"
     />
+
+    <!-- 资产抽屉：全屏覆盖，自左侧滑入；首次打开后常驻，关闭不打断提取/批量生图任务 -->
+    <Teleport to="body">
+      <Transition name="slide-left">
+        <div
+          v-show="assetDrawerVisible"
+          class="fixed inset-0 z-[101] flex flex-col overflow-hidden bg-surface dark:bg-slate-800"
+        >
+          <!-- 头部 -->
+          <div class="flex shrink-0 items-center justify-between border-b border-border-subtle bg-surface px-6 py-4">
+            <div class="flex items-center gap-2">
+              <Boxes :size="18" class="text-cyan-400" />
+              <h2 class="text-base font-semibold text-text-primary">资产</h2>
+            </div>
+            <button
+              class="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-elevated hover:text-text-primary"
+              @click="assetDrawerVisible = false"
+            >
+              <X :size="16" />
+            </button>
+          </div>
+          <!-- 内容：资产提取 + 审核 + 生图工作台 -->
+          <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <LongProjectAssetTab
+              v-if="assetDrawerMounted"
+              :project-id="projectId"
+              :chapter-id="chapterId"
+              :project="project"
+              :models="models"
+              :templates="templates"
+              :focus-target="assetFocus"
+              :mutate-long-project-data="mutateLongProjectData"
+            />
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -256,7 +313,7 @@
  * 项目数据与持久化队列共享主页面实例（props 注入），不再独立读写。
  */
 import { computed, onMounted, reactive, ref, toRaw, watch, type Ref } from 'vue'
-import { Download, ListTree, LoaderCircle, SlidersHorizontal, Sparkles, Undo2 } from 'lucide-vue-next'
+import { ArrowRight, Boxes, Download, ListTree, LoaderCircle, SlidersHorizontal, Sparkles, Undo2, X } from 'lucide-vue-next'
 import { comicDb, comicDownload } from '@/api/comic'
 import { useToast } from '@comic/composables/useToast'
 import ManualResultImportDialog from '@comic/components/common/ManualResultImportDialog.vue'
@@ -286,6 +343,7 @@ import StoryboardMergeDialog from '@comic/components/StoryboardMergeDialog.vue'
 import StoryboardSplitDialog from '@comic/components/StoryboardSplitDialog.vue'
 import AssetImagePreviewModal from '@comic/components/AssetImagePreviewModal.vue'
 import ImageConfigDrawer from '@comic/components/ImageConfigDrawer.vue'
+import LongProjectAssetTab from '@comic/components/LongProjectAssetTab.vue'
 import { migrateLegacyImageGenConfig } from '@comic/utils/sharedBlocks'
 import type { PanelListItem } from '@comic/components/panel-gen/PanelListSidebar.vue'
 import type {
@@ -396,6 +454,39 @@ const currentRun = computed(() => {
 })
 const panels = computed(() => currentRun.value?.panels ?? [])
 const chapterOutline = computed(() => buildChapterOutline(panels.value))
+
+// ========== 资产接力引导（有分镜但本章资产未就绪 → 引导去资产 tab） ==========
+
+/** 本章章节资产引用（确认提取后写入）。 */
+const chapterAssetEntries = computed(() =>
+  (project.value?.longProjectData?.chapterAssets ?? []).filter((entry) => entry.chapterId === chapterId.value))
+/** 本章最近一次资产提取 run（含手动导入）。 */
+const latestAssetExtractRun = computed(() =>
+  (project.value?.longProjectData?.assetExtractionRuns ?? [])
+    .filter((run) => run.chapterId === chapterId.value)
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null)
+/** 资产接力引导条：有分镜、无章节资产引用且最近提取未确认（提取进行中不打扰）。 */
+const showAssetHandoff = computed(() =>
+  panels.value.length > 0
+  && chapterAssetEntries.value.length === 0
+  && latestAssetExtractRun.value?.status !== 'confirmed'
+  && latestAssetExtractRun.value?.status !== 'running')
+
+// ========== 资产抽屉（左侧弹出：提取 / 审核 / 视觉状态生图） ==========
+
+/** 抽屉是否可见（v-show：首次打开后内容常驻，关闭不打断提取/批量生图任务）。 */
+const assetDrawerVisible = ref(false)
+/** 抽屉内容是否已挂载（首次打开时置 true，之后保持）。 */
+const assetDrawerMounted = ref(false)
+/** 资产接力定位目标（「无参考图」等入口打开抽屉时携带，直达工作台具体资产/视觉状态）。 */
+const assetFocus = ref<{ assetId: string; variantId?: string } | null>(null)
+
+/** 打开资产抽屉（可携带定位目标；payload 每次为新对象，确保重复点击同一目标也能触发 watch）。 */
+function openAssetDrawer(payload?: { assetId: string; variantId?: string }) {
+  assetDrawerMounted.value = true
+  assetDrawerVisible.value = true
+  assetFocus.value = payload ?? null
+}
 
 /** 本章最近一次分镜 run（含 running/failed，右栏「分镜内容」状态条数据源）。 */
 const latestChapterRun = computed(() => {
@@ -675,6 +766,8 @@ watch(
 /** 章节切换（主页面侧栏选章）：重置分镜选中索引。 */
 watch(chapterId, () => {
   currentIndex.value = 0
+  // 章节切换后资产定位目标失效
+  assetFocus.value = null
 })
 
 // ========== 画面描述推导 ==========
@@ -1078,3 +1171,23 @@ onMounted(() => {
   }
 })
 </script>
+
+<style scoped>
+/* 撤销条淡入淡出 + 资产抽屉全屏面板自左侧滑入滑出 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+.slide-left-enter-active,
+.slide-left-leave-active {
+  transition: transform 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+.slide-left-enter-from,
+.slide-left-leave-to {
+  transform: translateX(-100%);
+}
+</style>

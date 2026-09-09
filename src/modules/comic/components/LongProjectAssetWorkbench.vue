@@ -142,7 +142,7 @@
  * 数据（assets / assetGenConfig）由父组件传入并回写持久化；本组件只编排交互。
  * 右侧视觉状态多状态时以 tab 切换展示，单卡片不再上下滚动。
  */
-import { computed, reactive, ref, toRaw, watch } from 'vue'
+import { computed, nextTick, reactive, ref, toRaw, watch } from 'vue'
 import { Boxes, LoaderCircle, MapPin, Package, UserRound } from 'lucide-vue-next'
 import AssetVariantCard from './AssetVariantCard.vue'
 import AssetPromptGenerateModal from './AssetPromptGenerateModal.vue'
@@ -165,6 +165,8 @@ interface Props {
   assetGenConfig?: AssetGenConfig
   paintingStyle?: string
   sharedBlocks?: SharedPromptBlock[]
+  /** 接力定位目标（从分镜页跳转时携带，选中具体资产/视觉状态）。 */
+  focusTarget?: { assetId: string; variantId?: string } | null
 }
 
 const props = defineProps<Props>()
@@ -215,6 +217,13 @@ const selectedVariant = computed(() => {
 })
 // 切换资产（含筛选导致回退）时重置视觉状态选中
 watch(() => selectedItem.value?.asset.id, () => { selectedVariantId.value = null })
+// 接力定位：从分镜页跳转携带的资产/视觉状态，挂载或变化时选中（nextTick 等上面的选中重置跑完再落 variant）
+watch(() => props.focusTarget, async (target) => {
+  if (!target || !props.assets.some((asset) => asset.id === target.assetId)) return
+  selectedAssetId.value = target.assetId
+  await nextTick()
+  selectedVariantId.value = target.variantId ?? null
+}, { immediate: true })
 const assetPromptTemplates = computed(() => props.templates.filter((t) => t.type === 'asset-prompt').sort((a, b) => a.sortOrder - b.sortOrder))
 const styleContext = computed(() => buildStyleContext(props.sharedBlocks ?? [], props.paintingStyle ?? ''))
 const currentImageModel = computed(() => props.imageModels.find((m) => m.id === props.assetGenConfig?.imageModelId))

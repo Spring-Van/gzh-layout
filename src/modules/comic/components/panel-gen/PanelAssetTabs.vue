@@ -36,7 +36,12 @@
         >
           <div class="flex items-center gap-2">
             <AssetBindingTag class="min-w-0 flex-1 justify-start" :binding="entry.binding" :assets="assets" @inspect="inspectEntry(entry)" />
-            <span v-if="!refImagesOf(entry).length" class="shrink-0 text-[10px] text-amber-300" title="该视觉状态还没有参考图，点击右侧按钮添加">无参考图</span>
+            <button
+              v-if="!refImagesOf(entry).length"
+              class="shrink-0 rounded border border-amber-400/30 px-1.5 py-0.5 text-[10px] text-amber-300 transition-colors hover:bg-amber-400/10"
+              title="该视觉状态还没有参考图，点击前往资产生图工作台生成"
+              @click="emit('go-asset-workbench', focusTargetOf(entry))"
+            >无参考图</button>
             <button class="shrink-0 text-[11px] text-cyan-400 hover:text-cyan-300" @click="openPicker(entry)">{{ refImagesOf(entry).length ? '更换图片' : '添加图片' }}</button>
           </div>
 
@@ -89,6 +94,8 @@ const emit = defineEmits<{
   /** 确认更换某资产视觉状态的参考图列表（替换式）。 */
   (e: 'update-variant-images', payload: { assetId: string; variantId: string; images: string[] }): void
   (e: 'preview', payload: { images: string[]; index: number }): void
+  /** 前往资产生图工作台（定位到该绑定对应的资产与视觉状态）。 */
+  (e: 'go-asset-workbench', payload: { assetId: string; variantId?: string }): void
 }>()
 
 const tabs: Array<{ type: LongProjectAssetType; label: string }> = [
@@ -125,6 +132,13 @@ function refImagesOf(entry: BindingEntry): string[] {
   const resolved = resolvePanelBindings(props.panel, props.assets).find((item) => item.asset.id === entry.binding.assetId)
   if (resolved) return resolved.variant.referenceImageIds
   return entry.binding.referenceImageIds ?? []
+}
+
+/** 无参考图跳转目标：解析该绑定实际生效的资产与视觉状态（供资产生图工作台定位）。 */
+function focusTargetOf(entry: BindingEntry): { assetId: string; variantId?: string } {
+  const resolved = resolvePanelBindings(props.panel, props.assets).find((item) => item.asset.id === entry.binding.assetId)
+  if (resolved) return { assetId: resolved.asset.id, variantId: resolved.variant.id }
+  return { assetId: entry.binding.assetId ?? entry.asset?.id ?? '' }
 }
 
 /** 打开图片更换弹窗，定位到该绑定对应的视觉状态。 */
