@@ -81,10 +81,11 @@ export const VARIABLE_REGISTRY: Partial<Record<TemplateType, PromptVariableSpec[
   extract: [
     {
       name: '章节原文',
-      desc: '当前章节的原文内容',
+      desc: '当前章节的原文；本章从剧本开始（无原文）时系统自动以漫画剧本兜底并加说明头',
       legacy: ['chapter_content'],
       fallback: 'always',
       blockLabel: '章节原文',
+      emptyText: '（本章尚未录入原文与剧本）',
     },
     {
       name: '原文分析',
@@ -109,7 +110,7 @@ export const VARIABLE_REGISTRY: Partial<Record<TemplateType, PromptVariableSpec[
     },
     {
       name: '已有资产',
-      desc: '项目已有资产清单与视觉状态名沿用规则，保证跨章节连续性',
+      desc: '项目已有资产清单（含各资产已有视觉状态名），保证跨章节连续性；状态名沿用规则见输出协议',
       fallback: 'if-nonempty',
       blockLabel: '项目已有资产',
       emptyText: '（项目暂无资产）',
@@ -222,7 +223,8 @@ export const OUTPUT_PROTOCOL_DEFAULTS: Partial<Record<TemplateType, string>> = {
 除系统识别字段外，你可根据模板规则自由输出中文属性，例如门派、身份关系、境界、材质、时代、氛围。
 视觉状态表示该资产在当前剧情中的稳定外观或形态，如“少年期·布衣”“宗门弟子服”“战损”；正面、侧面、背面属于同一状态的参考图，不要单列为状态。
 只基于原文明确内容，不要编造。
-判断资产价值时参考分镜概要：在多个分镜中出现、或承载关键剧情/镜头重点的应提取；只出现一次且无辨识要求的不要提取。`,
+判断资产价值时参考分镜概要：在多个分镜中出现、或承载关键剧情/镜头重点的应提取；只出现一次且无辨识要求的不要提取。
+资产已存在且本章外观未变化时，视觉状态名必须与已有状态名完全一致；仅当原文出现明确外观变化时才新建视觉状态。`,
   'asset-prompt': ASSET_PROMPT_BATCH_PROTOCOL,
   'panel-prompt': `只输出一段完整、连贯的中文画面描述，不要解释、分点、对白或旁白。`,
 }

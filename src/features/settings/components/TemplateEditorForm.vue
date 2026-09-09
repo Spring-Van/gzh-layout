@@ -80,7 +80,7 @@
           placeholder="自定义模型返回要求，附加在最终提示词末尾"
         />
         <span class="mt-1 block text-[11px] leading-4 text-text-muted">
-          留空 = 使用系统默认输出协议（点「填入推荐协议」可查看）。注意：资产提示词「批量·一次性发送」依赖「【资产名｜状态名】提示词」逐条结构解析回填，若自定义协议请保持该结构，否则可能解析失败。
+          {{ protocolHint }}
         </span>
       </label>
     </div>
@@ -206,6 +206,22 @@ function insertVariable(name: string) {
 // ========== 输出协议 / 推荐模板 ==========
 
 const isLongStoryType = computed(() => LONG_STORY_TEMPLATE_TYPES.includes(form.value.type));
+
+/** 输出协议提示：按类型区分解析依赖（结构化类型自定义协议需保持解析结构，纯文本类型无结构约束）。 */
+const protocolHint = computed(() => {
+  const base = '留空 = 使用系统默认输出协议（点「填入推荐协议」可查看）。';
+  const structured: Partial<Record<TemplateType, string>> = {
+    storyboard: '注意：分镜结果按「## 分镜N」标题 +「- 画面/镜头/对白/旁白」字段行解析，自定义协议必须保留该结构，否则导入/生成会解析失败。',
+    extract: '注意：资产提取结果按「# 人物/场景/道具」一级标题 +「## 资产名」二级标题解析（兼容 JSON），自定义协议必须保留该结构，否则解析失败。',
+    'asset-prompt': '注意：「批量·一次性发送」按「【资产名｜状态名】提示词」逐条结构解析回填，自定义协议必须保留该结构，否则解析失败。',
+  };
+  const plain: Partial<Record<TemplateType, string>> = {
+    analysis: '分析结果为纯文本写入文档，无固定解析结构，可自由约定返回格式。',
+    script: '剧本为纯文本写入文档，无固定解析结构，可自由约定返回格式。',
+    'panel-prompt': '画面描述逐镜单独调用、纯文本返回，无固定解析结构。',
+  };
+  return base + ' ' + (structured[form.value.type] ?? plain[form.value.type] ?? '');
+});
 
 /** 当前类型的推荐模板（含默认名称/描述，一键填入）。 */
 const recommendedTemplate = computed(() => RECOMMENDED_TEMPLATES[form.value.type]);

@@ -289,7 +289,20 @@ export interface AssetExtractionContext {
 }
 
 /**
- * 组装"资产提取"提示词：章节原文 + 原文分析 + 漫画剧本 + 分镜概要 + 已有资产。
+ * 组装资产提取的"章节底稿"：原文优先；本章从剧本开始（无原文）时以漫画剧本兜底，
+ * 并加说明头告知模型底稿来源，避免误把剧本当作原文。
+ * 两者皆空时返回空串（调用方以此判定是否允许提取）。
+ */
+export function buildExtractionSourceText(original: string, script: string): string {
+  const trimmedOriginal = original.trim()
+  if (trimmedOriginal) return trimmedOriginal
+  const trimmedScript = script.trim()
+  if (!trimmedScript) return ''
+  return `（说明：本章从剧本开始创作，无原文；以下为漫画剧本全文，请以此作为提取底稿。）\n\n${trimmedScript}`
+}
+
+/**
+ * 组装"资产提取"提示词：章节底稿（原文，无原文时剧本兜底）+ 原文分析 + 漫画剧本 + 分镜概要 + 已有资产。
  * 变量：{{章节原文}} / {{原文分析}} / {{漫画剧本}} / {{分镜概要}} / {{已有资产}}；
  * 未插入的辅助上下文按 if-nonempty 策略追加到模板末尾。
  * 分镜概要告诉模型"哪些东西真的会被画出来、出现了几次"，辅助判断是否建立资产。
@@ -297,10 +310,10 @@ export interface AssetExtractionContext {
 export function buildAssetExtractionPrompt(templateContent: string, chapterContent: string, context: AssetExtractionContext = {}): string {
   const existingAssets = context.existingAssets ?? []
   const existingAssetsText = existingAssets.length
-    ? `${existingAssets.map((asset) => {
+    ? existingAssets.map((asset) => {
         const states = asset.variants.map((variant) => variant.name).join('、') || '无'
         return `- ${asset.name}（${asset.type === 'character' ? '人物' : asset.type === 'scene' ? '场景' : '道具'}；已有视觉状态：${states}）`
-      }).join('\n')}\n规则：资产已存在且本章外观未变化时，视觉状态名必须与已有状态名完全一致；仅当原文出现明确外观变化时才新建视觉状态。`
+      }).join('\n')
     : undefined
   return renderPromptTemplate({
     type: 'extract',

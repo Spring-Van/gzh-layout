@@ -3,151 +3,48 @@
   <div class="flex h-full min-h-0 flex-col overflow-hidden bg-app-bg text-text-primary">
     <!-- 顶部操作按钮：Teleport 到主页面 tab 行右侧容器（#storyboard-actions） -->
     <Teleport to="#storyboard-actions">
-      <!-- 资产视图切换：分镜内容 ⇋ 资产内容 -->
       <button
-        class="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs transition-colors"
-        :class="pageTab === 'assets'
-          ? 'border-violet-500/40 bg-violet-500/15 text-violet-300'
-          : 'border-border-subtle bg-surface text-text-secondary hover:bg-app-bg hover:text-text-primary'"
-        title="切换到本章资产（提取 / 审核 / 资产生图工作台）"
-        @click="pageTab = pageTab === 'panels' ? 'assets' : 'panels'"
+        class="secondary-button h-9 shrink-0 px-3 text-xs"
+        :disabled="!panels.length || batchPromptBusy"
+        :title="!panels.length ? '本章暂无分镜' : '依次推导缺失分镜的画面描述（一次一条，前后自动关联）'"
+        @click="promptModalVisible = true"
       >
-        <Boxes :size="14" />
-        资产
+        <LoaderCircle v-if="batchPromptBusy" :size="14" class="animate-spin" />
+        <Sparkles v-else :size="14" />
+        批量推导描述
+      </button>
+      <button
+        class="primary-button h-9 shrink-0 px-3 text-xs"
+        :disabled="!genTargets.length || batchGenBusy"
+        :title="!genTargets.length ? '没有可生图的分镜（需先有画面描述且未成图）' : `串行生成 ${genTargets.length} 个分镜画面`"
+        @click="runBatchGen"
+      >
+        <LoaderCircle v-if="batchGenBusy" :size="14" class="animate-spin" />
+        批量生图{{ batchGenBusy ? ` ${batchGenDone}/${batchGenTotal}` : genTargets.length ? `（${genTargets.length}）` : '' }}
+      </button>
+      <button v-if="batchGenBusy" class="secondary-button h-9 shrink-0 px-3 text-xs" @click="cancelBatchGen">取消</button>
+
+      <button
+        class="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs text-emerald-300 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+        :disabled="!completedCount || exportBusy"
+        :title="!completedCount ? '本章还没有已采纳的成图' : `导出 ${completedCount} 张已采纳成图`"
+        @click="exportImages"
+      >
+        <LoaderCircle v-if="exportBusy" :size="14" class="animate-spin" />
+        <Download v-else :size="14" />
+        导出发布
       </button>
 
-      <template v-if="pageTab === 'panels'">
-        <button
-          class="secondary-button h-9 shrink-0 px-3 text-xs"
-          :disabled="!panels.length || batchPromptBusy"
-          :title="!panels.length ? '本章暂无分镜' : '依次推导缺失分镜的画面描述（一次一条，前后自动关联）'"
-          @click="promptModalVisible = true"
-        >
-          <LoaderCircle v-if="batchPromptBusy" :size="14" class="animate-spin" />
-          <Sparkles v-else :size="14" />
-          批量推导描述
-        </button>
-        <button
-          class="primary-button h-9 shrink-0 px-3 text-xs"
-          :disabled="!genTargets.length || batchGenBusy"
-          :title="!genTargets.length ? '没有可生图的分镜（需先有画面描述且未成图）' : `串行生成 ${genTargets.length} 个分镜画面`"
-          @click="runBatchGen"
-        >
-          <LoaderCircle v-if="batchGenBusy" :size="14" class="animate-spin" />
-          批量生图{{ batchGenBusy ? ` ${batchGenDone}/${batchGenTotal}` : genTargets.length ? `（${genTargets.length}）` : '' }}
-        </button>
-        <button v-if="batchGenBusy" class="secondary-button h-9 shrink-0 px-3 text-xs" @click="cancelBatchGen">取消</button>
-
-        <button
-          class="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs text-emerald-300 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
-          :disabled="!completedCount || exportBusy"
-          :title="!completedCount ? '本章还没有已采纳的成图' : `导出 ${completedCount} 张已采纳成图`"
-          @click="exportImages"
-        >
-          <LoaderCircle v-if="exportBusy" :size="14" class="animate-spin" />
-          <Download v-else :size="14" />
-          导出发布
-        </button>
-
-        <!-- 绘图配置：点击打开抽屉（与短篇生图页一致，仅分镜页展示） -->
-        <button
-          class="secondary-button h-9 shrink-0 px-3 text-xs"
-          title="设置绘画模型与共用属性（风格提示词/参考图）"
-          @click="configDrawerVisible = true"
-        ><SlidersHorizontal :size="14" />绘图配置</button>
-      </template>
-
-      <!-- 资产视图：操作按钮跟随子视图（信息 | 生图工作台）切换 -->
-      <template v-else>
-        <!-- 信息视图：资产提取操作区 + 确认本章资产 -->
-        <template v-if="assetView === 'info'">
-          <div class="min-w-0 max-w-2xl">
-            <PromptRunBar
-              v-model:model-id="extractModelId"
-              v-model:template-id="extractTemplateId"
-              :models="llmModels"
-              :templates="extractTemplates"
-              :action-label="extractActionLabel"
-              :disabled="extractDisabled"
-              :busy="extractBusy"
-              confirm-storage-key="comic-long-extract-confirm"
-              :build-prompt="buildExtractPrompt"
-              @run="runExtraction"
-            />
-          </div>
-          <button
-            class="secondary-button h-9 shrink-0 px-2.5 text-xs"
-            title="粘贴外部 AI 生成的资产提取结果，解析后进入审核确认"
-            @click="extractImportVisible = true"
-          ><ClipboardPaste :size="14" />手动导入</button>
-          <button
-            class="primary-button h-9 shrink-0 px-3 text-xs"
-            :disabled="!assetTabRef?.canConfirmReview"
-            :title="assetTabRef?.canConfirmReview ? '将审核结果保存为本章资产，并自动回填分镜绑定' : '暂无待审核的资产提取结果，请先执行提取'"
-            @click="assetTabRef?.confirmReview()"
-          >
-            <CheckCircle2 :size="14" />
-            确认本章资产
-          </button>
-        </template>
-
-        <!-- 生图工作台视图：批量提示词 / 批量生图 / 生图配置 -->
-        <template v-else-if="assetView === 'workbench'">
-          <button
-            class="secondary-button h-9 shrink-0 px-3 text-xs"
-            :disabled="!assetTabRef?.workbench?.hasPromptTargets || assetTabRef?.workbench?.promptBatchBusy"
-            :title="assetTabRef?.workbench?.hasPromptTargets ? '为视觉状态批量生成绘画提示词，可选仅补缺失或全部重新生成' : '本章暂无视觉状态，请先完成资产提取'"
-            @click="assetTabRef?.workbench?.openPromptModal()"
-          >
-            <LoaderCircle v-if="assetTabRef?.workbench?.promptBatchBusy" :size="14" class="animate-spin" />
-            <Sparkles v-else :size="14" />
-            批量生成提示词
-          </button>
-          <button
-            class="primary-button h-9 shrink-0 px-3 text-xs"
-            :disabled="!assetTabRef?.workbench?.hasGenTargets || assetTabRef?.workbench?.batchBusy"
-            :title="assetTabRef?.workbench?.hasGenTargets ? '串行生成视觉状态参考图' : '没有可生图的视觉状态（需先有提示词且未成图）'"
-            @click="assetTabRef?.workbench?.runBatchGen()"
-          >
-            <LoaderCircle v-if="assetTabRef?.workbench?.batchBusy" :size="14" class="animate-spin" />
-            批量生图{{ assetTabRef?.workbench?.batchBusy ? ` ${assetTabRef?.workbench?.batchDone}/${assetTabRef?.workbench?.batchTotal}` : '' }}
-          </button>
-          <button
-            class="secondary-button h-9 shrink-0 px-3 text-xs"
-            title="资产生图模型与共用属性配置"
-            @click="assetTabRef?.workbench?.openConfigDrawer()"
-          ><Settings2 :size="14" />生图配置</button>
-        </template>
-      </template>
+      <!-- 绘图配置：点击打开抽屉（与短篇生图页一致） -->
+      <button
+        class="secondary-button h-9 shrink-0 px-3 text-xs"
+        title="设置绘画模型与共用属性（风格提示词/参考图）"
+        @click="configDrawerVisible = true"
+      ><SlidersHorizontal :size="14" />绘图配置</button>
     </Teleport>
 
-    <!-- 资产视图：三子视图（信息 | 图片 | 生图工作台） -->
-    <div v-if="pageTab === 'assets'" class="min-h-0 flex-1 overflow-hidden">
-      <PanelGenAssetTab
-        v-if="currentChapter"
-        ref="assetTabRef"
-        v-model:view="assetView"
-        :chapter="currentChapter"
-        :panels="panels"
-        :analysis-content="analysisDoc?.content ?? ''"
-        :script-content="scriptDoc?.content ?? ''"
-        :models="models"
-        :templates="templates"
-        :assets="assets"
-        :chapter-assets="chapterAssets"
-        :asset-extraction-runs="assetExtractionRuns"
-        :asset-gen-config="assetGenConfig"
-        :painting-style="project?.comicConfig?.paintingStyle"
-        :shared-blocks="project?.imageGenConfig?.sharedBlocks"
-        :mutate-long-project-data="mutateLongProjectData"
-        @retry-extraction="retryExtraction"
-        @import-extraction="extractImportVisible = true"
-      />
-      <div v-else class="flex h-full items-center justify-center text-sm text-text-secondary">请先选择章节</div>
-    </div>
-
     <!-- 分镜视图：左列表 + 中预览 + 右[分镜内容|提示词] -->
-    <div v-else class="flex min-h-0 flex-1 gap-3 p-3">
+    <div class="flex min-h-0 flex-1 gap-3 p-3">
       <!-- 左：分镜列表（右键合并/拆分/复制） -->
       <div class="w-[20%] min-w-[220px] max-w-[280px] shrink-0 overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-lg shadow-black/20">
         <PanelListSidebar
@@ -344,26 +241,14 @@
       @confirm="confirmStoryboardImport"
       @close="storyboardImportVisible = false"
     />
-
-    <!-- 手动导入资产（外部 AI 代跑）：粘贴 → 解析预览 → 确认后进入审核链路 -->
-    <ManualResultImportDialog
-      :visible="extractImportVisible"
-      title="手动导入资产"
-      placeholder="粘贴外部 AI 生成的资产提取结果…"
-      :parse="parseExtractionPreview"
-      @confirm="confirmExtractionImport"
-      @close="extractImportVisible = false"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
 /**
- * 长篇项目「分镜」tab（原独立生图工作台并入主页面）：
- * 内部视图「分镜（列表+预览+编辑）｜资产（提取+工作台）」，由顶部操作区「资产」按钮切换。
- * - 分镜视图：左列分镜列表（右键合并/拆分/复制）→ 中列成图预览 + 资产绑定三 tab
- *   → 右列 [分镜内容|提示词] 切换（分镜内容 = 生成分镜 + 逐镜编辑；提示词 = 画面描述编辑）。
- * - 资产视图：资产提取入口 + 审核区 + 资产生图工作台。
+ * 长篇项目「分镜」顶级页签（原独立生图工作台并入主页面，资产已拆分至同级「资产」页签）：
+ * 左列分镜列表（右键合并/拆分/复制）→ 中列成图预览 + 资产绑定三 tab
+ * → 右列 [分镜内容|提示词] 切换（分镜内容 = 生成分镜 + 逐镜编辑；提示词 = 画面描述编辑）。
  * 顶部操作按钮通过 Teleport 注入主页面 tab 行右侧（#storyboard-actions 容器）。
  * 分镜生成以漫画剧本为主输入、原文分析为辅助（无剧本时原文兜底）；
  * 画面描述按「依次推导」执行（滑动窗口携带前文），生图自动携带绑定资产参考图。
@@ -371,14 +256,11 @@
  * 项目数据与持久化队列共享主页面实例（props 注入），不再独立读写。
  */
 import { computed, onMounted, reactive, ref, toRaw, watch, type Ref } from 'vue'
-import { v4 as uuidv4 } from 'uuid'
-import { Boxes, CheckCircle2, ClipboardPaste, Download, ListTree, LoaderCircle, Settings2, SlidersHorizontal, Sparkles, Undo2 } from 'lucide-vue-next'
+import { Download, ListTree, LoaderCircle, SlidersHorizontal, Sparkles, Undo2 } from 'lucide-vue-next'
 import { comicDb, comicDownload } from '@/api/comic'
 import { useToast } from '@comic/composables/useToast'
-import PromptRunBar from '@comic/components/common/PromptRunBar.vue'
 import ManualResultImportDialog from '@comic/components/common/ManualResultImportDialog.vue'
 import { imageGenerationService } from '@comic/services/imageGenerationService'
-import { buildAssetExtractionPrompt, extractChapterAssets, parseAssetExtractionResponse, countCandidatesAppearances } from '@comic/services/assetExtractionService'
 import {
   DEFAULT_PANEL_PROMPT_TEMPLATE,
   DEFAULT_PREV_PANEL_WINDOW,
@@ -397,7 +279,6 @@ import PanelListSidebar from '@comic/components/panel-gen/PanelListSidebar.vue'
 import PanelPreview from '@comic/components/panel-gen/PanelPreview.vue'
 import PanelAssetTabs from '@comic/components/panel-gen/PanelAssetTabs.vue'
 import PanelContentEditor, { type PanelEditFields } from '@comic/components/panel-gen/PanelContentEditor.vue'
-import PanelGenAssetTab from '@comic/components/panel-gen/PanelGenAssetTab.vue'
 import PanelPromptPanel, { type PanelRefConfig, type TypedRefGroup } from '@comic/components/panel-gen/PanelPromptPanel.vue'
 import PanelPromptGenerateModal from '@comic/components/panel-gen/PanelPromptGenerateModal.vue'
 import StoryboardContextMenu, { type StoryboardMenuAction } from '@comic/components/StoryboardContextMenu.vue'
@@ -410,7 +291,6 @@ import type { PanelListItem } from '@comic/components/panel-gen/PanelListSidebar
 import type {
   ComicProject,
   ImageGenConfig,
-  LongProjectAssetExtractionRun,
   LongProjectPanelArtwork,
   LongProjectStoryboardPanel,
   ModelConfig,
@@ -476,10 +356,7 @@ let batchGenCancelled = false
 const promptModalVisible = ref(false)
 const singleModalVisible = ref(false)
 
-// ========== 页面级 / 右栏视图 ==========
-
-/** 页面级视图：分镜（列表+预览+编辑）｜资产（提取+工作台），由顶部「资产」按钮切换。 */
-const pageTab = ref<'panels' | 'assets'>('panels')
+// ========== 右栏视图 ==========
 
 /** 右栏 tab：分镜内容（生成分镜 + 逐镜编辑）｜提示词（画面描述）。 */
 const rightTab = ref<'content' | 'prompt'>('content')
@@ -487,11 +364,6 @@ const rightTabs = [
   { id: 'content' as const, label: '分镜内容' },
   { id: 'prompt' as const, label: '提示词' },
 ]
-
-/** 资产视图子 tab：信息（提取审核）｜图片（资产浏览）｜生图工作台；顶栏操作按钮随其切换。 */
-const assetView = ref<'info' | 'images' | 'workbench'>('info')
-/** 资产视图实例引用：顶栏按钮调用其暴露的确认/工作台批量操作。 */
-const assetTabRef = ref<InstanceType<typeof PanelGenAssetTab>>()
 
 const configDrawerVisible = ref(false)
 const exportBusy = ref(false)
@@ -553,146 +425,14 @@ const currentArtwork = computed(() => (currentPanel.value ? artworkMap.value.get
 /** 章节顺序表（章节 ID → 序号），视觉状态章节范围默认值计算用。 */
 const chapterOrders = computed(() => Object.fromEntries(chapters.value.map((item) => [item.id, item.order])))
 
-/** 本章原文分析 / 漫画剧本文档（分镜与资产提取的管线上下文）。 */
+/** 本章原文分析 / 漫画剧本文档（分镜生成的管线上下文）。 */
 const analysisDoc = computed(() => (project.value?.longProjectData?.chapterAnalyses ?? []).find((doc) => doc.chapterId === chapterId.value))
 const scriptDoc = computed(() => (project.value?.longProjectData?.chapterScripts ?? []).find((doc) => doc.chapterId === chapterId.value))
-
-/** 资产视图数据源。 */
-const chapterAssets = computed(() => project.value?.longProjectData?.chapterAssets ?? [])
-const assetExtractionRuns = computed(() => project.value?.longProjectData?.assetExtractionRuns ?? [])
-const assetGenConfig = computed(() => project.value?.longProjectData?.assetGenConfig)
 
 const completedCount = computed(() => panelItems.value.filter((item) => item.artwork?.selectedImageId).length)
 
 const llmModels = computed(() => props.models.filter((model) => model.category === 'llm'))
 const imageModels = computed(() => props.models.filter((model) => model.category === 'image'))
-
-// ========== 资产提取（顶栏信息视图操作区） ==========
-
-/** extract 类型提示词模板。 */
-const extractTemplates = computed(() => props.templates.filter((template) => template.type === 'extract').sort((a, b) => a.sortOrder - b.sortOrder))
-const extractModelId = ref('')
-const extractTemplateId = ref('')
-
-/** 模型/模板列表就绪后初始化默认选择（仅未选择时）。 */
-watch([llmModels, extractTemplates], () => {
-  if (!extractModelId.value) extractModelId.value = llmModels.value[0]?.id ?? ''
-  if (!extractTemplateId.value) extractTemplateId.value = extractTemplates.value[0]?.id ?? ''
-}, { immediate: true })
-
-/** 本章提取 run（最新在前）。 */
-const chapterExtractRuns = computed(() =>
-  assetExtractionRuns.value
-    .filter((run) => run.chapterId === chapterId.value)
-    .sort((a, b) => b.updatedAt - a.updatedAt))
-const latestExtractRun = computed(() => chapterExtractRuns.value[0] ?? null)
-const extractBusy = computed(() => latestExtractRun.value?.status === 'running')
-const extractDisabled = computed(() => !(currentChapter.value?.content ?? '').trim() || !extractModelId.value || !extractTemplateId.value)
-const extractActionLabel = computed(() => chapterExtractRuns.value.length ? '重新提取' : '提取资产')
-
-/** 生成最终发送提示词：原文 + 分析 + 剧本 + 分镜概要 + 已有资产。 */
-function buildExtractPrompt(): string {
-  const template = extractTemplates.value.find((item) => item.id === extractTemplateId.value)
-  const chapterContent = currentChapter.value?.content ?? ''
-  return buildAssetExtractionPrompt(template?.content ?? '', chapterContent, {
-    analysis: analysisDoc.value?.content ?? '',
-    script: scriptDoc.value?.content ?? '',
-    panelsOutline: panels.value.length ? panels.value.map((panel) => `分镜${panel.order}：${panel.content}`).join('\n') : undefined,
-    existingAssets: assets.value,
-  })
-}
-
-/** 持久化更新提取 run 的部分字段。 */
-function updateExtractRun(runId: string, changes: Partial<LongProjectAssetExtractionRun>) {
-  return props.mutateLongProjectData((data) => {
-    data.assetExtractionRuns = (data.assetExtractionRuns ?? []).map((run) => run.id === runId ? { ...run, ...changes, updatedAt: Date.now() } : run)
-  })
-}
-
-/** 执行资产提取（PromptRunBar 已完成发送前确认，prompt 为最终版）。 */
-async function runExtraction(prompt: string) {
-  const chapter = currentChapter.value
-  if (!chapter || !prompt.trim()) return
-  const model = llmModels.value.find((item) => item.id === extractModelId.value)
-  const template = extractTemplates.value.find((item) => item.id === extractTemplateId.value)
-  if (!model || !template) return
-  const chapterContent = chapter.content ?? ''
-  const now = Date.now()
-  const run: LongProjectAssetExtractionRun = {
-    id: uuidv4(), chapterId: chapter.id, sourceContent: chapterContent,
-    sourceWordCount: chapterContent.replace(/\s/g, '').length,
-    modelId: model.id, templateId: template.id,
-    prompt, status: 'running', candidates: [], createdAt: now, updatedAt: now,
-  }
-  await props.mutateLongProjectData((data) => {
-    data.assetExtractionRuns = [...(data.assetExtractionRuns ?? []), run]
-  })
-  try {
-    const result = await extractChapterAssets({
-      model, template, chapterContent,
-      existingAssets: assets.value,
-      analysis: analysisDoc.value?.content ?? '', script: scriptDoc.value?.content ?? '',
-      panels: panels.value, prompt,
-    })
-    await updateExtractRun(run.id, { status: 'completed', candidates: result.candidates, rawResponse: result.rawResponse, error: undefined })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : '资产提取失败，请重试'
-    await updateExtractRun(run.id, { status: 'failed', error: message })
-    toast.error(message)
-  }
-}
-
-/** 失败态的「重新提取」（资产视图 emit）：沿用上次发送的最终提示词。 */
-function retryExtraction() {
-  const run = latestExtractRun.value
-  if (!run?.prompt) return
-  void runExtraction(run.prompt)
-}
-
-// ========== 资产手动导入（外部 AI 代跑） ==========
-
-const extractImportVisible = ref(false)
-
-/** 资产导入解析预览：返回标题与候选摘要（解析失败抛错）。 */
-function parseExtractionPreview(content: string): { title: string; items: string[] } {
-  const candidates = parseAssetExtractionResponse(content, assets.value)
-  if (!candidates.length) throw new Error('未识别到任何资产，请检查内容是否符合「# 人物 / # 场景 / # 道具」格式。')
-  const typeLabel: Record<string, string> = { character: '人物', scene: '场景', prop: '道具' }
-  return {
-    title: `解析到 ${candidates.length} 项资产候选`,
-    items: candidates.map((candidate) => `${typeLabel[candidate.type] ?? candidate.type} · ${candidate.name}（${candidate.decision === 'merge' ? '并入已有资产' : '新建'}）`),
-  }
-}
-
-/** 确认导入资产：解析为候选 → 创建 completed run → 复用 AssetExtractionReview 审核确认链路。 */
-async function confirmExtractionImport(content: string) {
-  const chapter = currentChapter.value
-  if (!chapter || !content.trim()) return
-  if (latestExtractRun.value && !window.confirm('本章已有资产提取结果，导入将生成新一版候选，是否继续？')) return
-  try {
-    const candidates = parseAssetExtractionResponse(content, assets.value)
-    if (!candidates.length) throw new Error('未识别到任何资产，请检查格式。')
-    if (panels.value.length) {
-      const counts = countCandidatesAppearances(candidates, panels.value)
-      for (const candidate of candidates) candidate.panelAppearances = counts[candidate.id] ?? 0
-    }
-    const now = Date.now()
-    const run: LongProjectAssetExtractionRun = {
-      id: uuidv4(), chapterId: chapter.id, sourceContent: chapter.content ?? '',
-      sourceWordCount: (chapter.content ?? '').replace(/\s/g, '').length,
-      modelId: '', templateId: '', prompt: '',
-      status: 'completed', candidates, rawResponse: content, source: 'manual',
-      createdAt: now, updatedAt: now,
-    }
-    await props.mutateLongProjectData((data) => {
-      data.assetExtractionRuns = [...(data.assetExtractionRuns ?? []), run]
-    })
-    extractImportVisible.value = false
-    toast.success(`已导入 ${candidates.length} 项资产候选，请审核确认`)
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : '资产解析失败')
-  }
-}
 
 const panelPromptTemplates = computed(() =>
   props.templates.filter((template) => template.type === 'panel-prompt').sort((a, b) => a.sortOrder - b.sortOrder),

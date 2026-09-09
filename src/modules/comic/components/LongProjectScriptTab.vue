@@ -1,13 +1,18 @@
 <template>
   <div class="flex min-h-0 flex-1 gap-4 p-6">
-    <!-- 左列：章节原文只读 -->
+    <!-- 左列：章节原文只读（script 模式下显示占位说明，本章无原文） -->
     <section class="custom-scrollbar min-h-0 w-1/2 overflow-y-auto rounded-lg border border-border-subtle bg-surface p-5">
       <div class="mb-3 flex items-center gap-2">
         <FileText :size="15" class="shrink-0 text-cyan-400" />
         <h2 class="text-sm font-semibold text-text-primary">章节原文</h2>
-        <span class="text-xs text-text-muted">{{ wordCount(sourceContent) }} 字</span>
+        <span v-if="!scriptOnly" class="text-xs text-text-muted">{{ wordCount(sourceContent) }} 字</span>
       </div>
-      <p class="whitespace-pre-wrap text-sm leading-7 text-text-primary">{{ sourceContent || "（本章暂无正文）" }}</p>
+      <p v-if="!scriptOnly" class="whitespace-pre-wrap text-sm leading-7 text-text-primary">{{ sourceContent || "（本章暂无正文）" }}</p>
+      <div v-else class="flex h-full flex-col items-center justify-center py-10 text-center">
+        <ScrollText :size="26" class="text-text-muted" />
+        <h3 class="mt-3 text-sm font-medium text-text-primary">本章从剧本开始创作</h3>
+        <p class="mt-2 max-w-xs text-xs leading-5 text-text-secondary">无需录入小说原文，可直接在右侧编写或导入漫画剧本，后续分镜与资产环节照常使用。</p>
+      </div>
     </section>
 
     <!-- 右列：漫画剧本（预览 ⇋ 编辑） -->
@@ -17,15 +22,16 @@
           <ScrollText :size="15" class="shrink-0 text-cyan-400" />
           <h2 class="text-sm font-semibold text-text-primary">漫画剧本</h2>
           <span v-if="scriptDoc?.source === 'manual'" class="shrink-0 rounded border border-violet-400/30 bg-violet-400/10 px-1.5 py-0.5 text-[10px] text-violet-300" title="由外部 AI 生成后手动导入">手动导入</span>
+          <span v-else-if="scriptDoc?.source === 'handwritten'" class="shrink-0 rounded border border-violet-400/30 bg-violet-400/10 px-1.5 py-0.5 text-[10px] text-violet-300" title="在应用内直接编写，未经过 AI 生成">手动编写</span>
           <span v-if="sourceChanged" class="shrink-0 rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-300" title="剧本生成后原文发生过修改，建议重新生成">原文已变更</span>
         </div>
-        <button v-if="scriptDoc?.status === 'completed'" class="secondary-button h-7 px-2 text-[11px]" @click="toggleEditing">
+        <button v-if="scriptDoc?.status === 'completed' || editing" class="secondary-button h-7 px-2 text-[11px]" @click="toggleEditing">
           <Pencil v-if="!editing" :size="12" />{{ editing ? "完成编辑" : "编辑" }}
         </button>
       </div>
 
-      <!-- 分析缺失提示：剧本仍可生成，但仅基于原文 -->
-      <div v-if="!analysisContent.trim()" class="flex shrink-0 items-center gap-2 border-b border-amber-400/25 bg-amber-400/10 px-4 py-2 text-xs text-amber-300">
+      <!-- 分析缺失提示：剧本仍可生成，但仅基于原文（script 模式无原文/分析，不提示） -->
+      <div v-if="!scriptOnly && !analysisContent.trim()" class="flex shrink-0 items-center gap-2 border-b border-amber-400/25 bg-amber-400/10 px-4 py-2 text-xs text-amber-300">
         <TriangleAlert :size="14" class="shrink-0" />
         <span>本章尚未生成原文分析，将仅基于原文生成剧本。建议先在「原文」页签完成分析。</span>
       </div>
@@ -47,6 +53,7 @@
         v-model="scriptDraft"
         class="custom-scrollbar min-h-0 flex-1 resize-none bg-transparent p-5 font-mono text-xs leading-6 text-text-primary outline-none"
         aria-label="编辑漫画剧本"
+        :placeholder="scriptOnly ? '直接编写本章漫画剧本（场景、人物、动作、对白、剧情目的）…' : '编写漫画剧本…'"
         @blur="commitScriptDraft"
       />
 
@@ -62,9 +69,12 @@
         <MarkdownView v-if="scriptDoc?.content" :content="scriptDoc.content" empty-text="尚无剧本" />
         <div v-else class="flex h-full flex-col items-center justify-center text-center">
           <ScrollText :size="26" class="text-text-muted" />
-          <h3 class="mt-3 text-sm font-medium text-text-primary">尚未生成剧本</h3>
-          <p class="mt-2 max-w-sm text-xs leading-5 text-text-secondary">基于章节原文与原文分析，把这一章改编成按场景组织的漫画剧本（剧情、人物、动作、情绪、对白、剧情目的），供分镜生成使用。</p>
-          <button class="mt-4 secondary-button h-8 px-3 text-xs" @click="emit('import-script')"><ClipboardPaste :size="14" />手动写入剧本结果</button>
+          <h3 class="mt-3 text-sm font-medium text-text-primary">{{ scriptOnly ? "直接编写本章剧本" : "尚未生成剧本" }}</h3>
+          <p class="mt-2 max-w-sm text-xs leading-5 text-text-secondary">{{ scriptOnly ? "按场景组织剧情、人物、动作、情绪、对白与剧情目的，供分镜生成使用。" : "基于章节原文与原文分析，把这一章改编成按场景组织的漫画剧本（剧情、人物、动作、情绪、对白、剧情目的），供分镜生成使用。" }}</p>
+          <div class="mt-4 flex gap-2">
+            <button class="secondary-button h-8 px-3 text-xs" @click="startHandwriting"><Pencil :size="14" />直接编写</button>
+            <button class="secondary-button h-8 px-3 text-xs" @click="emit('import-script')"><ClipboardPaste :size="14" />手动写入剧本结果</button>
+          </div>
         </div>
       </div>
     </section>
@@ -73,8 +83,9 @@
 
 <script setup lang="ts">
 /**
- * 长篇章节「剧本」页签：左列只读章节原文，右列为 AI 漫画剧本（Markdown 预览 ⇋ 编辑）。
- * 剧本 = 原文 + 原文分析 + 剧本规则；分析缺失时黄条提示并以原文兜底。
+ * 长篇章节「剧本」页签：左列只读章节原文（script 起笔模式显示占位说明），右列为漫画剧本（Markdown 预览 ⇋ 编辑）。
+ * 剧本可由 AI 生成、手动导入或直接手写（手写经父级 upsert 落库为 handwritten 文档）；
+ * 剧本 = 原文 + 原文分析 + 剧本规则；分析缺失时黄条提示并以原文兜底（script 起笔模式不提示）。
  * 执行栏由主页面渲染在页签行右侧。
  */
 import { ref, watch } from "vue";
@@ -82,7 +93,7 @@ import { ClipboardPaste, FileText, LoaderCircle, Pencil, ScrollText, TriangleAle
 import MarkdownView from "@comic/components/common/MarkdownView.vue";
 import type { LongProjectChapterDoc } from "@comic/types";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   /** 章节原文（只读展示） */
   sourceContent: string;
   /** 原文分析内容（可能为空，为空时黄条提示） */
@@ -91,7 +102,9 @@ const props = defineProps<{
   scriptDoc?: LongProjectChapterDoc;
   /** 剧本生成后原文是否已变更 */
   sourceChanged: boolean;
-}>();
+  /** script 起笔模式：本章无原文，左栏显示占位说明并隐藏分析提示 */
+  scriptOnly?: boolean;
+}>(), { scriptOnly: false });
 
 const emit = defineEmits<{
   (e: "save-script", content: string): void;
@@ -102,10 +115,17 @@ const emit = defineEmits<{
 function wordCount(content: string) { return content.replace(/\s/g, "").length; }
 
 // ========== 右列剧本编辑（预览 ⇋ 编辑，失焦回传保存） ==========
+
 const editing = ref(false);
 const scriptDraft = ref("");
 
 watch(() => props.scriptDoc?.content, () => { scriptDraft.value = props.scriptDoc?.content ?? ""; }, { immediate: true });
+
+/** 空态「直接编写」：进入编辑模式，从空稿开始手写（无需先有 AI 生成/导入的文档）。 */
+function startHandwriting() {
+  scriptDraft.value = "";
+  editing.value = true;
+}
 
 /** 切换编辑/预览；退出编辑时保存。 */
 function toggleEditing() {
@@ -113,10 +133,10 @@ function toggleEditing() {
   editing.value = !editing.value;
 }
 
-/** 提交编辑内容（失焦或退出编辑时回传父级持久化）。 */
+/** 提交编辑内容（失焦或退出编辑时回传父级持久化）；无文档时内容非空也提交（父级 upsert 创建）。 */
 function commitScriptDraft() {
-  if (!props.scriptDoc) return;
-  if (scriptDraft.value !== props.scriptDoc.content) emit("save-script", scriptDraft.value);
+  if (!editing.value) return;
+  if (scriptDraft.value !== (props.scriptDoc?.content ?? "") && scriptDraft.value.trim()) emit("save-script", scriptDraft.value);
 }
 </script>
 

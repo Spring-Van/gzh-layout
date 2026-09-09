@@ -2,7 +2,15 @@ import { ref, type Ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
 import { generateStoryboard, parseStoryboardResponse } from '@comic/services/storyboardService'
 import { migratePanelArtworks } from '@comic/services/panelPromptService'
+import { LONG_CHAPTER_STAGE_ORDER } from '@comic/types'
 import type { ComicProject, LongProjectNode, LongProjectStoryboardRun, ModelConfig, PromptTemplate } from '@comic/types'
+
+/** 分镜完成后章节阶段只升不降（避免重跑分镜把已到资产/生图阶段的章节打回）。 */
+function advanceStoryboardStage(node: LongProjectNode): LongProjectNode {
+  return LONG_CHAPTER_STAGE_ORDER.indexOf(node.stage ?? 'empty') < LONG_CHAPTER_STAGE_ORDER.indexOf('storyboard-ready')
+    ? { ...node, stage: 'storyboard-ready' as const, updatedAt: Date.now() }
+    : { ...node, updatedAt: Date.now() }
+}
 
 /**
  * 分镜生成 composable（生图工作台）：
@@ -73,8 +81,7 @@ export function useStoryboardRun(options: {
       await options.mutateLongProjectData((data) => {
         data.storyboardRuns = (data.storyboardRuns ?? []).map((item) =>
           item.id === run.id ? { ...item, status: 'completed' as const, panels: result.panels, rawResponse: result.rawResponse, updatedAt: Date.now() } : item)
-        data.nodes = (data.nodes ?? []).map((node) =>
-          node.id === chapter.id ? { ...node, stage: 'storyboard-ready' as const, updatedAt: Date.now() } : node)
+        data.nodes = (data.nodes ?? []).map((node) => node.id === chapter.id ? advanceStoryboardStage(node) : node)
         data.panelArtworks = migratePanelArtworks(data.panelArtworks ?? [], previousPanels, result.panels, chapter.id)
       })
     } catch (error) {
@@ -118,8 +125,7 @@ export function useStoryboardRun(options: {
     }
     await options.mutateLongProjectData((data) => {
       data.storyboardRuns = [...(data.storyboardRuns ?? []), run]
-      data.nodes = (data.nodes ?? []).map((node) =>
-        node.id === chapter.id ? { ...node, stage: 'storyboard-ready' as const, updatedAt: now } : node)
+      data.nodes = (data.nodes ?? []).map((node) => node.id === chapter.id ? advanceStoryboardStage(node) : node)
       data.panelArtworks = migratePanelArtworks(data.panelArtworks ?? [], previousPanels, panels, chapter.id)
     })
   }

@@ -49,7 +49,14 @@ export interface ImageGenConfig {
 export type ComicProjectType = 'short' | 'long'
 
 export type LongProjectNodeType = 'folder' | 'chapter'
-export type LongChapterStage = 'empty' | 'source-ready' | 'analysis-ready' | 'script-ready' | 'assets-ready' | 'storyboard-ready' | 'prompts-ready' | 'completed'
+/** 章节起笔模式：source = 从原文开始（默认，走完整管线）；script = 从剧本开始（跳过原文，隐藏原文页签）。 */
+export type LongChapterStartMode = 'source' | 'script'
+export type LongChapterStage = 'empty' | 'source-ready' | 'analysis-ready' | 'script-ready' | 'storyboard-ready' | 'assets-ready' | 'prompts-ready' | 'completed'
+/**
+ * 章节阶段推进顺序（与创作管线一致：原文 → 分析 → 剧本 → 分镜 → 资产）。
+ * stage 只升不降；`prompts-ready` / `completed` 为预留终态。
+ */
+export const LONG_CHAPTER_STAGE_ORDER: LongChapterStage[] = ['empty', 'source-ready', 'analysis-ready', 'script-ready', 'storyboard-ready', 'assets-ready', 'prompts-ready', 'completed']
 export type LongProjectAssetType = 'character' | 'scene' | 'prop'
 export type AssetAttributeValueType = 'text' | 'tags' | 'number' | 'select'
 
@@ -138,8 +145,8 @@ export interface LongProjectChapterDoc {
   sourceWordCount: number
   status: 'running' | 'completed' | 'failed'
   error?: string
-  /** 来源：llm = 内置大模型生成；manual = 手动粘贴外部 AI 结果导入。缺省视为 llm（旧数据兼容）。 */
-  source?: 'llm' | 'manual'
+  /** 来源：llm = 内置大模型生成；manual = 手动粘贴外部 AI 结果导入；handwritten = 本地直接手写。缺省视为 llm（旧数据兼容）。 */
+  source?: 'llm' | 'manual' | 'handwritten'
   createdAt: number
   updatedAt: number
 }
@@ -322,6 +329,8 @@ export interface LongProjectNode {
   order: number
   content?: string
   stage?: LongChapterStage
+  /** 起笔模式：缺省视为 source（旧数据兼容）。script 模式下主页面隐藏「原文」页签。 */
+  startMode?: LongChapterStartMode
   createdAt: number
   updatedAt: number
 }

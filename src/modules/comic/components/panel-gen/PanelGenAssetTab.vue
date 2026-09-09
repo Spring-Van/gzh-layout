@@ -21,6 +21,12 @@
 
     <!-- 信息 tab：提取结果独立成页（主体：审核 / 提取中 / 失败 / 空态） -->
     <div v-if="view === 'info'" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <!-- 无分镜提示：提取上下文将缺少分镜概要与出现次数统计 -->
+      <div v-if="!panels.length" class="flex shrink-0 items-start gap-2 border-b border-amber-400/25 bg-amber-400/10 px-4 py-2 text-xs text-amber-300">
+        <Info :size="14" class="mt-0.5 shrink-0" />
+        <p>本章尚未生成分镜：资产提取将基于原文（或剧本兜底）、分析与剧本上下文，不含分镜概要与出场次数统计；生成分镜后可重新提取补全。</p>
+      </div>
+
       <LongProjectAssetExtractionReview
         v-if="latestRun && (latestRun.status === 'completed' || latestRun.status === 'confirmed')"
         :candidates="latestRun.candidates"
@@ -99,21 +105,22 @@
  *   提取操作区（PromptRunBar）与「确认本章资产」按钮在页面顶栏，重试通过 retry-extraction 事件回调页面。
  * - 图片：本章资产浏览（LongProjectChapterAssets）。
  * - 生图工作台：资产视觉状态的提示词/参考图生产，批量操作按钮由页面顶栏承载。
- * 提取输入 = 原文 + 原文分析 + 剧本 + 分镜概要 + 已有资产；
+ * 提取底稿 = 章节原文（无原文时以漫画剧本兜底，页面顶栏提示）；
+ * 提取上下文 = 原文分析 + 漫画剧本 + 分镜概要（本章有已完成分镜时）+ 已有资产；
  * 确认后写回资产与章节引用，并按文本自动回填本章分镜绑定。
  */
 import { computed, ref } from "vue";
-import { FileText, ClipboardPaste, Images, LoaderCircle, MapPin, Package, Palette, ScanText, UserRound } from "lucide-vue-next";
+import { FileText, ClipboardPaste, Images, Info, LoaderCircle, MapPin, Package, Palette, ScanText, UserRound } from "lucide-vue-next";
 import LongProjectAssetExtractionReview from "@comic/components/LongProjectAssetExtractionReview.vue";
 import LongProjectChapterAssets from "@comic/components/LongProjectChapterAssets.vue";
 import LongProjectAssetWorkbench from "@comic/components/LongProjectAssetWorkbench.vue";
 import { useToast } from "@comic/composables/useToast";
 import { countCandidatesAppearances } from "@comic/services/assetExtractionService";
 import { backfillPanelAutoBindings, buildExtractionConfirmResult } from "@comic/services/assetExtractionConfirm";
+import { LONG_CHAPTER_STAGE_ORDER } from "@comic/types";
 import type {
   AssetGenConfig,
   ComicProject,
-  LongChapterStage,
   LongProjectAsset,
   LongProjectAssetExtractionRun,
   LongProjectAssetVariant,
@@ -127,9 +134,6 @@ import type {
 
 /** 资产子 tab 类型。 */
 export type AssetView = "info" | "images" | "workbench";
-
-/** 阶段推进顺序：确认资产只升不降，避免把已到分镜/成图阶段的章节打回。 */
-const stageOrder: LongChapterStage[] = ["empty", "source-ready", "analysis-ready", "script-ready", "assets-ready", "storyboard-ready", "prompts-ready", "completed"];
 
 const props = defineProps<{
   chapter: LongProjectNode;
@@ -237,8 +241,9 @@ async function confirmExtraction() {
     data.assetExtractionRuns = (data.assetExtractionRuns ?? []).map((item) => item.id === run.id ? { ...item, status: "confirmed" as const, updatedAt: Date.now() } : item);
     data.nodes = (data.nodes ?? []).map((node) => {
       if (node.id !== chapterId) return node;
-      const current = stageOrder.indexOf(node.stage ?? "empty");
-      return current < stageOrder.indexOf("assets-ready")
+      // 阶段只升不降（共享顺序表），避免把已到分镜/生图阶段的章节打回
+      const current = LONG_CHAPTER_STAGE_ORDER.indexOf(node.stage ?? "empty");
+      return current < LONG_CHAPTER_STAGE_ORDER.indexOf("assets-ready")
         ? { ...node, stage: "assets-ready" as const, updatedAt: Date.now() }
         : { ...node, updatedAt: Date.now() };
     });

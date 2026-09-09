@@ -129,6 +129,7 @@
               <button class="secondary-button h-9 shrink-0 px-2.5 text-xs" title="粘贴外部 AI 生成的漫画剧本结果，跳过内置大模型调用" @click="openManualImport('script')"><ClipboardPaste :size="14" />手动写入</button>
             </div>
             <div v-show="activeTab === 'storyboard'" id="storyboard-actions" class="flex min-w-0 items-center gap-2" />
+            <div v-show="activeTab === 'assets'" id="asset-actions" class="flex min-w-0 items-center gap-2" />
           </div>
         </div>
 
@@ -148,6 +149,7 @@
           :analysis-content="analysisDoc?.content ?? ''"
           :script-doc="scriptDoc"
           :source-changed="scriptSourceChanged"
+          :script-only="selectedChapter?.startMode === 'script'"
           @save-script="saveScript"
           @import-script="openManualImport('script')"
         />
@@ -163,6 +165,18 @@
           :templates="promptTemplates"
           :mutate-long-project-data="mutateLongProjectData"
           @image-config-saved="loadProject"
+        />
+
+        <!-- 资产 tab（提取/审核/生图工作台）：首次进入时挂载，之后常驻 -->
+        <LongProjectAssetTab
+          v-if="assetsOpened"
+          v-show="activeTab === 'assets'"
+          :project-id="projectId"
+          :chapter-id="selectedChapterId ?? ''"
+          :project="project"
+          :models="models"
+          :templates="promptTemplates"
+          :mutate-long-project-data="mutateLongProjectData"
         />
       </section>
     </main>
@@ -221,7 +235,7 @@ import { useToast } from "@comic/composables/useToast";
 import { useLongProjectPersistence } from "@comic/composables/useLongProjectPersistence";
 import { useChapterDocRun } from "@comic/composables/useChapterDocRun";
 import { buildAnalysisPrompt, buildScriptPrompt } from "@comic/services/chapterDocService";
-import type { LongProjectNode, LongProjectNodeType, ModelConfig, PromptTemplate } from "@comic/types";
+import type { LongChapterStartMode, LongProjectNode, LongProjectNodeType, ModelConfig, PromptTemplate } from "@comic/types";
 
 const route = useRoute();
 const router = useRouter();
@@ -255,9 +269,11 @@ const expandedFolders = ref(new Set<string>());
 const selectedChapterId = ref<string | null>(null);
 const selectedAssetCategory = ref<AssetLibraryCategory | null>(null);
 const draftContent = ref("");
-const activeTab = ref<"source" | "script" | "storyboard">("source");
+const activeTab = ref<"source" | "script" | "storyboard" | "assets">("source");
 /** 分镜 tab 首次进入时才挂载（挂载后常驻，批量任务切页签不中断）。 */
 const storyboardOpened = ref(false);
+/** 资产 tab 首次进入时才挂载（挂载后常驻，提取/批量生图切页签不中断）。 */
+const assetsOpened = ref(false);
 const models = ref<ModelConfig[]>([]);
 const promptTemplates = ref<PromptTemplate[]>([]);
 const nodeDialogVisible = ref(false);
@@ -299,16 +315,22 @@ const workflowSteps = [
   { title: "分镜", description: "拆解每格画面", icon: ListTree },
   { title: "资产与生图", description: "固定视觉并绘制", icon: FileImage },
 ];
-const chapterTabs = [
-  { key: "source" as const, label: "原文", icon: FileText },
-  { key: "script" as const, label: "剧本", icon: ScrollText },
-  { key: "storyboard" as const, label: "分镜", icon: Clapperboard },
-];
+/** 章节创作阶段页签：「从剧本开始」的章节隐藏原文页签。 */
+const chapterTabs = computed(() => {
+  const tabs = [
+    { key: "source" as const, label: "原文", icon: FileText },
+    { key: "script" as const, label: "剧本", icon: ScrollText },
+    { key: "storyboard" as const, label: "分镜", icon: Clapperboard },
+    { key: "assets" as const, label: "资产", icon: Boxes },
+  ];
+  return selectedChapter.value?.startMode === "script" ? tabs.filter((tab) => tab.key !== "source") : tabs;
+});
 
-/** 切换创作阶段页签（分镜页签首次进入时挂载其组件）。 */
-const setActiveTab = (key: "source" | "script" | "storyboard") => {
+/** 切换创作阶段页签（分镜/资产页签首次进入时挂载其组件）。 */
+const setActiveTab = (key: "source" | "script" | "storyboard" | "assets") => {
   activeTab.value = key;
   if (key === "storyboard") storyboardOpened.value = true;
+  if (key === "assets") assetsOpened.value = true;
 };
 
 function sortNodes(a: LongProjectNode, b: LongProjectNode) { return a.order - b.order || a.createdAt - b.createdAt; }
@@ -418,8 +440,10 @@ const selectChapter = async (chapter: LongProjectNode) => {
   selectedAssetCategory.value = null;
   selectedChapterId.value = chapter.id;
   draftContent.value = chapter.content ?? "";
-  // 分镜页签内切换章节时保持页签，其余页签回到原文
-  if (activeTab.value !== "storyboard") activeTab.value = "source";
+  // 分镜/资产页签内切换章节时保持页签；其余回到本章首个可用页签（剧本起稿章节无原文页签）
+  if (activeTab.value !== "storyboard" && activeTab.value !== "assets") {
+    activeTab.value = chapter.startMode === "script" ? "script" : "source";
+  }
 };
 const selectAssetCategory = async (category: AssetLibraryCategory) => { if (isDirty.value) await saveCurrentChapter(false); selectedChapterId.value = null; selectedAssetCategory.value = category; };
 const openCreateDialog = (type: LongProjectNodeType, parentId: string | null) => { editingNode.value = null; nodeDialogType.value = type; nodeDialogParentId.value = parentId; nodeDialogVisible.value = true; contextMenu.value = null; };
@@ -437,7 +461,7 @@ const openFromContext = (type: LongProjectNodeType) => {
   nodeDialogVisible.value = true;
 };
 
-const handleNodeDialogSubmit = async ({ name, content }: { name: string; content: string }) => {
+const handleNodeDialogSubmit = async ({ name, content, startMode }: { name: string; content: string; startMode: LongChapterStartMode }) => {
   if (editingNode.value) {
     const editingId = editingNode.value.id;
     await persistNodes(nodes.value.map((node) => node.id === editingId ? { ...node, name, updatedAt: Date.now() } : node));
@@ -452,6 +476,8 @@ const handleNodeDialogSubmit = async ({ name, content }: { name: string; content
   if (nodeDialogType.value === "chapter") {
     newNode.content = content;
     newNode.stage = content ? "source-ready" : "empty";
+    // 「从剧本开始」的章节：记录起笔模式（隐藏原文页签，提取/生成分镜时以剧本为主输入）
+    if (startMode === "script") newNode.startMode = "script";
   }
   await persistNodes([...nodes.value, newNode]);
   nodeDialogVisible.value = false;
@@ -461,7 +487,8 @@ const handleNodeDialogSubmit = async ({ name, content }: { name: string; content
     if (newNode.parentId) expandedFolders.value = new Set([...expandedFolders.value, newNode.parentId]);
     selectedChapterId.value = newNode.id;
     draftContent.value = "";
-    activeTab.value = "source";
+    // 剧本起稿章节直接落到剧本页签
+    activeTab.value = newNode.startMode === "script" ? "script" : "source";
   }
 };
 

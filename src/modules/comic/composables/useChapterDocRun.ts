@@ -1,6 +1,7 @@
 import { ref, type Ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
 import { buildAnalysisPrompt, buildScriptPrompt, runChapterDoc } from '@comic/services/chapterDocService'
+import { LONG_CHAPTER_STAGE_ORDER } from '@comic/types'
 import type {
   ChapterDocKind,
   ComicProject,
@@ -15,9 +16,6 @@ const docKey: Record<ChapterDocKind, 'chapterAnalyses' | 'chapterScripts'> = {
   analysis: 'chapterAnalyses',
   script: 'chapterScripts',
 }
-
-/** 阶段推进顺序：只升不降，避免重跑早期环节把后期阶段打回去。 */
-const stageOrder: LongChapterStage[] = ['empty', 'source-ready', 'analysis-ready', 'script-ready', 'assets-ready', 'storyboard-ready', 'prompts-ready', 'completed']
 
 /** 环节完成后的章节阶段。 */
 const stageOnComplete: Record<ChapterDocKind, LongChapterStage> = {
@@ -65,11 +63,35 @@ export function useChapterDocRun(options: {
       : buildScriptPrompt(templateContent, chapterContent, analysis)
   }
 
-  /** 保存文档编辑内容（右侧编辑区失焦/切回预览时回写）。 */
-  async function saveDocContent(kind: ChapterDocKind, chapterId: string, content: string) {
+  /**
+   * 保存文档编辑内容（右侧编辑区失焦/切回预览时回写）。
+   * upsert：本章尚无文档且内容非空时创建一份 handwritten 完成态文档
+   * （支持"从剧本开始"章节直接手写剧本），并推进章节 stage（只升不降）。
+   * @param sourceContent 新建文档时的原文快照（已有文档不变更该字段）
+   */
+  async function saveDocContent(kind: ChapterDocKind, chapterId: string, content: string, sourceContent = '') {
     await options.mutateLongProjectData((data) => {
-      data[docKey[kind]] = (data[docKey[kind]] ?? []).map((item) =>
-        item.chapterId === chapterId ? { ...item, content, updatedAt: Date.now() } : item)
+      const list = data[docKey[kind]] ?? []
+      const existing = list.find((item) => item.chapterId === chapterId)
+      if (existing) {
+        data[docKey[kind]] = list.map((item) =>
+          item.chapterId === chapterId ? { ...item, content, updatedAt: Date.now() } : item)
+        return
+      }
+      if (!content.trim()) return
+      const now = Date.now()
+      const doc: LongProjectChapterDoc = {
+        id: uuidv4(), chapterId, content,
+        modelId: '', templateId: '', prompt: '',
+        sourceContent, sourceWordCount: wordCount(sourceContent),
+        status: 'completed', source: 'handwritten', createdAt: now, updatedAt: now,
+      }
+      data[docKey[kind]] = [...list, doc]
+      const nextStage = stageOnComplete[kind]
+      data.nodes = (data.nodes ?? []).map((node) =>
+        node.id === chapterId && LONG_CHAPTER_STAGE_ORDER.indexOf(node.stage ?? 'empty') < LONG_CHAPTER_STAGE_ORDER.indexOf(nextStage)
+          ? { ...node, stage: nextStage, updatedAt: now }
+          : node)
     })
   }
 
@@ -105,7 +127,7 @@ export function useChapterDocRun(options: {
         data.nodes = (data.nodes ?? []).map((node) => {
           if (node.id !== params.chapterId) return node
           const nextStage = stageOnComplete[kind]
-          return stageOrder.indexOf(node.stage ?? 'empty') < stageOrder.indexOf(nextStage)
+          return LONG_CHAPTER_STAGE_ORDER.indexOf(node.stage ?? 'empty') < LONG_CHAPTER_STAGE_ORDER.indexOf(nextStage)
             ? { ...node, stage: nextStage, updatedAt: Date.now() }
             : { ...node, updatedAt: Date.now() }
         })
@@ -155,7 +177,7 @@ export function useChapterDocRun(options: {
       data.nodes = (data.nodes ?? []).map((node) => {
         if (node.id !== params.chapterId) return node
         const nextStage = stageOnComplete[kind]
-        return stageOrder.indexOf(node.stage ?? 'empty') < stageOrder.indexOf(nextStage)
+        return LONG_CHAPTER_STAGE_ORDER.indexOf(node.stage ?? 'empty') < LONG_CHAPTER_STAGE_ORDER.indexOf(nextStage)
           ? { ...node, stage: nextStage, updatedAt: now }
           : { ...node, updatedAt: now }
       })
