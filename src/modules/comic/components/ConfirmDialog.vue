@@ -3,7 +3,8 @@
     <Transition name="confirm">
       <div
         v-if="modelValue"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+        class="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+        :class="zIndexClass"
         @click.self="handleCancel"
       >
         <div
@@ -68,6 +69,8 @@ interface Props {
   content?: string;
   confirmText?: string;
   cancelText?: string;
+  /** 遮罩层级；调用方若被更高层弹窗（如导入弹窗、抽屉）遮挡，可传入更高层级类名。 */
+  zIndexClass?: string;
 }
 
 withDefaults(defineProps<Props>(), {
@@ -75,6 +78,7 @@ withDefaults(defineProps<Props>(), {
   content: "删除后无法恢复，是否确认删除？",
   confirmText: "确认删除",
   cancelText: "取消",
+  zIndexClass: "z-50",
 });
 
 const emit = defineEmits<{

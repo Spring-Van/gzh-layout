@@ -200,6 +200,25 @@ export interface LongProjectStoryboardAssetBinding {
   referenceImageIds?: string[]
 }
 
+/**
+ * 页内一格（一张漫画图里的一个分格）。
+ * 页块格式：一格一行 `①【镜头】画面`，台词行另行归属最近的格。
+ */
+export interface LongProjectStoryboardCell {
+  /** 镜头类型（远景/中景/近景/特写/POV/过肩/仰拍），画面描述层的占比与景深推导锚点 */
+  shot?: string
+  /** 这一格画面上能看到什么（谁 + 在做什么 + 神态/情绪） */
+  content: string
+  /** 说话人：对白/心声/画外的角色名；无人称旁白时为空 */
+  speaker?: string
+  /** 台词方式：缺省 = 对白；心声 = 内心独白；画外 = 说话人不在画面内 */
+  delivery?: '心声' | '画外'
+  /** 本格台词（不含说话人前缀） */
+  dialogue?: string
+  /** 本格无人称旁白 */
+  narration?: string
+}
+
 export interface LongProjectStoryboardPanel {
   id: string
   order: number
@@ -210,6 +229,11 @@ export interface LongProjectStoryboardPanel {
   /** 旁白：叙述性文字，由分镜解析器从 LLM 输出中提取 */
   narration?: string
   imagePrompt?: string
+  /**
+   * 页内分格（页块格式 v3）。旧数据与旧格式缺省，视为「整页 = 单格」。
+   * 页级 content/shot/dialogue/narration 仍会同步汇总，保证既有消费方无需改动。
+   */
+  cells?: LongProjectStoryboardCell[]
   assetBindings: LongProjectStoryboardAssetBinding[]
 }
 

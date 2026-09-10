@@ -108,9 +108,9 @@ describe('promptTemplateRegistry · 渲染引擎', () => {
     const prompt = renderPromptTemplate({
       type: 'asset-prompt',
       content: '请为每个状态生成绘画提示词。',
-      values: { 状态清单: '- 状态1｜资产：林小雨', 风格上下文: '' },
+      values: { 状态清单: '- 状态1｜资产：角色C', 风格上下文: '' },
     });
-    expect(prompt).toContain('【待生成状态清单】\n- 状态1｜资产：林小雨');
+    expect(prompt).toContain('【待生成状态清单】\n- 状态1｜资产：角色C');
   });
 
   it('未注册占位符构建时被清理', () => {
@@ -164,5 +164,13 @@ describe('promptTemplateRegistry · 输出协议', () => {
     }
     expect(defaultOutputProtocol('style')).toBe('');
     expect(defaultOutputProtocol('story')).toBe('');
+  });
+
+  it('分镜默认协议：台词 / 旁白正文用【】括起，说话人在【】外', () => {
+    const protocol = defaultOutputProtocol('storyboard');
+    expect(protocol).toContain('说话人：【台词】');
+    expect(protocol).toContain('说话人（心声）：【台词】');
+    expect(protocol).toContain('说话人（画外）：【台词】');
+    expect(protocol).toContain('旁白：【文字】');
   });
 });

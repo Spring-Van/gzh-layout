@@ -1,53 +1,82 @@
 <template>
   <!-- 单根节点：保证父页面 v-show 页签切换生效 -->
   <div class="flex h-full min-h-0 flex-col overflow-hidden bg-app-bg text-text-primary">
-    <!-- 顶部操作按钮：Teleport 到主页面 tab 行右侧容器（#storyboard-actions） -->
+    <!-- 顶部操作区：Teleport 到主页面 tab 行右侧容器（#storyboard-actions）
+         动作组由内容阶段决定（页签行「分镜」下拉 / 右栏「分镜内容 | 提示词」共用同一状态）；资产常驻，绘图配置归属提示词阶段 -->
     <Teleport to="#storyboard-actions">
-      <button
-        class="secondary-button h-9 shrink-0 px-3 text-xs"
-        :disabled="!panels.length || batchPromptBusy"
-        :title="!panels.length ? '本章暂无分镜' : '依次推导缺失分镜的画面描述（一次一条，前后自动关联）'"
-        @click="promptModalVisible = true"
-      >
-        <LoaderCircle v-if="batchPromptBusy" :size="14" class="animate-spin" />
-        <Sparkles v-else :size="14" />
-        批量推导描述
-      </button>
-      <button
-        class="primary-button h-9 shrink-0 px-3 text-xs"
-        :disabled="!genTargets.length || batchGenBusy"
-        :title="!genTargets.length ? '没有可生图的分镜（需先有画面描述且未成图）' : `串行生成 ${genTargets.length} 个分镜画面`"
-        @click="runBatchGen"
-      >
-        <LoaderCircle v-if="batchGenBusy" :size="14" class="animate-spin" />
-        批量生图{{ batchGenBusy ? ` ${batchGenDone}/${batchGenTotal}` : genTargets.length ? `（${genTargets.length}）` : '' }}
-      </button>
-      <button v-if="batchGenBusy" class="secondary-button h-9 shrink-0 px-3 text-xs" @click="cancelBatchGen">取消</button>
+      <!-- 分镜内容阶段：生成分镜（与「原文 / 剧本」页签执行栏同构）+ 手动导入 -->
+      <template v-if="stage === 'storyboard'">
+        <div class="min-w-0 max-w-2xl">
+          <PromptRunBar
+            v-model:model-id="storyboardModelId"
+            v-model:template-id="storyboardTemplateId"
+            :models="llmModels"
+            :templates="storyboardTemplates"
+            :action-label="panels.length ? '重新生成分镜' : '生成分镜'"
+            :disabled="!storyboardSourceContent.trim() || !storyboardModelId || !storyboardTemplateId"
+            :busy="latestChapterRun?.status === 'running'"
+            force-compact
+            confirm-storage-key="comic-long-storyboard-confirm"
+            :build-prompt="buildStoryboardRunPrompt"
+            @run="runStoryboardFromEditor"
+          />
+        </div>
+        <button
+          class="secondary-button h-9 shrink-0 px-2.5 text-xs"
+          title="粘贴外部 AI 生成的分镜结果，解析后导入（与内置大模型相同解析流程）"
+          @click="storyboardImportVisible = true"
+        ><ClipboardPaste :size="14" />手动导入</button>
+      </template>
 
-      <button
-        class="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs text-emerald-300 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
-        :disabled="!completedCount || exportBusy"
-        :title="!completedCount ? '本章还没有已采纳的成图' : `导出 ${completedCount} 张已采纳成图`"
-        @click="exportImages"
-      >
-        <LoaderCircle v-if="exportBusy" :size="14" class="animate-spin" />
-        <Download v-else :size="14" />
-        导出发布
-      </button>
+      <!-- 提示词阶段：画面描述推导 → 生图 → 导出；绘图配置属于本阶段 -->
+      <template v-else>
+        <button
+          class="secondary-button h-9 shrink-0 px-3 text-xs"
+          :disabled="!panels.length || batchPromptBusy"
+          :title="!panels.length ? '本章暂无分镜' : '依次推导缺失分镜的画面描述（一次一条，前后自动关联）'"
+          @click="promptModalVisible = true"
+        >
+          <LoaderCircle v-if="batchPromptBusy" :size="14" class="animate-spin" />
+          <Sparkles v-else :size="14" />
+          批量推导描述
+        </button>
+        <!-- 绘图配置：绘画模型 + 共用属性，属于「提示词 → 生图」阶段；紧贴批量生图，便于生图前调参 -->
+        <button
+          class="secondary-button h-9 shrink-0 px-3 text-xs"
+          title="设置绘画模型与共用属性（风格提示词/参考图）"
+          @click="configDrawerVisible = true"
+        ><SlidersHorizontal :size="14" />绘图配置</button>
+        <button
+          class="primary-button h-9 shrink-0 px-3 text-xs"
+          :disabled="!genTargets.length || batchGenBusy"
+          :title="!genTargets.length ? '没有可生图的分镜（需先有画面描述且未成图）' : `串行生成 ${genTargets.length} 个分镜画面`"
+          @click="runBatchGen"
+        >
+          <LoaderCircle v-if="batchGenBusy" :size="14" class="animate-spin" />
+          批量生图{{ batchGenBusy ? ` ${batchGenDone}/${batchGenTotal}` : genTargets.length ? `（${genTargets.length}）` : '' }}
+        </button>
+        <button v-if="batchGenBusy" class="secondary-button h-9 shrink-0 px-3 text-xs" @click="cancelBatchGen">取消</button>
 
-      <!-- 资产：点击打开左侧抽屉（提取 / 审核 / 视觉状态生图，关闭不打断任务） -->
+        <button
+          class="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs text-emerald-300 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+          :disabled="!completedCount || exportBusy"
+          :title="!completedCount ? '本章还没有已采纳的成图' : `导出 ${completedCount} 张已采纳成图`"
+          @click="exportImages"
+        >
+          <LoaderCircle v-if="exportBusy" :size="14" class="animate-spin" />
+          <Download v-else :size="14" />
+          导出发布
+        </button>
+      </template>
+
+      <span class="h-5 w-px shrink-0 bg-border-subtle" />
+
+      <!-- 常驻工具：资产为章节级抽屉入口，不属于任一阶段 -->
       <button
         class="secondary-button h-9 shrink-0 px-3 text-xs"
         title="打开资产抽屉：提取 / 审核本章资产，生成视觉状态参考图"
         @click="openAssetDrawer()"
       ><Boxes :size="14" />资产</button>
-
-      <!-- 绘图配置：点击打开抽屉（与短篇生图页一致） -->
-      <button
-        class="secondary-button h-9 shrink-0 px-3 text-xs"
-        title="设置绘画模型与共用属性（风格提示词/参考图）"
-        @click="configDrawerVisible = true"
-      ><SlidersHorizontal :size="14" />绘图配置</button>
     </Teleport>
 
     <!-- 资产接力引导条：有分镜但本章资产未就绪 → 一键打开资产抽屉提取（固定视觉，保证分镜间画面一致） -->
@@ -62,7 +91,7 @@
       >去提取资产 <ArrowRight :size="13" /></button>
     </div>
 
-    <!-- 分镜视图：左列表 + 中预览 + 右[分镜内容|提示词] -->
+    <!-- 分镜视图：左列表 + 中预览 + 右（分镜内容 = 页块文本编辑 + 本页操作 / 提示词 = 画面描述 + 单镜操作） -->
     <div class="flex min-h-0 flex-1 gap-3 p-3">
       <!-- 左：分镜列表（右键合并/拆分/复制） -->
       <div class="w-[20%] min-w-[220px] max-w-[280px] shrink-0 overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-lg shadow-black/20">
@@ -107,43 +136,38 @@
         </div>
       </div>
 
-      <!-- 右：分镜内容（生成分镜 + 逐镜编辑）⇋ 提示词（画面描述编辑） -->
+      <!-- 右：分镜内容 = 页块文本编辑 + 本页操作；提示词 = 画面描述 + 单镜操作 -->
       <div
         class="flex flex-1 shrink-0 flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-lg shadow-black/20"
         style="min-width: 440px"
       >
-        <div class="flex h-10 shrink-0 items-center justify-between border-b border-border-subtle px-4">
-          <p class="text-xs text-text-secondary">{{ rightTab === 'content' ? '分镜内容（剧本 → 分镜）' : '绘画提示词（分镜 → 画面描述）' }}</p>
-          <div class="flex items-center gap-0.5 rounded-lg border border-border-subtle bg-app-bg p-0.5">
-            <button
-              v-for="tab in rightTabs"
-              :key="tab.id"
-              class="rounded-md px-2.5 py-1 text-[11px] transition-colors"
-              :class="rightTab === tab.id ? 'bg-cyan-500/15 text-cyan-300' : 'text-text-muted hover:text-text-secondary'"
-              @click="rightTab = tab.id"
-            >{{ tab.label }}</button>
+        <div class="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border-subtle px-4">
+          <p class="min-w-0 truncate text-xs text-text-secondary">{{ stage === 'storyboard' ? '分镜内容（剧本 → 分镜）' : '绘画提示词（分镜 → 画面描述）' }}</p>
+          <div class="flex shrink-0 items-center gap-3">
+            <p v-if="latestChapterRun?.status === 'running'" class="text-[11px] text-cyan-400">分镜生成中…</p>
+            <p v-else class="text-[11px] text-text-muted">{{ stage === 'storyboard' ? `${panels.length} 页` : `${describedCount}/${panels.length} 已描述` }}</p>
+            <!-- 内容切换：与主页面页签行「分镜」下拉共用同一个 stage（v-model） -->
+            <div class="flex items-center gap-0.5 rounded-lg border border-border-subtle bg-app-bg p-0.5">
+              <button
+                v-for="tab in stageTabs"
+                :key="tab.id"
+                class="rounded-md px-2.5 py-1 text-[11px] transition-colors"
+                :class="stage === tab.id ? 'bg-cyan-500/15 text-cyan-300' : 'text-text-muted hover:text-text-secondary'"
+                @click="stage = tab.id"
+              >{{ tab.label }}</button>
+            </div>
           </div>
         </div>
 
         <div class="min-h-0 flex-1">
           <PanelContentEditor
-            v-if="rightTab === 'content'"
+            v-if="stage === 'storyboard'"
             :panel="currentPanel"
-            :panels-count="panels.length"
             :run-status="latestChapterRun?.status"
-            :run-error="latestChapterRun?.error"
-            :models="llmModels"
-            :templates="storyboardTemplates"
-            :model-id="storyboardModelId"
-            :template-id="storyboardTemplateId"
-            :script-content="scriptDoc?.content ?? ''"
-            :source-content="currentChapter?.content ?? ''"
-            :analysis-content="analysisDoc?.content ?? ''"
-            @update:model-id="storyboardModelId = $event"
-            @update:template-id="storyboardTemplateId = $event"
-            @run="runStoryboardFromEditor"
-            @import="storyboardImportVisible = true"
+            :ops-locked="opsLocked"
+            :optimize-busy="currentPanel ? polishBusyIds.has(currentPanel.id) : false"
             @save-panel="savePanelEdit"
+            @optimize="polishCurrentPanel"
           />
           <PanelPromptPanel
             v-else-if="currentPanel"
@@ -189,6 +213,15 @@
       :panel="splitTargetPanel ?? undefined"
       :mode="splitMode"
       @confirm="applySplit"
+    />
+
+    <!-- 删除单页确认弹窗（系统通用删除确认样式） -->
+    <ConfirmDialog
+      v-model="deleteDialogVisible"
+      title="删除这一页"
+      :content="deleteDialogContent"
+      confirm-text="确认删除"
+      @confirm="confirmDeletePanel"
     />
 
     <!-- 合并/拆分撤销条（8 秒内可撤销） -->
@@ -304,19 +337,24 @@
 <script setup lang="ts">
 /**
  * 长篇项目「分镜」顶级页签（原独立生图工作台并入主页面，资产已拆分至同级「资产」页签）：
- * 左列分镜列表（右键合并/拆分/复制）→ 中列成图预览 + 资产绑定三 tab
- * → 右列 [分镜内容|提示词] 切换（分镜内容 = 生成分镜 + 逐镜编辑；提示词 = 画面描述编辑）。
- * 顶部操作按钮通过 Teleport 注入主页面 tab 行右侧（#storyboard-actions 容器）。
+ * 左列分镜列表（右键合并/拆分/复制/删除）→ 中列成图预览 + 资产绑定三 tab
+ * → 右列随「内容阶段」切换（分镜内容 = 页块文本编辑 + 本页操作；提示词 = 画面描述 + 单镜操作）。
+ * 内容阶段由主页面页签行的「分镜」下拉按钮持有（默认分镜，可下拉切绘图），经 v-model 注入；
+ * 右栏标题栏的「分镜内容 | 提示词」两个按钮与其共用同一状态，两处入口永远一致。
+ * 顶部操作区通过 Teleport 注入主页面 tab 行右侧（#storyboard-actions 容器），随阶段切换动作组——
+ * 分镜内容显示「生成分镜（剧本 → 分镜）+ 手动导入」，提示词显示「批量推导描述 + 批量生图 + 导出发布 + 绘图配置」，
+ * 资产为常驻抽屉入口；生成分镜是章节级动作，与「原文 / 剧本」页签执行栏同构，不再挂在单页编辑框下方。
  * 分镜生成以漫画剧本为主输入、原文分析为辅助（无剧本时原文兜底）；
  * 画面描述按「依次推导」执行（滑动窗口携带前文），生图自动携带绑定资产参考图。
  * 数据持久化走 panelArtworks（panelId 关联），重跑分镜由迁移逻辑保留/标记过期；
  * 项目数据与持久化队列共享主页面实例（props 注入），不再独立读写。
  */
 import { computed, onMounted, reactive, ref, toRaw, watch, type Ref } from 'vue'
-import { ArrowRight, Boxes, Download, ListTree, LoaderCircle, SlidersHorizontal, Sparkles, Undo2, X } from 'lucide-vue-next'
+import { ArrowRight, Boxes, ClipboardPaste, Download, ListTree, LoaderCircle, SlidersHorizontal, Sparkles, Undo2, X } from 'lucide-vue-next'
 import { comicDb, comicDownload } from '@/api/comic'
 import { useToast } from '@comic/composables/useToast'
 import ManualResultImportDialog from '@comic/components/common/ManualResultImportDialog.vue'
+import PromptRunBar from '@comic/components/common/PromptRunBar.vue'
 import { imageGenerationService } from '@comic/services/imageGenerationService'
 import {
   DEFAULT_PANEL_PROMPT_TEMPLATE,
@@ -329,18 +367,19 @@ import {
   type PrevPanelContextEntry,
 } from '@comic/services/panelPromptService'
 import { buildAssetNameIndex, computeAutoBindings } from '@comic/services/promptAssetService'
-import { defaultVariant, parseStoryboardResponse } from '@comic/services/storyboardService'
+import { buildStoryboardPrompt, defaultVariant, parseStoryboardResponse, polishPanelBlock, summarizeCells } from '@comic/services/storyboardService'
 import { useStoryboardRun } from '@comic/composables/useStoryboardRun'
 import { useStoryboardOps } from '@comic/composables/useStoryboardOps'
 import PanelListSidebar from '@comic/components/panel-gen/PanelListSidebar.vue'
 import PanelPreview from '@comic/components/panel-gen/PanelPreview.vue'
 import PanelAssetTabs from '@comic/components/panel-gen/PanelAssetTabs.vue'
-import PanelContentEditor, { type PanelEditFields } from '@comic/components/panel-gen/PanelContentEditor.vue'
+import PanelContentEditor, { type PanelEditPayload } from '@comic/components/panel-gen/PanelContentEditor.vue'
 import PanelPromptPanel, { type PanelRefConfig, type TypedRefGroup } from '@comic/components/panel-gen/PanelPromptPanel.vue'
 import PanelPromptGenerateModal from '@comic/components/panel-gen/PanelPromptGenerateModal.vue'
 import StoryboardContextMenu, { type StoryboardMenuAction } from '@comic/components/StoryboardContextMenu.vue'
 import StoryboardMergeDialog from '@comic/components/StoryboardMergeDialog.vue'
 import StoryboardSplitDialog from '@comic/components/StoryboardSplitDialog.vue'
+import ConfirmDialog from '@comic/components/ConfirmDialog.vue'
 import AssetImagePreviewModal from '@comic/components/AssetImagePreviewModal.vue'
 import ImageConfigDrawer from '@comic/components/ImageConfigDrawer.vue'
 import LongProjectAssetTab from '@comic/components/LongProjectAssetTab.vue'
@@ -405,6 +444,8 @@ const config = reactive<PanelGenConfig>({
 
 /** 推导中的分镜（panelId 集合）。 */
 const promptBusyIds = reactive(new Set<string>())
+/** 正在「AI 优化本页」的分镜（panelId 集合）。 */
+const polishBusyIds = reactive(new Set<string>())
 const batchPromptBusy = ref(false)
 const batchGenBusy = ref(false)
 const batchGenDone = ref(0)
@@ -414,13 +455,18 @@ let batchGenCancelled = false
 const promptModalVisible = ref(false)
 const singleModalVisible = ref(false)
 
-// ========== 右栏视图 ==========
+// ========== 内容阶段（由主页面页签行的「分镜」下拉持有，双向同步） ==========
 
-/** 右栏 tab：分镜内容（生成分镜 + 逐镜编辑）｜提示词（画面描述）。 */
-const rightTab = ref<'content' | 'prompt'>('content')
-const rightTabs = [
-  { id: 'content' as const, label: '分镜内容' },
-  { id: 'prompt' as const, label: '提示词' },
+/**
+ * 分镜内容：顶栏是「生成分镜 + 手动导入」，右栏编辑分镜页块文本，底部为本页操作；
+ * 提示词：顶栏是「批量推导描述 + 批量生图 + 导出发布 + 绘图配置」，右栏编辑画面描述，底部为单镜操作。
+ * 状态由父页面 LongProject.vue 的页签行下拉（分镜 / 绘图）持有并传入；右栏「分镜内容 | 提示词」
+ * 两个按钮写的是同一个 v-model，因此两处入口永远一致。
+ */
+const stage = defineModel<'storyboard' | 'draw'>('stage', { default: 'storyboard' })
+const stageTabs = [
+  { id: 'storyboard' as const, label: '分镜内容' },
+  { id: 'draw' as const, label: '提示词' },
 ]
 
 const configDrawerVisible = ref(false)
@@ -520,7 +566,12 @@ const chapterOrders = computed(() => Object.fromEntries(chapters.value.map((item
 const analysisDoc = computed(() => (project.value?.longProjectData?.chapterAnalyses ?? []).find((doc) => doc.chapterId === chapterId.value))
 const scriptDoc = computed(() => (project.value?.longProjectData?.chapterScripts ?? []).find((doc) => doc.chapterId === chapterId.value))
 
+/** 分镜生成主输入：漫画剧本优先，无剧本时章节原文兜底。 */
+const storyboardSourceContent = computed(() => (scriptDoc.value?.content ?? '').trim() || (currentChapter.value?.content ?? ''))
+
 const completedCount = computed(() => panelItems.value.filter((item) => item.artwork?.selectedImageId).length)
+/** 已推导画面描述的分镜数（右栏绘图阶段进度徽标）。 */
+const describedCount = computed(() => panelItems.value.filter((item) => item.artwork?.imagePrompt?.trim()).length)
 
 const llmModels = computed(() => props.models.filter((model) => model.category === 'llm'))
 const imageModels = computed(() => props.models.filter((model) => model.category === 'image'))
@@ -636,7 +687,13 @@ const {
   notifyError: (message) => toast.error(message),
 })
 
-/** 右栏「分镜内容」触发生成：PromptRunBar 已完成发送前确认，prompt 为最终版。 */
+/** 组装分镜生成的最终发送提示词（分镜模板 + 漫画剧本 + 原文分析），供顶栏阶段操作栏使用。 */
+function buildStoryboardRunPrompt(): string {
+  const template = storyboardTemplates.value.find((item) => item.id === storyboardTemplateId.value)
+  return buildStoryboardPrompt(template?.content ?? '', storyboardSourceContent.value, analysisDoc.value?.content ?? '')
+}
+
+/** 顶栏「分镜」阶段触发生成：PromptRunBar 已完成发送前确认，prompt 为最终版。 */
 async function runStoryboardFromEditor(prompt: string) {
   const model = llmModels.value.find((item) => item.id === storyboardModelId.value)
   if (!model) {
@@ -686,7 +743,12 @@ const {
   storyboardUndoAvailable,
   storyboardUndoLabel,
   mergeSelectedPanels,
+  deleteDialogVisible,
+  deleteDialogContent,
+  confirmDeletePanel,
   openPanelMenu,
+  movePanel,
+  addPanel,
   handlePanelMenuAction,
   undoStoryboardOp,
   applyMerge,
@@ -710,34 +772,73 @@ function onPanelContextMenu(payload: { event: MouseEvent; panel: LongProjectStor
   openPanelMenu(payload.event, payload.panel)
 }
 
-/** 右键菜单动作分发（「在生图工作台查看」即选中该分镜）。 */
-function onPanelMenuAction(action: StoryboardMenuAction) {
-  handlePanelMenuAction(action, (panel) => {
+/** 右键菜单动作分发（页级结构操作在左栏右键菜单触发，操作后跟随选中）。 */
+async function onPanelMenuAction(action: StoryboardMenuAction) {
+  const panel = panelMenu.value.panel
+  if (!panel) return
+  if (action.action === 'move-up' || action.action === 'move-down') {
     const index = panels.value.findIndex((item) => item.id === panel.id)
+    const direction = action.action === 'move-up' ? 'up' : 'down'
+    await movePanel(panel.id, direction)
+    const next = direction === 'up' ? index - 1 : index + 1
+    if (next >= 0 && next < panels.value.length) currentIndex.value = next
+    return
+  }
+  if (action.action === 'add-above' || action.action === 'add-below') {
+    const newPanelId = await addPanel(panel.id, action.action === 'add-above' ? 'before' : 'after')
+    const index = newPanelId ? panels.value.findIndex((item) => item.id === newPanelId) : -1
     if (index >= 0) currentIndex.value = index
-  })
+    return
+  }
+  handlePanelMenuAction(action)
 }
 
 /**
- * 右栏「分镜内容」逐镜编辑保存：写回 run.panels 并同步自动绑定；
- * 画面变化且已有描述时标 stale 提示重新推导。
+ * 右栏「本页操作」——AI 优化：按分镜协议规整当前页（补镜头 / 拆超长台词 / 补说话人），
+ * 不改动剧情与台词文字；使用顶栏所选分镜模型。text 为输入框当前文本，避免未失焦的编辑丢失。
  */
-function savePanelEdit(payload: { panelId: string; fields: PanelEditFields }) {
+async function polishCurrentPanel(text: string) {
+  const panel = currentPanel.value
+  const model = llmModels.value.find((item) => item.id === storyboardModelId.value)
+  if (!panel) return
+  if (!model) { toast.warning('请先在顶部选择分镜模型'); return }
+  const blockText = text.trim()
+  if (!blockText) { toast.info('这一页还是空的，先写点内容再优化'); return }
+  polishBusyIds.add(panel.id)
+  try {
+    const cells = await polishPanelBlock({ model: toRaw(model), blockText, scriptContext: scriptDoc.value?.content ?? '' })
+    savePanelEdit({ panelId: panel.id, cells })
+    toast.success('已按分镜协议优化本页')
+  } catch (error) {
+    console.error('[分镜优化] 失败:', error)
+    toast.error(error instanceof Error ? error.message : '分镜优化失败')
+  } finally {
+    polishBusyIds.delete(panel.id)
+  }
+}
+
+/**
+ * 右栏「分镜内容」逐页编辑保存：页块文本解析出的格列表写回 run.panels（页级字段汇总回填），
+ * 并同步自动绑定；画面变化且已有描述时标 stale 提示重新推导。
+ */
+function savePanelEdit(payload: PanelEditPayload) {
   const run = currentRun.value
   const chapter = currentChapter.value
   if (!run || !chapter) return
   const target = run.panels.find((panel) => panel.id === payload.panelId)
   if (!target) return
-  const contentChanged = payload.fields.content !== target.content
+  const summary = summarizeCells(payload.cells)
+  const contentChanged = summary.content !== target.content
   const nextPanels = autoSyncBindings(
     run.panels.map((panel) =>
       panel.id === payload.panelId
         ? {
             ...panel,
-            shot: payload.fields.shot || undefined,
-            content: payload.fields.content,
-            dialogue: payload.fields.dialogue || undefined,
-            narration: payload.fields.narration || undefined,
+            cells: payload.cells.length ? payload.cells : undefined,
+            shot: summary.shot,
+            content: summary.content,
+            dialogue: summary.dialogue,
+            narration: summary.narration,
           }
         : panel,
     ),

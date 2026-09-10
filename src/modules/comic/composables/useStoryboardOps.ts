@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, ref, type Ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
 import { buildAssetNameIndex, syncPanelsAutoBindings } from '@comic/services/promptAssetService'
-import { defaultVariant } from '@comic/services/storyboardService'
+import { defaultVariant, serializePanelBlock } from '@comic/services/storyboardService'
 import type { StoryboardMenuAction } from '@comic/components/StoryboardContextMenu.vue'
 import type {
   ComicProject,
@@ -43,6 +43,39 @@ export function useStoryboardOps(options: {
   /** 分镜右键菜单状态。 */
   const panelMenu = ref<{ visible: boolean; x: number; y: number; panel: LongProjectStoryboardPanel | null }>({ visible: false, x: 0, y: 0, panel: null })
 
+  /** 删除确认弹窗（删除是破坏性操作，统一走系统确认弹窗，不再用原生 window.confirm）。 */
+  const deleteDialogVisible = ref(false)
+  const deleteTargetPanel = ref<LongProjectStoryboardPanel | null>(null)
+
+  /** 删除确认文案：该页已有成图/候选图时额外提示会一并移除。 */
+  const deleteDialogContent = computed(() => {
+    const panel = deleteTargetPanel.value
+    if (!panel) return '删除后无法恢复，是否确认删除？'
+    const artwork = options.artworkMap.value.get(panel.id)
+    const imageCount = (artwork?.generatedImageIds?.length ?? 0) + (artwork?.selectedImageId ? 1 : 0)
+    return imageCount > 0
+      ? `分镜 ${panel.order} 已有成图，删除后候选图一并移除，是否确认删除？`
+      : `删除第 ${panel.order} 页分镜后无法恢复，是否确认删除？`
+  })
+
+  /** 请求删除：仅打开确认弹窗，实际删除在用户确认后执行。 */
+  function requestDeletePanel(panel: LongProjectStoryboardPanel) {
+    const run = options.currentRun.value
+    if (!run) return
+    if (run.panels.length <= 1) { options.notify('error', '至少保留一页分镜'); return }
+    deleteTargetPanel.value = panel
+    deleteDialogVisible.value = true
+  }
+
+  /** 确认删除：执行删除并关闭弹窗。 */
+  async function confirmDeletePanel() {
+    const panel = deleteTargetPanel.value
+    deleteDialogVisible.value = false
+    deleteTargetPanel.value = null
+    if (!panel) return
+    await deletePanel(panel.id)
+  }
+
   /** 操作前快照（仅一步撤销），8 秒内可恢复。 */
   let storyboardOpSnapshot: { runId: string; panels: LongProjectStoryboardPanel[]; artworks: LongProjectPanelArtwork[]; label: string } | null = null
   let storyboardUndoTimer: ReturnType<typeof setTimeout> | undefined
@@ -68,7 +101,7 @@ export function useStoryboardOps(options: {
   }
 
   /** 处理分镜右键菜单动作。 */
-  function handlePanelMenuAction(action: StoryboardMenuAction, openWorkbench: (panel: LongProjectStoryboardPanel) => void) {
+  function handlePanelMenuAction(action: StoryboardMenuAction) {
     const panel = panelMenu.value.panel
     if (!panel) return
     if (action.action === 'merge-up' || action.action === 'merge-down') {
@@ -80,12 +113,17 @@ export function useStoryboardOps(options: {
     if (action.action === 'split') { openSplitDialog(panel, 'multi'); return }
     if (action.action === 'split-up') { openSplitDialog(panel, 'up'); return }
     if (action.action === 'split-down') { openSplitDialog(panel, 'down'); return }
-    if (action.action === 'copy') {
-      const text = [panel.content, panel.dialogue ? `对白：${panel.dialogue}` : '', panel.narration ? `旁白：${panel.narration}` : ''].filter(Boolean).join('\n')
-      void navigator.clipboard?.writeText(text).then(() => options.notify('success', '已复制分镜内容')).catch(() => options.notify('error', '复制失败'))
-      return
-    }
-    if (action.action === 'open-workbench') openWorkbench(panel)
+    if (action.action === 'copy') { copyPanel(panel); return }
+    if (action.action === 'delete') { requestDeletePanel(panel); return }
+  }
+
+  /** 复制分镜内容到剪贴板（页块文本，含镜头与说话人）。 */
+  function copyPanel(panel: LongProjectStoryboardPanel) {
+    const text = serializePanelBlock(panel)
+    if (!text.trim()) { options.notify('info', '这一页还是空的'); return }
+    void navigator.clipboard?.writeText(text)
+      .then(() => options.notify('success', '已复制分镜内容'))
+      .catch(() => options.notify('error', '复制失败'))
   }
 
   /** 打开拆分弹窗。 */
@@ -234,6 +272,71 @@ export function useStoryboardOps(options: {
   }
 
   /**
+   * 新增空白页：默认插到锚点分镜之后（position='before' 则插到之前；锚点为空则追加到末尾），
+   * 返回新分镜 ID 供调用方选中。新页空内容空绑定，用户可在右栏输入框直接写页块文本。
+   */
+  async function addPanel(anchorId: string | null, position: 'before' | 'after' = 'after'): Promise<string | undefined> {
+    const run = options.currentRun.value
+    const chapter = options.currentChapter.value
+    if (!run || !chapter) return undefined
+    snapshotForUndo('已新增一页空白分镜')
+    const newPanel: LongProjectStoryboardPanel = { id: uuidv4(), order: 1, content: '', assetBindings: [] }
+    const anchorIndex = anchorId ? run.panels.findIndex((panel) => panel.id === anchorId) : -1
+    const insertAt = anchorIndex < 0
+      ? run.panels.length
+      : position === 'before' ? anchorIndex : anchorIndex + 1
+    const nextPanels = [...run.panels.slice(0, insertAt), newPanel, ...run.panels.slice(insertAt)]
+      .map((panel, index) => ({ ...panel, order: index + 1 }))
+    await options.mutateLongProjectData((data) => {
+      data.storyboardRuns = (data.storyboardRuns ?? []).map((item) => item.id === run.id ? { ...item, panels: nextPanels, updatedAt: Date.now() } : item)
+    })
+    options.notify('success', position === 'before' ? '已在上方新增一页空白分镜' : '已在下方新增一页空白分镜')
+    return newPanel.id
+  }
+
+  /**
+   * 删除一页分镜（含其画面记录）。仅剩一页时拒绝删除；
+   * 弹窗确认由 requestDeletePanel/confirmDeletePanel 负责，此处直接执行。
+   * 顺序号重排，8 秒内可撤销。
+   */
+  async function deletePanel(panelId: string) {
+    const run = options.currentRun.value
+    const chapter = options.currentChapter.value
+    if (!run || !chapter) return
+    const target = run.panels.find((panel) => panel.id === panelId)
+    if (!target) return
+    if (run.panels.length <= 1) { options.notify('error', '至少保留一页分镜'); return }
+    snapshotForUndo(`已删除分镜 ${target.order}`)
+    const nextPanels = run.panels
+      .filter((panel) => panel.id !== panelId)
+      .map((panel, index) => ({ ...panel, order: index + 1 }))
+    await options.mutateLongProjectData((data) => {
+      data.storyboardRuns = (data.storyboardRuns ?? []).map((item) => item.id === run.id ? { ...item, panels: nextPanels, updatedAt: Date.now() } : item)
+      data.panelArtworks = (data.panelArtworks ?? []).filter((item) => item.panelId !== panelId)
+    })
+    options.notify('success', '已删除分镜')
+  }
+
+  /** 上移 / 下移一页：与相邻页交换顺序后重排，成图随 panelId 自动跟随。 */
+  async function movePanel(panelId: string, direction: 'up' | 'down') {
+    const run = options.currentRun.value
+    const chapter = options.currentChapter.value
+    if (!run || !chapter) return
+    const index = run.panels.findIndex((panel) => panel.id === panelId)
+    const swapIndex = direction === 'up' ? index - 1 : index + 1
+    if (index < 0 || swapIndex < 0 || swapIndex >= run.panels.length) return
+    snapshotForUndo(direction === 'up' ? '已上移一页' : '已下移一页')
+    const reordered = [...run.panels]
+    reordered[index] = run.panels[swapIndex]
+    reordered[swapIndex] = run.panels[index]
+    const nextPanels = reordered.map((panel, i) => ({ ...panel, order: i + 1 }))
+    await options.mutateLongProjectData((data) => {
+      data.storyboardRuns = (data.storyboardRuns ?? []).map((item) => item.id === run.id ? { ...item, panels: nextPanels, updatedAt: Date.now() } : item)
+    })
+    options.notify('success', direction === 'up' ? '已上移一页' : '已下移一页')
+  }
+
+  /**
    * 分镜文本自动绑定同步：编辑/合并/拆分后重扫全部分镜文本，
    * 出现资产名且未绑定 → 自动添加（延续上一镜视觉状态，否则章节范围默认）；
    * auto-text 绑定且名称消失 → 自动移除；其余来源绑定不动。
@@ -249,6 +352,8 @@ export function useStoryboardOps(options: {
   return {
     mergeDialogVisible, splitDialogVisible, splitTargetPanel, splitMode,
     panelMenu, storyboardUndoAvailable, storyboardUndoLabel, mergeSelectedPanels,
-    openPanelMenu, handlePanelMenuAction, undoStoryboardOp, applyMerge, applySplit, autoSyncBindings, reevaluatePromptStatus,
+    deleteDialogVisible, deleteTargetPanel, deleteDialogContent, requestDeletePanel, confirmDeletePanel,
+    openPanelMenu, openSplitDialog, handlePanelMenuAction, copyPanel, addPanel, deletePanel, movePanel,
+    undoStoryboardOp, applyMerge, applySplit, autoSyncBindings, reevaluatePromptStatus,
   }
 }

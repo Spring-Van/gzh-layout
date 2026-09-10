@@ -230,7 +230,7 @@ export function getCandidateStates(candidate: LongProjectAssetExtractionCandidat
   return candidate.visualVersion?.name.trim() ? [{ id: candidate.id, ...candidate.visualVersion, matchSource: 'new' }] : []
 }
 
-/** 去掉常见分隔符的紧凑状态名，用于宽松匹配（如「少年期·布衣」→「少年期布衣」）。 */
+/** 去掉常见分隔符的紧凑状态名，用于宽松匹配（如「阶段·外观」→「阶段外观」）。 */
 function compactName(value: string): string {
   return normalize(value).replace(/[·・•\-—－~～_/|,，、;；:：.。()（）[\]【】]/g, '')
 }
@@ -357,7 +357,7 @@ export function countCandidatesAppearances(
         const pos = text.indexOf(entry.name, searchFrom)
         if (pos < 0) break
         searchFrom = pos + entry.name.length
-        // 与更长名称的命中区间重叠时跳过，避免"小雨"误吃"小雨伞"
+        // 与更长名称的命中区间重叠时跳过，避免短名误吃包含它的长名
         if (spans.some(({ start, end }) => pos < end && pos + entry.name.length > start)) continue
         spans.push({ start: pos, end: pos + entry.name.length, candidateId: entry.candidateId })
       }

@@ -1,11 +1,11 @@
 <template>
   <div ref="rootRef" class="flex w-full items-center gap-2">
-    <!-- 窄形态（可用宽度 < 600px）：配置按钮（模型 · 模板 摘要，点击弹层选择） -->
+    <!-- 窄形态（可用宽度 < 600px，或 force-compact）：配置按钮（模型 · 模板 摘要，点击弹层选择） -->
     <div v-if="compact" class="relative min-w-0 flex">
       <button
         class="secondary-button h-9 min-w-0 max-w-full gap-1.5 px-3 text-xs"
         :class="missingConfig ? 'text-amber-300' : ''"
-        :title="missingConfig ? '请选择大模型与提示词模板' : `${modelName} · ${templateName}`"
+        :title="compactTitle"
         @click.stop="openConfig"
       >
         <SlidersHorizontal :size="14" class="shrink-0" :class="missingConfig ? 'text-amber-400' : 'text-cyan-400'" />
@@ -82,9 +82,9 @@
 <script setup lang="ts">
 /**
  * AI 任务执行底栏（ResizeObserver 自适应）：
- * 可用宽度 ≥600px：大模型 + 提示词模板 + 发送前确认 平铺一行（原始布局）；
- * 宽度不足：折叠为「⚙ 模型 · 模板」配置按钮，点击弹层选择（Teleport 到 body 的 fixed 浮层，
- * 按按钮位置动态决定向上/向下弹，避免被 overflow 祖先裁剪）。
+ * 默认宽形态（可用宽度 ≥600px）：大模型 + 提示词模板 + 发送前确认 平铺一行；
+ * 宽度不足或 force-compact（顶栏空间紧张，如长篇「分镜」页签）：折叠为「⚙ 模型 · 模板」配置按钮，
+ * 点击弹层选择（Teleport 到 body 的 fixed 浮层，按按钮位置动态决定向上/向下弹，避免被 overflow 祖先裁剪）。
  * 点击执行时通过 buildPrompt 回调生成最终提示词；勾选"发送前确认"则先弹窗可编辑，
  * 确认或未勾选都以最终提示词触发 run 事件。抽取自长篇项目主页面，供四个管线环节复用。
  */
@@ -108,6 +108,8 @@ const props = defineProps<{
   busy?: boolean
   /** 发送前确认偏好按环节独立记忆的 localStorage key */
   confirmStorageKey: string
+  /** 强制使用紧凑形态（单按钮下拉），不随宽度回退为平铺的三个控件 */
+  forceCompact?: boolean
   /** 生成最终发送提示词（模板内容 + 各环节上下文拼装） */
   buildPrompt: () => string
   modelId: string
@@ -125,7 +127,9 @@ const previewVisible = ref(false)
 const previewContent = ref('')
 const configOpen = ref(false)
 const popStyle = ref<Record<string, string>>({})
-const compact = ref(false)
+/** 宽度不足（<600px）时回退紧凑形态；force-compact 时恒为紧凑。 */
+const narrow = ref(false)
+const compact = computed(() => props.forceCompact || narrow.value)
 const rootRef = ref<HTMLElement>()
 
 const modelName = computed(() => props.models.find((model) => model.id === props.modelId)?.name ?? '')
@@ -136,17 +140,24 @@ const configSummary = computed(() => {
   const parts = [modelName.value, templateName.value].filter(Boolean)
   return parts.join(' · ') || '选择模型与模板'
 })
+/** 紧凑按钮悬浮提示：摘要 + 当前「发送前确认」状态。 */
+const compactTitle = computed(() => {
+  if (missingConfig.value) return '请选择大模型与提示词模板'
+  return `${configSummary.value}${confirmBeforeRun.value ? ' · 发送前确认已开启' : ''}`
+})
 
 // ========== 自适应：监听组件自身宽度切换宽/窄形态 ==========
 
 let widthObserver: ResizeObserver | undefined
 
 onMounted(() => {
-  if (!rootRef.value) return
-  widthObserver = new ResizeObserver((entries) => {
-    compact.value = (entries[0]?.contentRect.width ?? 0) < COMPACT_THRESHOLD
-  })
-  widthObserver.observe(rootRef.value)
+  // 强制紧凑时无需宽度监听
+  if (rootRef.value && !props.forceCompact) {
+    widthObserver = new ResizeObserver((entries) => {
+      narrow.value = (entries[0]?.contentRect.width ?? 0) < COMPACT_THRESHOLD
+    })
+    widthObserver.observe(rootRef.value)
+  }
   // 弹层打开期间页面滚动/缩放会使其错位，直接关闭
   window.addEventListener('scroll', closeConfig, true)
   window.addEventListener('resize', closeConfig)

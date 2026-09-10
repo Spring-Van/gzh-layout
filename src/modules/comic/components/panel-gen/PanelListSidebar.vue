@@ -22,13 +22,14 @@
           <span v-if="index === currentIndex" class="absolute right-0 top-0 rounded-bl bg-cyan-500 px-1 py-px text-[7px] font-medium leading-none text-white">当前</span>
         </span>
 
-        <!-- 标题 + 状态 -->
+        <!-- 标题 + 状态 + 一行文字预览（找页用） -->
         <span class="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
-          <span class="truncate text-xs font-medium text-text-primary">第 {{ item.panel.order }} 话</span>
           <span class="flex items-center gap-1.5">
+            <span class="shrink-0 text-xs font-medium text-text-primary">P{{ String(item.panel.order).padStart(2, '0') }}</span>
             <span class="status-dot" :class="dotClass(item)" />
-            <span class="text-[11px]" :class="statusTextClass(item)">{{ statusLabel(item) }}</span>
+            <span class="min-w-0 truncate text-[11px]" :class="statusTextClass(item)">{{ statusLabel(item) }}</span>
           </span>
+          <span class="truncate text-[11px] text-text-secondary">{{ previewText(item) }}</span>
         </span>
       </button>
 
@@ -39,8 +40,8 @@
 
 <script setup lang="ts">
 /**
- * 分镜生图工作台左栏：分镜缩略图列表（同短篇页面列表风格：缩略图 + 状态，无序号与文字描述）。
- * 右键分镜触发 contextmenu 事件（合并/拆分/复制等操作由父级菜单承载）。
+ * 分镜生图工作台左栏：分镜列表（缩略图 + `P01` 页号 + 状态 + 一行文字预览，文案取本页首句台词）。
+ * 右键分镜触发 contextmenu 事件（合并/拆分/复制/删除等操作由父级菜单承载）。
  */
 import { computed } from 'vue'
 import { ImageIcon, LoaderCircle } from 'lucide-vue-next'
@@ -60,6 +61,17 @@ defineEmits<{
 
 const describedCount = computed(() => props.items.filter((item) => item.artwork?.imagePrompt?.trim()).length)
 const completedCount = computed(() => props.items.filter((item) => item.artwork?.selectedImageId).length)
+
+/** 一行文字预览：优先本页第一句台词（带说话人），无台词取首格画面；空页给占位文案。 */
+function previewText(item: PanelListItem): string {
+  const panel = item.panel
+  const cells = panel.cells ?? []
+  const said = cells.find((cell) => cell.dialogue?.trim())
+  if (said) return `${said.speaker ? `${said.speaker}：` : ''}${said.dialogue!.trim()}`
+  if (!cells.length && panel.dialogue?.trim()) return panel.dialogue.trim().split('\n')[0]
+  const content = cells.find((cell) => cell.content?.trim())?.content ?? panel.content
+  return (content ?? '').trim().split('\n')[0] || '（空白页）'
+}
 
 function dotClass(item: PanelListItem): string {
   const status = item.artwork?.promptStatus

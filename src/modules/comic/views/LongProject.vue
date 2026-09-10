@@ -1,5 +1,5 @@
 <template>
-  <div class="flex h-full overflow-hidden bg-app-bg text-text-primary" @click="contextMenu = null">
+  <div class="flex h-full overflow-hidden bg-app-bg text-text-primary" @click="closeOverlays">
     <aside class="relative flex shrink-0 flex-col border-r border-border-subtle bg-surface transition-[width] duration-200" :class="sidebarCollapsed ? 'w-14' : 'w-72'">
       <template v-if="!sidebarCollapsed">
         <div class="flex h-14 shrink-0 items-center gap-2 border-b border-border-subtle px-3">
@@ -85,14 +85,54 @@
       </section>
 
       <section v-else class="flex h-full flex-col">
-        <!-- 顶栏：左侧三个按钮页签（原文/剧本/分镜）；右侧为当前 tab 的操作按钮区：
-             原文/剧本的执行栏直接渲染（状态在父级），分镜的操作按钮由分镜 tab Teleport 注入 #storyboard-actions -->
-        <div class="shrink-0 border-b border-border-subtle bg-surface px-6">
+        <!-- 顶栏：左侧页签（原文/剧本/分镜）；右侧为当前 tab 的操作按钮区。
+             分镜页签做成「按钮 + 下拉」：默认分镜，可下拉切到绘图（切换内容阶段，
+             同时决定分镜 tab 内的顶栏动作组与右栏内容）；其操作按钮由分镜 tab Teleport 注入 #storyboard-actions -->
+        <div class="relative z-30 shrink-0 border-b border-border-subtle bg-surface px-6">
           <div class="flex h-12 items-center justify-between gap-4">
             <nav class="flex shrink-0 gap-1" aria-label="章节创作阶段">
-              <button v-for="tab in chapterTabs" :key="tab.key" class="flex h-7 items-center gap-1.5 rounded-lg px-3 text-xs transition-colors" :class="activeTab === tab.key ? 'bg-cyan-500/15 text-cyan-400' : 'text-text-muted hover:bg-app-bg hover:text-text-secondary'" @click="setActiveTab(tab.key)">
-                <component :is="tab.icon" :size="13" />{{ tab.label }}
-              </button>
+              <template v-for="tab in chapterTabs" :key="tab.key">
+                <!-- 分镜：左半 = 进入分镜创作台；右半 = 下拉切换 分镜 / 绘图 -->
+                <div v-if="tab.key === 'storyboard'" class="relative flex items-center" @click.stop>
+                  <button
+                    class="flex h-7 items-center gap-1.5 rounded-l-lg py-0 pl-3 pr-1.5 text-xs transition-colors"
+                    :class="tabClass('storyboard')"
+                    :title="storyboardStage === 'draw' ? '分镜创作台 · 当前：绘图' : '分镜创作台 · 当前：分镜'"
+                    @click="setActiveTab('storyboard')"
+                  >
+                    <component :is="storyboardStage === 'draw' ? Palette : Clapperboard" :size="13" />
+                    {{ storyboardStage === 'draw' ? '绘图' : '分镜' }}
+                  </button>
+                  <button
+                    class="flex h-7 items-center rounded-r-lg py-0 pl-0.5 pr-2 transition-colors"
+                    :class="tabClass('storyboard')"
+                    title="切换分镜 / 绘图"
+                    @click="stageMenuOpen = !stageMenuOpen"
+                  >
+                    <ChevronDown :size="13" class="transition-transform duration-150" :class="stageMenuOpen ? 'rotate-180' : ''" />
+                  </button>
+                  <Transition name="tab-menu">
+                    <div v-if="stageMenuOpen" class="absolute left-0 top-full z-40 mt-1 w-56 overflow-hidden rounded-lg border border-border-subtle bg-elevated py-1 text-text-primary shadow-xl shadow-black/40">
+                      <button
+                        v-for="item in storyboardStageItems"
+                        :key="item.id"
+                        class="flex w-full items-start gap-2 px-3 py-1.5 text-left transition-colors"
+                        :class="storyboardStage === item.id ? 'bg-cyan-500/15' : 'hover:bg-cyan-500/10'"
+                        @click="pickStoryboardStage(item.id)"
+                      >
+                        <component :is="item.icon" :size="14" class="mt-0.5 shrink-0" :class="storyboardStage === item.id ? 'text-cyan-400' : 'text-text-muted'" />
+                        <span class="min-w-0">
+                          <span class="block text-xs" :class="storyboardStage === item.id ? 'text-cyan-300' : 'text-text-primary'">{{ item.label }}</span>
+                          <span class="mt-0.5 block text-[11px] leading-snug text-text-muted">{{ item.hint }}</span>
+                        </span>
+                      </button>
+                    </div>
+                  </Transition>
+                </div>
+                <button v-else class="flex h-7 items-center gap-1.5 rounded-lg px-3 text-xs transition-colors" :class="tabClass(tab.key)" @click="setActiveTab(tab.key)">
+                  <component :is="tab.icon" :size="13" />{{ tab.label }}
+                </button>
+              </template>
             </nav>
             <div v-show="activeTab === 'source'" class="flex min-w-0 items-center gap-2">
               <div class="min-w-0 max-w-2xl">
@@ -128,7 +168,7 @@
               </div>
               <button class="secondary-button h-9 shrink-0 px-2.5 text-xs" title="粘贴外部 AI 生成的漫画剧本结果，跳过内置大模型调用" @click="openManualImport('script')"><ClipboardPaste :size="14" />手动写入</button>
             </div>
-            <div v-show="activeTab === 'storyboard'" id="storyboard-actions" class="flex min-w-0 items-center gap-2" />
+            <div v-show="activeTab === 'storyboard'" id="storyboard-actions" class="flex min-w-0 flex-1 items-center justify-end gap-2" />
           </div>
         </div>
 
@@ -157,6 +197,7 @@
         <LongProjectStoryboardTab
           v-if="storyboardOpened"
           v-show="activeTab === 'storyboard'"
+          v-model:stage="storyboardStage"
           :project-id="projectId"
           :chapter-id="selectedChapterId ?? ''"
           :project="project"
@@ -189,6 +230,16 @@
       @confirm="confirmManualImport"
       @close="importKind = null"
     />
+
+    <!-- 导入覆盖确认：层级高于手动导入弹窗，避免被其遮罩盖住 -->
+    <ConfirmDialog
+      v-model="importConfirmVisible"
+      z-index-class="z-[120]"
+      title="覆盖已有内容"
+      :content="importConfirmContent"
+      confirm-text="覆盖导入"
+      @confirm="handleImportConfirm"
+    />
   </div>
 </template>
 
@@ -197,13 +248,15 @@
  * 长篇项目主页面：侧栏章节树 + 资产库树；正文区「原文｜剧本｜分镜」三个页签。
  * 原文页签 = 原文编辑 + AI 原文分析；剧本页签 = 原文只读 + AI 漫画剧本；
  * 原文/剧本的执行栏（模型/模板/发送前确认/执行）直接渲染在页签行右侧；
- * 分镜页签 = 分镜生图工作台（含资产），由 LongProjectStoryboardTab 承载，
- * 其顶部操作按钮经 Teleport 注入页签行右侧 #storyboard-actions 容器。
+ * 分镜页签 = 分镜生图工作台（含资产），由 LongProjectStoryboardTab 承载：
+ *   页签本体做成「按钮 + 下拉」——默认分镜，可下拉切到绘图（`storyboardStage`，v-model:stage 注入），
+ *   该状态同时决定分镜 tab 内的顶栏动作组、右栏内容与底部操作；
+ *   其顶部操作按钮经 Teleport 注入页签行右侧 #storyboard-actions 容器。
  */
 import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { v4 as uuidv4 } from "uuid";
-import { ArrowLeft, ArrowRight, Boxes, Clapperboard, ClipboardPaste, FileImage, FilePlus2, FileText, FolderPlus, ListTree, PanelLeftClose, PanelLeftOpen, Pencil, ScanText, ScrollText, Trash2, Workflow } from "lucide-vue-next";
+import { ArrowLeft, ArrowRight, Boxes, ChevronDown, Clapperboard, ClipboardPaste, FileImage, FilePlus2, FileText, FolderPlus, ListTree, Palette, PanelLeftClose, PanelLeftOpen, Pencil, ScanText, ScrollText, Trash2, Workflow } from "lucide-vue-next";
 import { comicDb } from "@/api/comic";
 import { useTabStore, resolveMatchKey } from "@/stores/tab";
 import ConfirmDialog from "@comic/components/ConfirmDialog.vue";
@@ -256,9 +309,22 @@ const expandedFolders = ref(new Set<string>());
 const selectedChapterId = ref<string | null>(null);
 const selectedAssetCategory = ref<AssetLibraryCategory | null>(null);
 const draftContent = ref("");
-const activeTab = ref<"source" | "script" | "storyboard">("source");
+/** 章节创作阶段页签 key。 */
+type ChapterTabKey = "source" | "script" | "storyboard";
+const activeTab = ref<ChapterTabKey>("source");
 /** 分镜 tab 首次进入时才挂载（挂载后常驻，批量任务切页签不中断；资产以抽屉形式内嵌）。 */
 const storyboardOpened = ref(false);
+/**
+ * 分镜 tab 内的「内容阶段」：分镜（剧本 → 分镜）| 绘图（分镜 → 画面描述、生图）。
+ * 由页签行的「分镜」下拉持有，通过 v-model:stage 注入 LongProjectStoryboardTab；
+ * 右栏标题栏的「分镜内容 | 提示词」按钮写的是同一个状态，两处入口永远一致。
+ */
+const storyboardStage = ref<"storyboard" | "draw">("storyboard");
+const stageMenuOpen = ref(false);
+const storyboardStageItems = [
+  { id: "storyboard" as const, label: "分镜", hint: "剧本 → 分镜 · 逐页编辑", icon: Clapperboard },
+  { id: "draw" as const, label: "绘图", hint: "分镜 → 画面描述 · 生成画面", icon: Palette },
+];
 const models = ref<ModelConfig[]>([]);
 const promptTemplates = ref<PromptTemplate[]>([]);
 const nodeDialogVisible = ref(false);
@@ -311,10 +377,23 @@ const chapterTabs = computed(() => {
 });
 
 /** 切换创作阶段页签（分镜页签首次进入时挂载其组件）。 */
-const setActiveTab = (key: "source" | "script" | "storyboard") => {
+const setActiveTab = (key: ChapterTabKey) => {
   activeTab.value = key;
   if (key === "storyboard") storyboardOpened.value = true;
 };
+
+/** 页签样式（选中 = 青色高亮）；分镜页签的按钮半与下拉半共用同一套。 */
+const tabClass = (key: ChapterTabKey) => activeTab.value === key ? "bg-cyan-500/15 text-cyan-400" : "text-text-muted hover:bg-app-bg hover:text-text-secondary";
+
+/** 页签下拉选定内容阶段：切到分镜页签并写入 stage（右栏「分镜内容 | 提示词」同步）。 */
+const pickStoryboardStage = (id: "storyboard" | "draw") => {
+  storyboardStage.value = id;
+  stageMenuOpen.value = false;
+  setActiveTab("storyboard");
+};
+
+/** 点击空白处关闭浮层（右键菜单 + 页签下拉）。 */
+const closeOverlays = () => { contextMenu.value = null; stageMenuOpen.value = false; };
 
 function sortNodes(a: LongProjectNode, b: LongProjectNode) { return a.order - b.order || a.createdAt - b.createdAt; }
 
@@ -404,17 +483,41 @@ function openManualImport(kind: Exclude<ImportKind, null>) {
   importKind.value = kind
 }
 
-/** 确认导入分析/剧本：覆盖本章已有文档前提示。 */
+// ========== 导入覆盖确认（破坏性：覆盖本章已有文档，统一走系统确认弹窗） ==========
+
+const importConfirmVisible = ref(false);
+const importConfirmContent = ref("");
+const pendingImport = ref<{ kind: Exclude<ImportKind, null>; chapterId: string; content: string } | null>(null);
+
+/** 真正写入导入结果（与内置大模型路径共用落库逻辑）。 */
+async function applyManualImport(kind: Exclude<ImportKind, null>, chapterId: string, content: string) {
+  await importDoc(kind, { chapterId, content: content.trim(), sourceContent: draftContent.value });
+  importKind.value = null;
+  toast.success(`已导入${kind === 'analysis' ? '原文分析' : '漫画剧本'}`);
+}
+
+/** 确认导入分析/剧本：本章已有文档时先弹系统确认弹窗，避免直接覆盖。 */
 async function confirmManualImport(content: string) {
-  const chapter = selectedChapter.value
-  const kind = importKind.value
-  if (!chapter || !kind || !content.trim()) return
-  if (isDirty.value) await saveCurrentChapter(false)
-  const existing = getDoc(kind, chapter.id)
-  if (existing && !window.confirm(`本章已有${kind === 'analysis' ? '原文分析' : '漫画剧本'}，导入将覆盖原内容，是否继续？`)) return
-  await importDoc(kind, { chapterId: chapter.id, content: content.trim(), sourceContent: draftContent.value })
-  importKind.value = null
-  toast.success(`已导入${kind === 'analysis' ? '原文分析' : '漫画剧本'}`)
+  const chapter = selectedChapter.value;
+  const kind = importKind.value;
+  if (!chapter || !kind || !content.trim()) return;
+  if (isDirty.value) await saveCurrentChapter(false);
+  const existing = getDoc(kind, chapter.id);
+  if (existing) {
+    pendingImport.value = { kind, chapterId: chapter.id, content };
+    importConfirmContent.value = `本章已有${kind === 'analysis' ? '原文分析' : '漫画剧本'}，导入将覆盖原内容，是否继续？`;
+    importConfirmVisible.value = true;
+    return;
+  }
+  await applyManualImport(kind, chapter.id, content);
+}
+
+/** 确认覆盖导入。 */
+async function handleImportConfirm() {
+  const pending = pendingImport.value;
+  pendingImport.value = null;
+  if (!pending) return;
+  await applyManualImport(pending.kind, pending.chapterId, pending.content);
 }
 
 const toggleFolder = (folderId: string) => { const next = new Set(expandedFolders.value); next.has(folderId) ? next.delete(folderId) : next.add(folderId); expandedFolders.value = next; };
@@ -540,4 +643,6 @@ onActivated(async () => {
 .primary-button:hover { background: #22d3ee; }
 .context-action { display: flex; width: 100%; align-items: center; gap: 0.5rem; border-radius: 0.375rem; padding: 0.5rem 0.625rem; text-align: left; font-size: 0.75rem; color: var(--text-secondary); transition: color 0.15s ease, background-color 0.15s ease; }
 .context-action:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.tab-menu-enter-active, .tab-menu-leave-active { transition: opacity 0.12s ease, transform 0.12s ease; }
+.tab-menu-enter-from, .tab-menu-leave-to { opacity: 0; transform: translateY(-4px); }
 </style>
