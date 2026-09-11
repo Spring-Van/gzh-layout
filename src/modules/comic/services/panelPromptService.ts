@@ -1,17 +1,11 @@
 import { llmService } from './llmService'
-import { renderPromptTemplate } from './promptTemplateRegistry'
+import { defaultTemplateContent, renderPromptTemplate } from './promptTemplateRegistry'
 import { buildStyleContext } from './assetPromptService'
+import { formatCellsForPrompt } from './storyboardService'
 import type { LongProjectAsset, LongProjectPanelArtwork, LongProjectStoryboardPanel, ModelConfig, SharedPromptBlock } from '@comic/types'
 
-/** 内置默认分镜画面描述模板：无用户模板时使用，与 panel-prompt 模板使用相同变量。 */
-export const DEFAULT_PANEL_PROMPT_TEMPLATE = `你是一名专业的漫画分镜画面描述师。请根据当前分镜信息，写出一段可直接用于漫画生图的中文画面描述。
-
-要求：
-- 描述画面中的人物位置、动作、表情、场景环境与氛围；
-- 出场资产必须严格遵循给定的资产视觉设定（外观、服饰等），不要改动固定特征；
-- 与前几分镜保持剧情与画面的连续性（人物位置关系、光线、场景细节等）；
-- 不写镜头语言、对白与旁白，只描述画面本身；
-- 输出为一段完整中文描述。`
+/** 内置默认分镜画面描述模板：无用户模板时使用，与 panel-prompt 推荐模板同源（自带全部变量）。 */
+export const DEFAULT_PANEL_PROMPT_TEMPLATE = defaultTemplateContent('panel-prompt')
 
 /** 滑动窗口默认长度：推导第 i 镜时携带前 K 镜的上下文。 */
 export const DEFAULT_PREV_PANEL_WINDOW = 2
@@ -69,7 +63,7 @@ export function buildPanelAssetsContext(panel: LongProjectStoryboardPanel, asset
 /**
  * 拼装单镜推导的最终提示词。
  * 变量：{{当前分镜}} / {{镜头}} / {{前文分镜}} / {{本章分镜概要}} / {{绑定资产}} / {{风格上下文}} / {{目标生图模型}}；
- * 未插入的关键上下文（当前分镜）按 always 策略追加，辅助上下文（风格）按 if-nonempty 追加。
+ * 是否进入提示词完全由模板决定——模板没写的变量不会出现（无自动追加兜底）。
  * 输出协议：模板自定义 outputProtocol 优先，未自定义使用逐条默认协议（结果直接取全文回填，无需解析）。
  */
 export function buildPanelPromptPrompt(options: {
@@ -83,9 +77,11 @@ export function buildPanelPromptPrompt(options: {
   outputProtocol?: string
 }): string {
   const { panel } = options
+  // 多格页：把每格的 景别/镜头/画面/人物/动作/表情/音效/光效 一并交给模型，避免只看到汇总后的「画面」而丢细节
+  const cellDetail = panel.cells?.length ? formatCellsForPrompt(panel.cells) : ''
   const info = `分镜序号：${panel.order}
 镜头：${panel.shot || '未指定'}
-画面内容：${panel.content}${panel.imagePrompt ? `\n分镜参考描述：${panel.imagePrompt}` : ''}`
+画面内容：${panel.content}${cellDetail ? `\n分格详情：\n${cellDetail}` : ''}${panel.imagePrompt ? `\n分镜参考描述：${panel.imagePrompt}` : ''}`
   return renderPromptTemplate({
     type: 'panel-prompt',
     content: options.templateContent,

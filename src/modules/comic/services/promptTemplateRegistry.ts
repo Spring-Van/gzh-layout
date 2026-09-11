@@ -10,15 +10,10 @@ import type { TemplateType } from '@comic/types'
 /** 长篇故事使用的模板类型（其余 style/story 属于其它工作流，无变量与协议）。 */
 export const LONG_STORY_TEMPLATE_TYPES: TemplateType[] = ['analysis', 'script', 'storyboard', 'extract', 'asset-prompt', 'panel-prompt']
 
-/** 变量兜底策略：变量未插入模板时的处理方式。 */
-export type VariableFallback =
-  /** 关键输入：无条件追加【块】（值为空则不追加） */
-  | 'always'
-  /** 辅助上下文：值非空才追加【块】 */
-  | 'if-nonempty'
-  /** 增强信息：不追加（模板作者未插即视为不需要） */
-  | 'drop'
-
+/**
+ * 模板变量定义：变量是否进入提示词完全由模板作者决定，不做任何自动追加。
+ * 模板里没写 {{变量名}}，该变量就不会出现在最终提示词里。
+ */
 export interface PromptVariableSpec {
   /** 变量名（中文），模板中写作 {{变量名}} */
   name: string
@@ -26,10 +21,7 @@ export interface PromptVariableSpec {
   desc: string
   /** 旧英文别名：兼容存量模板，渲染与迁移时归一化为中文名 */
   legacy?: string[]
-  fallback: VariableFallback
-  /** 变量未插入模板时追加信息块的标签（always / if-nonempty 需要） */
-  blockLabel?: string
-  /** 变量已插入模板但值为空时的替换文案 */
+  /** 变量已插入模板但值为空时的替换文案（仅模板内占位，不是自动追加） */
   emptyText?: string
 }
 
@@ -40,8 +32,6 @@ export const VARIABLE_REGISTRY: Partial<Record<TemplateType, PromptVariableSpec[
       name: '章节原文',
       desc: '当前章节的原文内容（编辑草稿的实时值）',
       legacy: ['chapter_content'],
-      fallback: 'always',
-      blockLabel: '章节原文',
     },
   ],
   script: [
@@ -49,33 +39,32 @@ export const VARIABLE_REGISTRY: Partial<Record<TemplateType, PromptVariableSpec[
       name: '章节原文',
       desc: '当前章节的原文内容（编辑草稿的实时值）',
       legacy: ['chapter_content'],
-      fallback: 'always',
-      blockLabel: '章节原文',
     },
     {
       name: '原文分析',
       desc: '上一环节「原文分析」的产物；未生成时替换为占位提示',
       legacy: ['analysis'],
-      fallback: 'if-nonempty',
-      blockLabel: '原文分析',
       emptyText: '（本章尚未生成原文分析）',
     },
   ],
   storyboard: [
     {
-      name: '漫画剧本',
-      desc: '上一环节「漫画剧本」的产物；本章无剧本时系统自动以章节原文兜底并提示',
-      legacy: ['script_content'],
-      fallback: 'always',
-      blockLabel: '漫画剧本',
+      // 故意不设 legacy：旧分镜模板里的 {{chapter_content}} 属误用，
+      // 不迁移，避免存量模板被灌进整章原文。
+      name: '章节原文',
+      desc: '当前章节原文，用于补足剧本没写全的视觉细节；剧情推进、场景取舍与对白以漫画剧本为准。无剧本时原文已作为剧本底稿，此处不再重复',
+      emptyText: '（本章无独立原文）',
     },
     {
       name: '原文分析',
-      desc: '原文分析产物，仅作分镜的辅助上下文',
+      desc: '原文分析产物，仅作分镜的辅助核对',
       legacy: ['analysis'],
-      fallback: 'if-nonempty',
-      blockLabel: '原文分析（辅助上下文）',
       emptyText: '（本章尚未生成原文分析）',
+    },
+    {
+      name: '漫画剧本',
+      desc: '上一环节「漫画剧本」的产物；本章无剧本时系统自动以章节原文兜底并提示',
+      legacy: ['script_content'],
     },
   ],
   extract: [
@@ -83,36 +72,26 @@ export const VARIABLE_REGISTRY: Partial<Record<TemplateType, PromptVariableSpec[
       name: '章节原文',
       desc: '当前章节的原文；本章从剧本开始（无原文）时系统自动以漫画剧本兜底并加说明头',
       legacy: ['chapter_content'],
-      fallback: 'always',
-      blockLabel: '章节原文',
       emptyText: '（本章尚未录入原文与剧本）',
     },
     {
       name: '原文分析',
       desc: '管线环节①「原文分析」的产物',
-      fallback: 'if-nonempty',
-      blockLabel: '原文分析',
       emptyText: '（本章尚未生成原文分析）',
     },
     {
       name: '漫画剧本',
       desc: '管线环节②「漫画剧本」的产物',
-      fallback: 'if-nonempty',
-      blockLabel: '漫画剧本',
       emptyText: '（本章尚未生成剧本）',
     },
     {
       name: '分镜概要',
-      desc: '本章分镜概要（每镜一行），辅助判断资产是否值得提取',
-      fallback: 'if-nonempty',
-      blockLabel: '本章分镜概要（已确定会被绘制的画面）',
+      desc: '本章分镜概要（每镜一行：画面 + 出场人物），辅助判断资产是否值得提取',
       emptyText: '（本章尚未生成分镜）',
     },
     {
       name: '已有资产',
       desc: '项目已有资产清单（含各资产已有视觉状态名），保证跨章节连续性；状态名沿用规则见输出协议',
-      fallback: 'if-nonempty',
-      blockLabel: '项目已有资产',
       emptyText: '（项目暂无资产）',
     },
   ],
@@ -121,73 +100,59 @@ export const VARIABLE_REGISTRY: Partial<Record<TemplateType, PromptVariableSpec[
       name: '状态清单',
       desc: '批量·一次性发送 = 全部待生成状态的清单；逐条发送 = 当前状态的信息',
       legacy: ['assets'],
-      fallback: 'always',
-      blockLabel: '待生成状态清单',
     },
     {
       name: '风格上下文',
       desc: '项目画风与共用提示词块的描述（生图参考图不在此列，只参与生图）',
       legacy: ['style'],
-      fallback: 'if-nonempty',
-      blockLabel: '风格上下文',
       emptyText: '无特殊风格要求',
     },
     {
       name: '目标生图模型',
       desc: '资产生图配置选用的生图模型名，用于让提示词面向具体模型优化',
       legacy: ['target_model'],
-      fallback: 'drop',
       emptyText: '未指定',
     },
   ],
   'panel-prompt': [
     {
       name: '当前分镜',
-      desc: '当前分镜完整信息（序号、镜头、画面内容、分镜参考描述）',
+      desc: '当前分镜完整信息（序号、镜头、画面内容、分格详情、分镜参考描述）',
       legacy: ['panel_content'],
-      fallback: 'always',
-      blockLabel: '当前分镜',
     },
     {
       name: '镜头',
       desc: '当前分镜的镜头类型（如全景、特写）',
       legacy: ['shot'],
-      fallback: 'drop',
       emptyText: '未指定',
     },
     {
       name: '前文分镜',
       desc: '前 2 个分镜的画面内容与已推导描述（滑动窗口，批量推导时随进度刷新）',
       legacy: ['prev_panels'],
-      fallback: 'drop',
       emptyText: '当前是本章第一个分镜，无前文画面。',
     },
     {
       name: '本章分镜概要',
       desc: '本章全部分镜概要，每镜一行',
       legacy: ['chapter_outline'],
-      fallback: 'drop',
     },
     {
       name: '绑定资产',
       desc: '当前分镜绑定资产的视觉设定（视觉状态、固定特征、已生成的资产绘画提示词）',
       legacy: ['assets'],
-      fallback: 'drop',
       emptyText: '本分镜无绑定资产。',
     },
     {
       name: '风格上下文',
       desc: '项目画风与共用提示词块的描述',
       legacy: ['style'],
-      fallback: 'if-nonempty',
-      blockLabel: '风格上下文',
       emptyText: '无特殊风格要求',
     },
     {
       name: '目标生图模型',
       desc: '生图配置选用的生图模型名',
       legacy: ['target_model'],
-      fallback: 'drop',
       emptyText: '未指定',
     },
   ],
@@ -213,23 +178,28 @@ export const OUTPUT_PROTOCOL_DEFAULTS: Partial<Record<TemplateType, string>> = {
   analysis: `只输出中文 Markdown，不要解释、代码块或 JSON。用 ## 小节标题组织（如 ## 人物、## 场景、## 道具、## 事件与时间线、## 人物关系、## 对白、## 情绪、## 重要视觉信息），每条信息写为「- 名称：描述」列表项。`,
   script: `只输出中文 Markdown，不要解释、代码块或 JSON。用 ## 场景 N 组织每个剧本场景，场景内用「- 属性名：内容」列表项写明场景、剧情、人物、动作、情绪、对白与剧情目的。`,
   storyboard: `只输出中文 Markdown，不要解释、代码块或 JSON。
+符号规则：分镜格用【第X格】；内容标题用「XXX」；冒号后写具体内容。
 每一页写成一个 ## 分镜 N · 单格 / 双格 / 三格 / 四格 小节（N 从 1 递增，格数与页内实际格数一致）。
-一页内每一格单独一行，以 ① ② ③ ④ 开头，紧跟【镜头】，再写画面。
-台词另起一行，写在它所属格的下面，属于上面最近的那一格；台词与旁白的正文一律用【】括起来，说话人写在【】外面，不能省略，必须与剧本逐字一致。
-对白写「说话人：【台词】」；内心独白写「说话人（心声）：【台词】」；说话人不在该格画面内写「说话人（画外）：【台词】」；无人称旁白写「旁白：【文字】」；没有台词就不写台词行。
-【】只用于框住台词 / 旁白正文，以及每格格首的【镜头】——画面行里不要出现【】。
-镜头取 远景 / 中景 / 近景 / 特写 / POV / 过肩 / 仰拍 之一，每格必填。
-画面写这一格画面上能看到的内容，15~40 字；每格台词不超过 20 字，单格满版页不超过 30 字，超出必须拆格或拆页。
+一页内每一格先单独一行写【第X格】（X 从 1 递增），再从下一行开始逐行写这一格的字段；字段行格式为「字段名」：内容，字段名用「」括起，一行一个字段。
+每格的字段按此顺序写，没有内容的字段整行省略：景别 / 镜头 / 画面 / 人物 / 动作 / 表情 / 台词 / 心声 / 画外 / 旁白 / 音效 / 光效 / 备注。
+「景别」取 远景 / 中景 / 近景 / 特写 / POV / 过肩 / 仰拍 之一，每格必填；「镜头」写机位与运镜（如 平视、从侧脸下摇至小臂）。
+「画面」写这一格画面上能看到的内容——构图、人物位置、动作、环境、关键细节，30~80 字。
+「人物」写这一格画面内出现的角色名，多个用、分隔；「动作」「表情」分别写这一格的肢体动作与神态，各 10~25 字。
+台词类字段四选一，同一格最多出现一个：对白写「台词」、内心独白写「心声」、说话人不在本格画面内写「画外」、无人称叙述写「旁白」；没有就不写。
+台词类字段的写法为 说话人：“台词”——说话人不能省略，必须与剧本逐字一致，引号用中文引号；「旁白」不带说话人。
+「音效」「光效」按需写；「备注」只写画面上必须画出来的关键点。
+每句台词不超过 20 字，单格满版页不超过 30 字，超出必须拆格或拆页。
 一个分镜 = 一张竖屏漫画图 = 一页，一页 1~4 格，一格只讲一个信息单元。`,
   extract: `只输出中文 Markdown，不要解释、代码块或 JSON。
 一级标题只能是 # 人物、# 场景、# 道具；没有该类资产则不输出该标题。
 每项资产必须以 ## 资产名称 开始；其余信息每行写为 - 属性名：属性内容。
-每个视觉状态必须以 ### 视觉状态：状态名 单独成块，块内使用字段：视觉描述、状态标签、绘画提示词；同一资产可输出多个视觉状态。
-系统识别字段：姓名、别名、重要性（主要/次要）、描述、原文依据、视觉描述、状态标签、绘画提示词；视觉状态只能通过 ### 视觉状态：状态名 标题声明，不要以字段形式重复输出。
+每个视觉状态必须以 ### 视觉状态：状态名 单独成块，块内使用字段：视觉描述、状态标签；同一资产可输出多个视觉状态。
+系统识别字段：姓名、别名、重要性（主要/次要）、描述、原文依据、视觉描述、状态标签；视觉状态只能通过 ### 视觉状态：状态名 标题声明，不要以字段形式重复输出。
+视觉描述只写该状态的客观外观特征：体型、发型发色、面部特征、服饰与材质、配色、标志物、受损或变化痕迹等，不加主观评价；不要输出绘画提示词、镜头语言或画风要求，绘画提示词由后续环节生成。
 除系统识别字段外，你可根据模板规则自由输出中文属性，例如门派、身份关系、境界、材质、时代、氛围。
 视觉状态表示该资产在当前剧情中的稳定外观或形态，如“阶段·外观”“身份·服饰”“受损/变化状态”；正面、侧面、背面属于同一状态的参考图，不要单列为状态。
 只基于原文明确内容，不要编造。
-判断资产价值时参考分镜概要：在多个分镜中出现、或承载关键剧情/镜头重点的应提取；只出现一次且无辨识要求的不要提取。
+判断资产价值：在章节原文中反复出现、或承载关键剧情/镜头重点的应提取；只出现一次且无辨识要求的不要提取。
 资产已存在且本章外观未变化时，视觉状态名必须与已有状态名完全一致；仅当原文出现明确外观变化时才新建视觉状态。`,
   'asset-prompt': ASSET_PROMPT_BATCH_PROTOCOL,
   'panel-prompt': `只输出一段完整、连贯的中文画面描述，不要解释、分点、对白或旁白。`,
@@ -306,7 +276,7 @@ export const RECOMMENDED_TEMPLATES: Partial<Record<TemplateType, RecommendedTemp
   },
   storyboard: {
     name: '长篇章节分镜',
-    description: '以漫画剧本为主输入，按「一页一张图、图内 1~4 格」拆解分镜，原文分析作辅助核对。',
+    description: '以漫画剧本为主输入，按「一页一张图、图内 1~4 格」拆解分镜，原文分析与章节原文作辅助核对。',
     content: `你是一名条漫分镜师。请把下面的漫画剧本拆成一页页漫画分镜。
 一个分镜 = 一张竖屏漫画图 = 一页；一页内可以有 1~4 格。
 
@@ -324,31 +294,42 @@ export const RECOMMENDED_TEMPLATES: Partial<Record<TemplateType, RecommendedTemp
 
 【每一页怎么写】
 - 页面标题：## 分镜 N · 单格 / 双格 / 三格 / 四格（N 从 1 递增，格数与页内实际格数一致）。
-- 每一格单独一行，以 ① ② ③ ④ 开头，紧跟【镜头】，再写画面。
-- 台词另起一行，写在它所属格的下面，属于它上面最近的那一格；说话人必须写，且与剧本完全一致。
-- 这一格没有台词就不写这一行。
+- 每一格先单独一行写【第X格】（X 从 1 递增），再从下一行开始逐行写这一格的字段。
+- 字段行格式：「字段名」：内容。字段名用「」括起，冒号后写一句具体内容，一行一个字段。
 
-【台词行怎么写】（台词 / 旁白正文一律用【】括起来，说话人写在【】外面）
-- 对白：说话人：【台词】
-- 内心独白：说话人（心声）：【台词】
-- 说话人不在本格画面内：说话人（画外）：【台词】
-- 无人称旁白：旁白：【文字】
+【每格字段】（按此顺序写，没有内容的字段整行省略）
+- 「景别」：从 远景 / 中景 / 近景 / 特写 / POV / 过肩 / 仰拍 中选一个（每格必填）。
+- 「镜头」：机位与运镜，如 平视／俯拍／从角色侧脸下摇至小臂／前景带另一角色虚影。
+- 「画面」：这一格画面上能看到的内容——构图、人物位置、动作、环境、关键细节，30~80 字。
+- 「人物」：这一格画面内出现的角色名，多个用、分隔；不在画面内的说话人不写在这里。
+- 「动作」：这一格的肢体动作，10~25 字。
+- 「表情」：这一格的神态与情绪，10~25 字。
+- 台词类字段四选一，同一格最多出现一个：
 
-【每格字段】
-- 镜头：从 远景 / 中景 / 近景 / 特写 / POV / 过肩 / 仰拍 中选一个（每格必填）。
-- 画面：只写这一格画面上能看到的东西——谁、在做什么、什么神态或情绪，15~40 字。
-- 台词：必须写明说话人、正文用【】括起；不超过 20 字（单格满版不超过 30 字），超过必须拆成多格或多页。
-- 【】只用于框住台词 / 旁白正文与每格格首的【镜头】，画面行里不要出现【】。
-- 不写绘画风格、颜色、光影、人物占比、景深、分格结构、气泡位置——这些由画面描述环节按规则库处理。
+【台词怎么写】（说话人不能省略，必须与剧本逐字一致）
+- 对白：「台词」：说话人：“台词”
+- 内心独白：「心声」：说话人：“心里想的话”（可不出现在画面里）
+- 说话人不在本格画面内：「画外」：说话人：“台词”
+- 无人称叙述：「旁白」：文字
+
+【其余字段】
+- 「音效」：本格的声音，如 沙沙——衣料摩擦。没有就不写。
+- 「光效」：本格的光线与明暗关系，如 暖黄顶灯，背景压暗，手臂局部高光。没有就不写。
+- 「备注」：画面上必须画出来的关键点，没有就不写。
+- 不写绘画风格、颜色、人物占比、景深、分格结构、气泡位置——这些由画面描述环节按规则库处理。
 
 【原文核对】
-- 原文分析仅作辅助核对：与剧本冲突时以剧本为准，不要机械按章节推断回忆、倒叙、变身等特殊状态。
+- 剧情推进、场景取舍、对白一律以漫画剧本为准；原文分析与章节原文只作核对，冲突时以剧本为准，不要机械按章节推断回忆、倒叙、变身等特殊状态。
+- 章节原文用于补足剧本没写全的视觉细节（服饰、环境、光线、材质、道具外形等）；不要把剧本已经删减或压缩的剧情重新加回分镜。
 
-【漫画剧本】
-{{漫画剧本}}
+【章节原文】
+{{章节原文}}
 
 【原文分析】
-{{原文分析}}`,
+{{原文分析}}
+
+【漫画剧本】
+{{漫画剧本}}`,
   },
   extract: {
     name: '长篇章节资产提取',
@@ -371,8 +352,10 @@ export const RECOMMENDED_TEMPLATES: Partial<Record<TemplateType, RecommendedTemp
 【信息要求】
 - 每项写明“重要性”：会在当前或后续分镜中重点保持一致的写“主要”，其余写“次要”。
 - 每项写“描述”和 1 至 3 条“原文依据”。描述只归纳原文已经明确的信息；原文未说明的外貌、材质、环境和关系不得补写。
-- 有明确外观信息时，为视觉状态写“视觉描述”和“绘画提示词”；绘画提示词只能使用本项描述中已有的信息。信息不足时留空，不要猜测。
+- 有明确外观信息时，为视觉状态写“视觉描述”：只写原文已明确、或可由原文直接得出的客观外观特征（体型、发型发色、面部、服饰与材质、配色、标志物、受损或变化痕迹），不要写主观评价，也不要写镜头语言与画风。信息不足时留空，不要猜测。
+- 这里只沉淀可复用的外观特征，不要写绘画提示词——绘画提示词由后续「资产绘画提示词」环节基于这些特征与统一画风生成。
 - 可按原文补充有价值的中文属性。人物优先考虑身份、阵营/门派、职业、关系、年龄阶段、能力/境界；场景优先考虑地点类型、时代、氛围、时间/天气；道具优先考虑用途、材质、持有者、能力/状态。没有依据的属性不要输出。
+- 若给出了分镜概要，它只用来判断资产的重要性和出现频率（出现镜数多的优先提取），不作为外观特征的来源；外观特征一律以章节原文为准。
 
 【输出原则】
 - 宁缺毋滥：只提取真正会影响后续画面一致性的资产。
@@ -380,7 +363,20 @@ export const RECOMMENDED_TEMPLATES: Partial<Record<TemplateType, RecommendedTemp
 - 系统会自动处理输出结构；请严格遵守系统附加的格式要求。
 
 【章节原文】
-{{章节原文}}`,
+{{章节原文}}
+
+【原文分析】
+{{原文分析}}
+
+【漫画剧本】
+{{漫画剧本}}
+
+【本章分镜概要】
+仅用于判断该提哪些资产，不作为外观依据。
+{{分镜概要}}
+
+【项目已有资产】
+{{已有资产}}`,
   },
   'asset-prompt': {
     name: '资产绘画提示词',
@@ -398,9 +394,10 @@ export const RECOMMENDED_TEMPLATES: Partial<Record<TemplateType, RecommendedTemp
 
 【写作要求】
 - 每段提示词为一段完整、连贯的中文描述，不要分点。
+- 清单中的「视觉描述」是该状态的客观外观特征基准，必须在提示词中完整体现，不得改变或遗漏；在此基础上补足可直接生图所需的细节。
 - 人物包含：外貌与体型、服饰与材质、表情姿态与氛围；场景包含：空间结构、环境元素、光线与氛围；道具包含：外形、材质、细节特征。
 - 结尾附上画风要求，与风格上下文保持一致。
-- 严格基于清单给定信息撰写，不要编造与原文冲突的细节，不要出现镜头语言（如特写、仰视等）。`,
+- 不得编造与清单信息冲突的细节，不要出现镜头语言（如特写、仰视等）。`,
   },
   'panel-prompt': {
     name: '分镜画面描述',
@@ -422,6 +419,9 @@ export const RECOMMENDED_TEMPLATES: Partial<Record<TemplateType, RecommendedTemp
 【当前分镜】
 {{当前分镜}}
 
+【本镜镜头】
+{{镜头}}
+
 【本分镜绑定资产视觉设定】
 {{绑定资产}}
 
@@ -433,6 +433,14 @@ export const RECOMMENDED_TEMPLATES: Partial<Record<TemplateType, RecommendedTemp
 - 不写对白与旁白，只描述画面本身；
 - 输出为一段完整、连贯的中文描述。`,
   },
+}
+
+/**
+ * 无用户模板时的内置模板内容：与推荐模板同源。
+ * 去掉了自动追加兜底之后，内置模板必须自己写全该类型的全部变量，否则等于空提示词。
+ */
+export function defaultTemplateContent(type: TemplateType): string {
+  return RECOMMENDED_TEMPLATES[type]?.content ?? ''
 }
 
 // ========== 归一化与检测 ==========
@@ -477,8 +485,8 @@ export function migrateTemplateContent(content: string, type: TemplateType): str
 /**
  * 渲染最终提示词（全链路唯一规则）：
  * 1. 归一化：旧英文占位符 → 中文占位符；
- * 2. 变量在模板中 → 原地替换（值为空替换为 emptyText）；
- *    变量不在模板中 → 按兜底策略：always / if-nonempty 追加【块】，drop 不追加；
+ * 2. 只替换「模板里写了的」变量（值为空替换为 emptyText）；
+ *    模板没写的变量一律不出现，绝不自动追加——插入哪些变量完全由模板作者决定；
  * 3. 清理未注册的 {{...}} 占位符（防误插变量污染提示词）；
  * 4. 附加输出协议：自定义 > 类型默认（asset-prompt 分批量/逐条两种默认）。
  */
@@ -493,21 +501,13 @@ export function renderPromptTemplate(options: {
 }): string {
   const specs = getTemplateVariables(options.type)
   let text = normalizeTemplateVariables(options.content, options.type)
-  const appends: string[] = []
   for (const spec of specs) {
-    if (variablePattern(spec.name).test(text)) {
-      const raw = options.values[spec.name] ?? ''
-      const value = raw.trim() ? raw : (spec.emptyText ?? '')
-      // 函数式替换：避免注入内容中的 $&、$1 等被当作 replace 特殊序列解析
-      text = text.replace(variablePattern(spec.name, 'g'), () => value)
-      continue
-    }
-    const raw = (options.values[spec.name] ?? '').trim()
-    const shouldAppend =
-      raw && spec.blockLabel && (spec.fallback === 'always' || spec.fallback === 'if-nonempty')
-    if (shouldAppend) appends.push(`【${spec.blockLabel}】\n${options.values[spec.name]!.trim()}`)
+    if (!variablePattern(spec.name).test(text)) continue
+    const raw = options.values[spec.name] ?? ''
+    const value = raw.trim() ? raw : (spec.emptyText ?? '')
+    // 函数式替换：避免注入内容中的 $&、$1 等被当作 replace 特殊序列解析
+    text = text.replace(variablePattern(spec.name, 'g'), () => value)
   }
-  if (appends.length) text = `${text}\n\n${appends.join('\n\n')}`
   text = text.replace(/\{\{[^{}]*\}\}/g, '')
   return applyOutputProtocol(text, options.customProtocol, options.type, options.protocolMode)
 }

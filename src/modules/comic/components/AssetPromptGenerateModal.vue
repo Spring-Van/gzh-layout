@@ -1,7 +1,8 @@
 <template>
   <Teleport to="body">
     <Transition name="fade">
-      <div v-if="modelValue" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5 backdrop-blur-sm" @click.self="handleClose">
+      <!-- z-[130] 高于资产全屏抽屉（z-[101]）、低于大图预览（z-[200]） -->
+      <div v-if="modelValue" class="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-5 backdrop-blur-sm" @click.self="handleClose">
         <section class="flex h-[min(680px,calc(100vh-3rem))] w-[min(860px,100%)] flex-col overflow-hidden rounded-lg border border-border-subtle bg-surface shadow-2xl">
           <header class="flex shrink-0 items-center justify-between border-b border-border-subtle px-5 py-4">
             <div>

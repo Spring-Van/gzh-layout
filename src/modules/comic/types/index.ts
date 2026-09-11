@@ -205,15 +205,29 @@ export interface LongProjectStoryboardAssetBinding {
  * 页块格式：一格一行 `①【镜头】画面`，台词行另行归属最近的格。
  */
 export interface LongProjectStoryboardCell {
-  /** 镜头类型（远景/中景/近景/特写/POV/过肩/仰拍），画面描述层的占比与景深推导锚点 */
+  /** 景别（远景/中景/近景/特写/POV/过肩/仰拍），画面描述层的占比与景深推导锚点 */
   shot?: string
+  /** 运镜 / 机位（v4「镜头」字段），如「从角色A侧脸下摇至小臂」 */
+  camera?: string
   /** 这一格画面上能看到什么（谁 + 在做什么 + 神态/情绪） */
   content: string
+  /** 本格画面内出现的角色（多人用、分隔） */
+  cast?: string
+  /** 本格肢体动作 */
+  action?: string
+  /** 本格神态与情绪 */
+  expression?: string
+  /** 本格音效 */
+  sfx?: string
+  /** 本格光效 */
+  lighting?: string
+  /** 本格备注（画面上必须画出来的关键点） */
+  note?: string
   /** 说话人：对白/心声/画外的角色名；无人称旁白时为空 */
   speaker?: string
   /** 台词方式：缺省 = 对白；心声 = 内心独白；画外 = 说话人不在画面内 */
   delivery?: '心声' | '画外'
-  /** 本格台词（不含说话人前缀） */
+  /** 本格台词（不含说话人前缀与引号） */
   dialogue?: string
   /** 本格无人称旁白 */
   narration?: string
@@ -230,10 +244,12 @@ export interface LongProjectStoryboardPanel {
   narration?: string
   imagePrompt?: string
   /**
-   * 页内分格（页块格式 v3）。旧数据与旧格式缺省，视为「整页 = 单格」。
+   * 页内分格（页块格式）。旧数据与旧格式缺省，视为「整页 = 单格」。
    * 页级 content/shot/dialogue/narration 仍会同步汇总，保证既有消费方无需改动。
    */
   cells?: LongProjectStoryboardCell[]
+  /** 页头声明的格数标签（`## 分镜 1 · 双格` 里的「双格」）；旧数据缺省，展示时按 cells 长度推导 */
+  cellLabel?: string
   assetBindings: LongProjectStoryboardAssetBinding[]
 }
 

@@ -29,7 +29,7 @@
             <span class="status-dot" :class="dotClass(item)" />
             <span class="min-w-0 truncate text-[11px]" :class="statusTextClass(item)">{{ statusLabel(item) }}</span>
           </span>
-          <span class="truncate text-[11px] text-text-secondary">{{ previewText(item) }}</span>
+          <span class="truncate text-[11px] text-text-secondary" :title="previewText(item)">{{ cellLabel(item) }}</span>
         </span>
       </button>
 
@@ -40,11 +40,14 @@
 
 <script setup lang="ts">
 /**
- * 分镜生图工作台左栏：分镜列表（缩略图 + `P01` 页号 + 状态 + 一行文字预览，文案取本页首句台词）。
+ * 分镜生图工作台左栏：分镜列表（缩略图 + `P01` 页号 + 状态 + 格数标签）。
+ * 第二行显示本页格数（页头声明的「单格 / 双格 / 三格 / 四格」，旧数据按实际格数推导），
+ * 不再占位显示内容描述——内容预览收进 hover tooltip 备查。
  * 右键分镜触发 contextmenu 事件（合并/拆分/复制/删除等操作由父级菜单承载）。
  */
 import { computed } from 'vue'
 import { ImageIcon, LoaderCircle } from 'lucide-vue-next'
+import { resolvePanelCellLabel } from '@comic/services/storyboardService'
 import type { LongProjectPanelArtwork, LongProjectStoryboardPanel } from '@comic/types'
 
 export interface PanelListItem {
@@ -62,7 +65,7 @@ defineEmits<{
 const describedCount = computed(() => props.items.filter((item) => item.artwork?.imagePrompt?.trim()).length)
 const completedCount = computed(() => props.items.filter((item) => item.artwork?.selectedImageId).length)
 
-/** 一行文字预览：优先本页第一句台词（带说话人），无台词取首格画面；空页给占位文案。 */
+/** 内容预览（仅作 hover tooltip）：优先本页第一句台词（带说话人），无台词取首格画面；空页给占位文案。 */
 function previewText(item: PanelListItem): string {
   const panel = item.panel
   const cells = panel.cells ?? []
@@ -71,6 +74,11 @@ function previewText(item: PanelListItem): string {
   if (!cells.length && panel.dialogue?.trim()) return panel.dialogue.trim().split('\n')[0]
   const content = cells.find((cell) => cell.content?.trim())?.content ?? panel.content
   return (content ?? '').trim().split('\n')[0] || '（空白页）'
+}
+
+/** 第二行：本页格数标签（解析页头「· 双格」；旧数据按实际格数推导）。 */
+function cellLabel(item: PanelListItem): string {
+  return resolvePanelCellLabel(item.panel)
 }
 
 function dotClass(item: PanelListItem): string {

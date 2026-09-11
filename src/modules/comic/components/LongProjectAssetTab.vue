@@ -97,6 +97,7 @@
       :visible="extractImportVisible"
       title="手动导入资产"
       placeholder="粘贴外部 AI 生成的资产提取结果…"
+      z-index-class="z-[130]"
       :parse="parseExtractionPreview"
       @confirm="confirmExtractionImport"
       @close="extractImportVisible = false"
@@ -108,7 +109,8 @@
 /**
  * 长篇项目「资产」面板（分镜页全屏抽屉内容）：资产提取 + 审核 + 资产生图工作台（PanelGenAssetTab 三子视图）。
  * 提取底稿 = 章节原文优先，无原文（从剧本开始）时以漫画剧本兜底并加说明头；
- * 提取上下文 = 原文分析 + 漫画剧本 + 分镜概要（本章最近完成分镜）+ 已有资产。
+ * 提取上下文 = 原文分析 + 漫画剧本 + 分镜概要（本章最近完成分镜）+ 已有资产，
+ * 由提示词模板决定插入哪些（模板没写的变量不会进入提示词）。
  * 确认后写回资产与章节引用，并按文本自动回填本章分镜绑定。
  * 顶部操作按钮经 #actions 插槽注入子 tab 行右侧（信息 = 提取 + 确认；生图工作台 = 批量提示词/生图/配置）。
  */
@@ -122,6 +124,7 @@ import PanelGenAssetTab from '@comic/components/panel-gen/PanelGenAssetTab.vue'
 import {
   buildAssetExtractionPrompt,
   buildExtractionSourceText,
+  buildPanelsOutline,
   countCandidatesAppearances,
   extractChapterAssets,
   parseAssetExtractionResponse,
@@ -233,7 +236,7 @@ function buildExtractPrompt(): string {
   return buildAssetExtractionPrompt(template?.content ?? '', extractionSourceText.value, {
     analysis: analysisDoc.value?.content ?? '',
     script: scriptDoc.value?.content ?? '',
-    panelsOutline: panels.value.length ? panels.value.map((panel) => `分镜${panel.order}：${panel.content}`).join('\n') : undefined,
+    panelsOutline: buildPanelsOutline(panels.value),
     existingAssets: assets.value,
   })
 }

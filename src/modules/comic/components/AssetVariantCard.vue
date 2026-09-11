@@ -144,7 +144,8 @@
     <!-- 提示词编辑弹窗：完整查看与修改，不受卡片高度限制 -->
     <Teleport to="body">
       <Transition name="fade">
-        <div v-if="editModalVisible" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" @click.self="closeEditModal">
+        <!-- 编辑视觉状态：z-[130] 高于资产全屏抽屉（z-[101]）、低于大图预览（z-[200]） -->
+        <div v-if="editModalVisible" class="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" @click.self="closeEditModal">
           <section class="flex h-[92vh] w-[min(1080px,100%)] flex-col overflow-hidden rounded-lg border border-border-subtle bg-surface shadow-2xl">
             <header class="flex shrink-0 items-center justify-between border-b border-border-subtle px-5 py-4">
               <div>

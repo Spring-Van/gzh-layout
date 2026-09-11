@@ -1,11 +1,12 @@
 import { v4 as uuidv4 } from 'uuid'
 import { llmService } from './llmService'
-import { renderPromptTemplate } from './promptTemplateRegistry'
+import { defaultTemplateContent, renderPromptTemplate } from './promptTemplateRegistry'
 import type {
   LongProjectAsset,
   LongProjectAssetExtractionCandidate,
   LongProjectAssetType,
   LongProjectExtractedState,
+  LongProjectStoryboardCell,
   LongProjectStoryboardPanel,
   ModelConfig,
   PromptTemplate,
@@ -126,6 +127,8 @@ export function parseCandidateContent(content: string): ParsedCandidateFields {
       if (currentState) currentState.description = value
       else pendingStateFields.description = value
     } else if (key === '绘画提示词') {
+      // 向后兼容：提取阶段已不再要求输出绘画提示词（改由「资产绘画提示词」环节基于视觉描述生成），
+      // 但旧协议结果与手动导入的 Markdown 仍可能带此字段，照旧解析，避免已有数据丢失。
       if (currentState) currentState.imagePrompt = value
       else pendingStateFields.imagePrompt = value
     } else if (key === '状态标签') {
@@ -301,11 +304,39 @@ export function buildExtractionSourceText(original: string, script: string): str
   return `（说明：本章从剧本开始创作，无原文；以下为漫画剧本全文，请以此作为提取底稿。）\n\n${trimmedScript}`
 }
 
+/** 一格「人物」字段 → 角色名数组（支持 、／，／, 分隔）。 */
+function cellCastNames(cell: LongProjectStoryboardCell): string[] {
+  return (cell.cast ?? '')
+    .split(/[、,，]/)
+    .map((name) => name.trim())
+    .filter(Boolean)
+}
+
+/** 一页的出场人物：各格「人物」字段去重，保持出现顺序。 */
+export function panelCastNames(panel: LongProjectStoryboardPanel): string[] {
+  return [...new Set((panel.cells ?? []).flatMap(cellCastNames))]
+}
+
+/**
+ * 分镜概要（资产提取用）：每镜一行，只给「画面 + 出场人物」。
+ * 画面 = 页级画面汇总（多格页含每格画面）；人物 = 各格「人物」去重。
+ * 只取这两项——它们回答"谁出现、画面里有什么"；台词/音效/光效/备注属绘制指令，不是资产特征。
+ * 无分镜 / 全为空白时返回 undefined（模板没插 {{分镜概要}} 或值为空即不出现）。
+ */
+export function buildPanelsOutline(panels: LongProjectStoryboardPanel[]): string | undefined {
+  if (!panels.length) return undefined
+  const text = panels.map((panel) => {
+    const cast = panelCastNames(panel)
+    const head = `分镜${panel.order}：${(panel.content ?? '').trim()}`
+    return cast.length ? `${head}｜人物：${cast.join('、')}` : head
+  }).join('\n').trim()
+  return text || undefined
+}
+
 /**
  * 组装"资产提取"提示词：章节底稿（原文，无原文时剧本兜底）+ 原文分析 + 漫画剧本 + 分镜概要 + 已有资产。
  * 变量：{{章节原文}} / {{原文分析}} / {{漫画剧本}} / {{分镜概要}} / {{已有资产}}；
- * 未插入的辅助上下文按 if-nonempty 策略追加到模板末尾。
- * 分镜概要告诉模型"哪些东西真的会被画出来、出现了几次"，辅助判断是否建立资产。
+ * 是否进入提示词完全由模板决定——模板没写的变量不会出现（无自动追加兜底）。
  */
 export function buildAssetExtractionPrompt(templateContent: string, chapterContent: string, context: AssetExtractionContext = {}): string {
   const existingAssets = context.existingAssets ?? []
@@ -317,7 +348,7 @@ export function buildAssetExtractionPrompt(templateContent: string, chapterConte
     : undefined
   return renderPromptTemplate({
     type: 'extract',
-    content: templateContent,
+    content: templateContent.trim() || defaultTemplateContent('extract'),
     values: {
       章节原文: chapterContent,
       原文分析: context.analysis,
@@ -330,7 +361,7 @@ export function buildAssetExtractionPrompt(templateContent: string, chapterConte
 
 /**
  * 批量统计候选资产在分镜中的出现数（确定性计算，不依赖模型）：
- * 对每个分镜的扫描文本（画面+对白+旁白+提示词）做长名优先、命中区间消费的名称匹配，
+ * 对每个分镜的扫描文本（画面+对白+旁白+提示词+各格出场人物）做长名优先、命中区间消费的名称匹配，
  * 按分镜计数（出现在 N 个分镜中），返回 候选 id → 分镜数。
  */
 export function countCandidatesAppearances(
@@ -348,7 +379,7 @@ export function countCandidatesAppearances(
     .sort((a, b) => b.name.length - a.name.length)
   if (!entries.length) return counts
   for (const panel of panels) {
-    const text = [panel.content, panel.dialogue, panel.narration, panel.imagePrompt].filter(Boolean).join('\n')
+    const text = [panel.content, panel.dialogue, panel.narration, panel.imagePrompt, panelCastNames(panel).join(' ')].filter(Boolean).join('\n')
     if (!text) continue
     const spans: Array<{ start: number; end: number; candidateId: string }> = []
     for (const entry of entries) {
@@ -381,7 +412,7 @@ export async function extractChapterAssets(options: {
   const prompt = options.prompt ?? buildAssetExtractionPrompt(options.template.content, options.chapterContent, {
     analysis: options.analysis,
     script: options.script,
-    panelsOutline: options.panels?.length ? options.panels.map((panel) => `分镜${panel.order}：${panel.content}`).join('\n') : undefined,
+    panelsOutline: buildPanelsOutline(options.panels ?? []),
     existingAssets: options.existingAssets,
   })
   const result = await llmService.call({ modelConfig: options.model, userMessage: prompt })

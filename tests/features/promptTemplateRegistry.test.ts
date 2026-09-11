@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  LONG_STORY_TEMPLATE_TYPES,
+  RECOMMENDED_TEMPLATES,
   applyOutputProtocol,
   defaultOutputProtocol,
   findUnknownVariables,
+  getTemplateVariables,
   migrateTemplateContent,
   normalizeTemplateVariables,
   renderPromptTemplate,
@@ -16,7 +19,8 @@ describe('promptTemplateRegistry · 变量归一化与检测', () => {
   });
 
   it('归一化按类型生效：chapter_content 在分镜模板中不识别', () => {
-    // storyboard 无 chapter_content 变量（旧推荐模板错误用法），保持原样 → 会被 findUnknownVariables 检出
+    // storyboard 的「章节原文」刻意不注册 legacy 别名：旧模板误用的 {{chapter_content}} 保持原样，
+    // 会被 findUnknownVariables 检出并在渲染时清理，避免存量模板被灌进整章原文
     expect(normalizeTemplateVariables('{{chapter_content}}', 'storyboard')).toBe('{{chapter_content}}');
     expect(findUnknownVariables('{{chapter_content}}', 'storyboard')).toEqual(['chapter_content']);
   });
@@ -53,45 +57,26 @@ describe('promptTemplateRegistry · 渲染引擎', () => {
     expect(prompt).toContain('（本章尚未生成原文分析）');
   });
 
-  it('变量不在模板中：always 策略追加块；值为空则不追加', () => {
+  it('变量不在模板中：一律不出现（无自动追加兜底）', () => {
     const prompt = renderPromptTemplate({
       type: 'analysis',
       content: '只做人物梳理。',
       values: { 章节原文: '第一章……' },
     });
-    expect(prompt).toContain('【章节原文】\n第一章……');
     expect(prompt.startsWith('只做人物梳理。')).toBe(true);
-
-    const empty = renderPromptTemplate({
-      type: 'analysis',
-      content: '只做人物梳理。',
-      values: { 章节原文: '   ' },
-    });
-    expect(empty).not.toContain('【章节原文】');
+    expect(prompt).not.toContain('第一章……');
+    expect(prompt).not.toContain('【章节原文】');
   });
 
-  it('if-nonempty 策略：值非空追加、为空不追加；drop 策略不追加', () => {
-    const withStyle = renderPromptTemplate({
+  it('未插入的变量即使有值也不出现（关键输入与辅助上下文一视同仁）', () => {
+    const prompt = renderPromptTemplate({
       type: 'panel-prompt',
       content: '描述画面：{{当前分镜}}',
-      values: { 当前分镜: '分镜序号：1', 风格上下文: '整体画风：日漫' },
+      values: { 当前分镜: '分镜序号：1', 风格上下文: '整体画风：日漫', 本章分镜概要: '分镜1：开场' },
     });
-    expect(withStyle).toContain('【风格上下文】\n整体画风：日漫');
-
-    const noStyle = renderPromptTemplate({
-      type: 'panel-prompt',
-      content: '描述画面：{{当前分镜}}',
-      values: { 当前分镜: '分镜序号：1', 风格上下文: '' },
-    });
-    expect(noStyle).not.toContain('【风格上下文】');
-
-    const outline = renderPromptTemplate({
-      type: 'panel-prompt',
-      content: '描述画面：{{当前分镜}}',
-      values: { 当前分镜: '分镜序号：1', 本章分镜概要: '分镜1：开场' },
-    });
-    // 本章分镜概要为 drop 策略：未插入则不追加
-    expect(outline).not.toContain('【本章分镜概要】');
+    expect(prompt).toContain('分镜序号：1');
+    expect(prompt).not.toContain('整体画风：日漫');
+    expect(prompt).not.toContain('分镜1：开场');
   });
 
   it('修复：风格上下文已插入时只替换、不再重复追加', () => {
@@ -102,15 +87,6 @@ describe('promptTemplateRegistry · 渲染引擎', () => {
     });
     expect(prompt.match(/整体画风：国风/g)?.length).toBe(1);
     expect(prompt).not.toContain('【风格上下文】\n【风格上下文】');
-  });
-
-  it('状态清单（always）在模板未插入时追加兜底块', () => {
-    const prompt = renderPromptTemplate({
-      type: 'asset-prompt',
-      content: '请为每个状态生成绘画提示词。',
-      values: { 状态清单: '- 状态1｜资产：角色C', 风格上下文: '' },
-    });
-    expect(prompt).toContain('【待生成状态清单】\n- 状态1｜资产：角色C');
   });
 
   it('未注册占位符构建时被清理', () => {
@@ -130,6 +106,18 @@ describe('promptTemplateRegistry · 渲染引擎', () => {
       values: { 章节原文: 'x' },
     });
     expect(prompt).toContain('x');
+  });
+});
+
+describe('promptTemplateRegistry · 推荐模板', () => {
+  it('六个长篇类型的推荐模板都显式插入了该类型的全部变量（不再依赖兜底）', () => {
+    for (const type of LONG_STORY_TEMPLATE_TYPES) {
+      const template = RECOMMENDED_TEMPLATES[type];
+      expect(template, `缺少推荐模板：${type}`).toBeTruthy();
+      for (const spec of getTemplateVariables(type)) {
+        expect(template!.content, `${type} 推荐模板缺少 {{${spec.name}}}`).toContain(`{{${spec.name}}}`);
+      }
+    }
   });
 });
 
@@ -166,11 +154,19 @@ describe('promptTemplateRegistry · 输出协议', () => {
     expect(defaultOutputProtocol('story')).toBe('');
   });
 
-  it('分镜默认协议：台词 / 旁白正文用【】括起，说话人在【】外', () => {
+  it('分镜默认协议：符号规则（格用【第X格】、标题用「」、冒号后写内容）', () => {
     const protocol = defaultOutputProtocol('storyboard');
-    expect(protocol).toContain('说话人：【台词】');
-    expect(protocol).toContain('说话人（心声）：【台词】');
-    expect(protocol).toContain('说话人（画外）：【台词】');
-    expect(protocol).toContain('旁白：【文字】');
+    expect(protocol).toContain('符号规则：分镜格用【第X格】；内容标题用「XXX」；冒号后写具体内容。');
+    expect(protocol).toContain('【第X格】');
+    expect(protocol).toContain('「字段名」：内容');
+  });
+
+  it('分镜默认协议：列出 13 个字段，台词类字段四选一且带说话人', () => {
+    const protocol = defaultOutputProtocol('storyboard');
+    expect(protocol).toContain('景别 / 镜头 / 画面 / 人物 / 动作 / 表情 / 台词 / 心声 / 画外 / 旁白 / 音效 / 光效 / 备注');
+    expect(protocol).toContain('说话人：“台词”');
+    expect(protocol).toContain('「旁白」不带说话人');
+    // 【】不再用于台词包装（旧 v3 协议已废弃）
+    expect(protocol).not.toContain('说话人：【台词】');
   });
 });

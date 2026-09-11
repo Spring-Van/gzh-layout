@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="visible" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5 backdrop-blur-sm" @click.self="close">
+    <div v-if="visible" class="fixed inset-0 flex items-center justify-center bg-black/60 p-5 backdrop-blur-sm" :class="zIndexClass" @click.self="close">
       <section class="flex h-[min(720px,calc(100vh-3rem))] w-[min(860px,100%)] flex-col overflow-hidden rounded-lg border border-border-subtle bg-surface shadow-2xl">
         <header class="flex shrink-0 items-center justify-between border-b border-border-subtle px-5 py-4">
           <div>
@@ -61,13 +61,17 @@
 import { computed, ref, watch } from 'vue'
 import { ArrowRight, X } from 'lucide-vue-next'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   visible: boolean
   title: string
   placeholder?: string
   /** 可选解析函数：返回标题与摘要列表；失败抛错（消息展示为红字）。 */
   parse?: (content: string) => { title: string; items: string[] }
-}>()
+  /** 弹层层级：默认 z-50；在更高层容器（如资产全屏抽屉 z-[101]）内打开时需传入更高层级。 */
+  zIndexClass?: string
+}>(), {
+  zIndexClass: 'z-50',
+})
 
 const emit = defineEmits<{
   (e: 'confirm', content: string): void

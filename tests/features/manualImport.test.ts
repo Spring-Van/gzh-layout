@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseStoryboardResponse, parsePanelBlock, serializePanelBlock, summarizeCells } from '../../src/modules/comic/services/storyboardService';
+import { parseStoryboardResponse, parsePanelBlock, serializePanelBlock, summarizeCells, cellCountLabel, resolvePanelCellLabel } from '../../src/modules/comic/services/storyboardService';
 import { parseAssetExtractionResponse, countCandidatesAppearances } from '../../src/modules/comic/services/assetExtractionService';
 
 describe('手动导入：解析函数复用（外部 AI 代跑）', () => {
@@ -71,49 +71,126 @@ describe('手动导入：解析函数复用（外部 AI 代跑）', () => {
     expect(panels[0].cells?.[1]).toMatchObject({ shot: '中景', speaker: '角色B', dialogue: '你怎么能那么残忍？' });
   });
 
-  it('分镜：页块文本 ⇄ 格列表往返一致（台词 / 旁白正文带【】，入库去括）', () => {
+  it('分镜：v4 页块格式（【第X格】+「字段名」：内容，符号规则）逐字段解析', () => {
+    const content = [
+      '## 分镜 1 · 双格',
+      '【第1格】',
+      '「景别」：近景转特写',
+      '「镜头」：从角色A侧脸下摇至小臂',
+      '「画面」：角色A的手臂占前景，指节收紧，青筋凸起。',
+      '「人物」：角色A',
+      '「动作」：指节收紧，手臂绷紧。',
+      '「表情」：侧脸冷硬，眼神压着怒意。',
+      '「台词」：角色A：“破坏了它的关键部分，跟要了它的命有什么区别？”',
+      '「音效」：沙沙——鳞片摩擦。',
+      '「光效」：暖黄顶灯，背景压暗。',
+      '【第2格】',
+      '「景别」：中景',
+      '「画面」：角色B一手扶住室内靠背，身体微僵。',
+      '「人物」：角色B',
+      '「心声」：角色B：“他到底想干什么……”',
+      '「旁白」：夜色压下来，屋里的灯忽然灭了。',
+      '「备注」：灯灭必须画出来。',
+    ].join('\n');
+    const panels = parseStoryboardResponse(content, [], 'c1', {});
+    expect(panels).toHaveLength(1);
+    expect(panels[0].cellLabel).toBe('双格');
+    expect(panels[0].cells).toHaveLength(2);
+    expect(panels[0].cells?.[0]).toMatchObject({
+      shot: '近景转特写', camera: '从角色A侧脸下摇至小臂', cast: '角色A',
+      action: '指节收紧，手臂绷紧。', expression: '侧脸冷硬，眼神压着怒意。',
+      speaker: '角色A', dialogue: '破坏了它的关键部分，跟要了它的命有什么区别？',
+      sfx: '沙沙——鳞片摩擦。', lighting: '暖黄顶灯，背景压暗。',
+    });
+    expect(panels[0].cells?.[1]).toMatchObject({
+      shot: '中景', cast: '角色B', delivery: '心声', speaker: '角色B',
+      narration: '夜色压下来，屋里的灯忽然灭了。', note: '灯灭必须画出来。',
+    });
+    // 页级字段照旧汇总（生图推导 / 概览 / 资产计数等消费方无需改造）
+    expect(panels[0].shot).toBe('近景转特写/中景');
+    expect(panels[0].dialogue).toContain('角色B（心声）：他到底想干什么……');
+  });
+
+  it('分镜：v4 页块文本 ⇄ 格列表往返一致（台词正文入库去引号，出库补回）', () => {
     const text = [
+      '【第1格】',
+      '「景别」：近景转特写',
+      '「镜头」：从角色A侧脸下摇至小臂',
+      '「画面」：角色A的手臂占前景，指节收紧，青筋凸起。',
+      '「人物」：角色A',
+      '「动作」：指节收紧，手臂绷紧。',
+      '「表情」：侧脸冷硬，眼神压着怒意。',
+      '「台词」：角色A：“破坏了它的关键部分，跟要了它的命有什么区别？”',
+      '「音效」：沙沙——鳞片摩擦。',
+      '「光效」：暖黄顶灯，背景压暗。',
+      '【第2格】',
+      '「景别」：中景',
+      '「画面」：角色B一手扶住室内靠背，身体微僵。',
+      '「人物」：角色B',
+      '「心声」：角色B：“他到底想干什么……”',
+      '「旁白」：夜色压下来，屋里的灯忽然灭了。',
+      '「备注」：灯灭必须画出来。',
+    ].join('\n');
+    const cells = parsePanelBlock(text);
+    expect(cells).toHaveLength(2);
+    // 页级汇总保持裸文本——这两个字段会喂给下一环节的画面描述提示词
+    const summary = summarizeCells(cells);
+    expect(summary.dialogue).toBe('角色A：破坏了它的关键部分，跟要了它的命有什么区别？\n角色B（心声）：他到底想干什么……');
+    expect(summary.narration).toBe('夜色压下来，屋里的灯忽然灭了。');
+    // 序列化与输入逐字一致
+    expect(serializePanelBlock({ id: 'p1', order: 1, content: '', cells, assetBindings: [] })).toBe(text);
+  });
+
+  it('分镜：兼容旧 v3 页块（①【镜头】画面 + 说话人：【台词】），序列化升级为 v4', () => {
+    const v3 = [
       '①【近景】角色A指节收紧，关键道具缠上小臂。',
       '角色A：【破坏了它的关键部分，跟要了它的命有什么区别？】',
       '②【中景】角色B站在沙发边，眉头拧起。',
       '旁白：【空气安静了一分钟。】',
     ].join('\n');
-    const cells = parsePanelBlock(text);
+    const cells = parsePanelBlock(v3);
     expect(cells).toHaveLength(2);
-    // 入库去括：cell.dialogue / cell.narration 为干净文本
     expect(cells[0]).toMatchObject({ shot: '近景', speaker: '角色A', dialogue: '破坏了它的关键部分，跟要了它的命有什么区别？' });
     expect(cells[1]).toMatchObject({ shot: '中景', narration: '空气安静了一分钟。' });
-    // 页级汇总不带【】——该字段会喂给下一环节的画面描述提示词
-    const summary = summarizeCells(cells);
-    expect(summary.dialogue).toBe('角色A：破坏了它的关键部分，跟要了它的命有什么区别？');
-    expect(summary.narration).toBe('空气安静了一分钟。');
-    // 序列化补回【】→ 与输入逐字一致
-    expect(serializePanelBlock({ id: 'p1', order: 1, content: '', cells, assetBindings: [] })).toBe(text);
+    // 打开即升级：旧文本重新序列化为 v4
+    const upgraded = serializePanelBlock({ id: 'p1', order: 1, content: '', cells, assetBindings: [] });
+    expect(upgraded).toContain('【第1格】');
+    expect(upgraded).toContain('「景别」：近景');
+    expect(upgraded).toContain('「台词」：角色A：“破坏了它的关键部分，跟要了它的命有什么区别？”');
+    expect(upgraded).toContain('「旁白」：空气安静了一分钟。');
+    // 升级后再解析仍是同一份格列表（幂等）
+    expect(parsePanelBlock(upgraded)).toEqual(cells);
   });
 
-  it('分镜：兼容无【】的旧台词行，解析结果与带【】一致', () => {
-    const plain = [
-      '①【近景】角色A指节收紧，关键道具缠上小臂。',
-      '角色A：破坏了它的关键部分，跟要了它的命有什么区别？',
-      '②【中景】角色B站在沙发边，眉头拧起。',
-      '旁白：空气安静了一分钟。',
-    ].join('\n');
-    const cells = parsePanelBlock(plain);
-    expect(cells[0]).toMatchObject({ speaker: '角色A', dialogue: '破坏了它的关键部分，跟要了它的命有什么区别？' });
-    expect(cells[1].narration).toBe('空气安静了一分钟。');
-    // 旧文本序列化时自动补上【】（打开即升级）
-    expect(serializePanelBlock({ id: 'p1', order: 1, content: '', cells, assetBindings: [] }))
-      .toContain('角色A：【破坏了它的关键部分，跟要了它的命有什么区别？】');
-  });
-
-  it('分镜：旧数据（无 cells）也能序列化为页块文本，页级对白/旁白拆回格内', () => {
+  it('分镜：旧数据（无 cells）序列化为 v4 页块，页级对白/旁白拆回格内', () => {
     const legacy = {
       id: 'p1', order: 1, content: '两人对峙', shot: '中景',
       dialogue: '角色A：放它走吧', narration: '夜深了', assetBindings: [],
     };
     const text = serializePanelBlock(legacy as any);
-    expect(text).toBe('①【中景】两人对峙\n角色A：【放它走吧】\n旁白：【夜深了】');
+    expect(text).toBe([
+      '【第1格】',
+      '「景别」：中景',
+      '「画面」：两人对峙',
+      '「台词」：角色A：“放它走吧”',
+      '「旁白」：夜深了',
+    ].join('\n'));
     expect(parsePanelBlock(text)).toHaveLength(1);
+  });
+
+  it('分镜：完全空白页不给格块（不产生空的【第1格】）', () => {
+    expect(serializePanelBlock({ id: 'p1', order: 1, content: '', assetBindings: [] } as any)).toBe('');
+  });
+
+  it('分镜：格数标签取页头声明，缺省按实际格数推导', () => {
+    expect(cellCountLabel(1)).toBe('单格');
+    expect(cellCountLabel(2)).toBe('双格');
+    expect(cellCountLabel(5)).toBe('5 格');
+    const [declared] = parseStoryboardResponse('## 分镜 1 · 三格\n【第1格】\n「画面」：只有一格。', [], 'c1', {});
+    expect(resolvePanelCellLabel(declared)).toBe('三格');
+    // 旧数据无 cellLabel：按实际格数推导
+    expect(resolvePanelCellLabel({ id: 'p2', order: 2, content: 'x', cells: [{ content: 'a' }, { content: 'b' }], assetBindings: [] } as any)).toBe('双格');
+    expect(resolvePanelCellLabel({ id: 'p3', order: 3, content: 'x', assetBindings: [] } as any)).toBe('单格');
   });
 
   it('分镜：页块文本为空 / 无格标记时兜底，不丢内容', () => {

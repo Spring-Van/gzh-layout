@@ -344,7 +344,7 @@
  * 顶部操作区通过 Teleport 注入主页面 tab 行右侧（#storyboard-actions 容器），随阶段切换动作组——
  * 分镜内容显示「生成分镜（剧本 → 分镜）+ 手动导入」，提示词显示「批量推导描述 + 批量生图 + 导出发布 + 绘图配置」，
  * 资产为常驻抽屉入口；生成分镜是章节级动作，与「原文 / 剧本」页签执行栏同构，不再挂在单页编辑框下方。
- * 分镜生成以漫画剧本为主输入、原文分析为辅助（无剧本时原文兜底）；
+ * 分镜生成以漫画剧本为主输入、原文分析与章节原文为辅助核对（无剧本时原文兜底进剧本槽位）；
  * 画面描述按「依次推导」执行（滑动窗口携带前文），生图自动携带绑定资产参考图。
  * 数据持久化走 panelArtworks（panelId 关联），重跑分镜由迁移逻辑保留/标记过期；
  * 项目数据与持久化队列共享主页面实例（props 注入），不再独立读写。
@@ -367,7 +367,7 @@ import {
   type PrevPanelContextEntry,
 } from '@comic/services/panelPromptService'
 import { buildAssetNameIndex, computeAutoBindings } from '@comic/services/promptAssetService'
-import { buildStoryboardPrompt, defaultVariant, parseStoryboardResponse, polishPanelBlock, summarizeCells } from '@comic/services/storyboardService'
+import { buildStoryboardPrompt, cellCountLabel, defaultVariant, parseStoryboardResponse, polishPanelBlock, summarizeCells } from '@comic/services/storyboardService'
 import { useStoryboardRun } from '@comic/composables/useStoryboardRun'
 import { useStoryboardOps } from '@comic/composables/useStoryboardOps'
 import PanelListSidebar from '@comic/components/panel-gen/PanelListSidebar.vue'
@@ -687,10 +687,15 @@ const {
   notifyError: (message) => toast.error(message),
 })
 
-/** 组装分镜生成的最终发送提示词（分镜模板 + 漫画剧本 + 原文分析），供顶栏阶段操作栏使用。 */
+/** 组装分镜生成的最终发送提示词（分镜模板 + 漫画剧本 + 原文分析 + 章节原文），供顶栏阶段操作栏使用。 */
 function buildStoryboardRunPrompt(): string {
   const template = storyboardTemplates.value.find((item) => item.id === storyboardTemplateId.value)
-  return buildStoryboardPrompt(template?.content ?? '', storyboardSourceContent.value, analysisDoc.value?.content ?? '')
+  return buildStoryboardPrompt(
+    template?.content ?? '',
+    storyboardSourceContent.value,
+    analysisDoc.value?.content ?? '',
+    currentChapter.value?.content ?? '',
+  )
 }
 
 /** 顶栏「分镜」阶段触发生成：PromptRunBar 已完成发送前确认，prompt 为最终版。 */
@@ -835,6 +840,8 @@ function savePanelEdit(payload: PanelEditPayload) {
         ? {
             ...panel,
             cells: payload.cells.length ? payload.cells : undefined,
+            // 编辑框不含页头，格数标签按实际格数重算（左栏列表直接显示它，不能留过期值）
+            cellLabel: payload.cells.length ? cellCountLabel(payload.cells.length) : undefined,
             shot: summary.shot,
             content: summary.content,
             dialogue: summary.dialogue,

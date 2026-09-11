@@ -2,12 +2,13 @@
   <Teleport to="body">
     <!-- 遮罩层 -->
     <Transition name="fade">
-      <div v-if="modelValue" class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm" @click="handleClose" />
+      <!-- 生图配置抽屉：z-[130]/[131] 高于资产全屏抽屉（z-[101]）、低于大图预览（z-[200]） -->
+      <div v-if="modelValue" class="fixed inset-0 z-[130] bg-black/60 backdrop-blur-sm" @click="handleClose" />
     </Transition>
 
     <!-- 抽屉：浮动卡片（与分镜页绘图配置抽屉一致），右侧滑入 -->
     <Transition name="slide-right">
-      <div v-if="modelValue" class="fixed bottom-0 right-0 top-0 z-[101] flex w-[min(400px,96vw)] flex-col overflow-hidden p-4">
+      <div v-if="modelValue" class="fixed bottom-0 right-0 top-0 z-[131] flex w-[min(400px,96vw)] flex-col overflow-hidden p-4">
         <div class="flex flex-1 flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-2xl shadow-black/40">
           <header class="flex shrink-0 items-center justify-between border-b border-border-subtle px-5 py-4">
             <h2 class="text-base font-semibold text-text-primary">资产生图配置</h2>

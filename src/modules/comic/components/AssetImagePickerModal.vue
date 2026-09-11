@@ -3,7 +3,7 @@
     <Transition name="confirm">
       <div
         v-if="modelValue"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+        class="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 backdrop-blur-sm"
         @click.self="close"
       >
         <div class="confirm-card flex max-h-[85vh] w-[960px] max-w-[92vw] flex-col rounded-xl border border-border-subtle bg-surface p-5 shadow-2xl shadow-black/40">

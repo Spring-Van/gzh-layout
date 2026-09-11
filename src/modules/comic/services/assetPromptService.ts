@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid'
 import { llmService } from './llmService'
-import { renderPromptTemplate } from './promptTemplateRegistry'
+import { defaultTemplateContent, renderPromptTemplate } from './promptTemplateRegistry'
 import type {
   AssetPromptRun,
   LongProjectAsset,
@@ -34,7 +34,8 @@ const typeLabel: Record<string, string> = { character: '人物', scene: '场景'
 
 /**
  * 拼装最终提示词（批量·一次性发送）：模板 + 状态清单 + 风格上下文。
- * 变量：{{状态清单}} / {{风格上下文}} / {{目标生图模型}}；未插入的关键上下文按注册表策略追加到末尾。
+ * 变量：{{状态清单}} / {{风格上下文}} / {{目标生图模型}}；是否进入提示词完全由模板决定（无自动追加兜底）。
+ * 未选/未配模板时用内置默认模板（与推荐模板同源，自带全部变量）。
  * 输出协议：模板自定义 outputProtocol 优先，未自定义使用批量可解析默认协议（保证结果可解析回填）。
  */
 export function buildAssetPromptPrompt(options: {
@@ -47,7 +48,7 @@ export function buildAssetPromptPrompt(options: {
   const { text } = buildTargetList(options.targets)
   return renderPromptTemplate({
     type: 'asset-prompt',
-    content: options.templateContent,
+    content: options.templateContent.trim() || defaultTemplateContent('asset-prompt'),
     values: {
       状态清单: text,
       风格上下文: options.styleContext ?? '',

@@ -28,7 +28,7 @@
       <div v-if="variableSpecs.length || unknownVariables.length" class="shrink-0 text-xs text-text-secondary">
         <span class="mb-1.5 flex items-center justify-between gap-3">
           <span>变量状态</span>
-          <span class="text-[11px] text-text-muted">点击 tag 插入到光标处</span>
+          <span class="text-[11px] text-text-muted">点击 tag 插入到光标处；未插入的变量不会进入提示词</span>
         </span>
         <div class="flex flex-wrap gap-1.5">
           <button

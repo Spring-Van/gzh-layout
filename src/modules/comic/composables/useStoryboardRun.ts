@@ -14,7 +14,7 @@ function advanceStoryboardStage(node: LongProjectNode): LongProjectNode {
 
 /**
  * 分镜生成 composable（生图工作台）：
- * 剧本为主输入、原文分析为辅助上下文；无剧本时以章节原文兜底并提示。
+ * 剧本为主输入，原文分析与章节原文为辅助核对；无剧本时以章节原文兜底并提示。
  * 生成前记录旧分镜，成功后对位迁移已推导描述与成图（panelArtworks）。
  */
 export function useStoryboardRun(options: {
@@ -73,6 +73,7 @@ export function useStoryboardRun(options: {
       const result = await generateStoryboard({
         model: params.model,
         scriptContent: scriptContent || chapterContent,
+        chapterContent,
         analysis: options.getAnalysisContent(),
         chapterId: chapter.id,
         chapterOrders: options.getChapterOrders(),

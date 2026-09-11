@@ -47,11 +47,11 @@
 
     <!-- 窄形态配置弹层：Teleport 到 body（逃离 overflow 裁剪），fixed 定位按按钮位置动态决定上/下弹 -->
     <Teleport to="body">
-      <div v-if="configOpen" class="fixed inset-0 z-[60]" @click="configOpen = false" />
+      <div v-if="configOpen" class="fixed inset-0 z-[130]" @click="configOpen = false" />
       <Transition name="fade">
         <div
           v-if="configOpen"
-          class="fixed z-[70] w-80 rounded-lg border border-border-subtle bg-surface p-3 shadow-xl shadow-black/25"
+          class="fixed z-[131] w-80 rounded-lg border border-border-subtle bg-surface p-3 shadow-xl shadow-black/25"
           :style="popStyle"
           @click.stop
         >

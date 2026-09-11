@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, ref, type Ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
 import { buildAssetNameIndex, syncPanelsAutoBindings } from '@comic/services/promptAssetService'
-import { defaultVariant, serializePanelBlock } from '@comic/services/storyboardService'
+import { cellCountLabel, defaultVariant, serializePanelBlock } from '@comic/services/storyboardService'
 import type { StoryboardMenuAction } from '@comic/components/StoryboardContextMenu.vue'
 import type {
   ComicProject,
@@ -187,6 +187,8 @@ export function useStoryboardOps(options: {
       return true
     })
 
+    // 分格：合并 = 把各页的格按顺序接起来（左栏格数标签据此重算，避免显示过期格数）
+    const mergedCells = panelsToMerge.flatMap((panel) => panel.cells ?? [])
     const merged: LongProjectStoryboardPanel = {
       id: sourcePanelId,
       order: panelsToMerge[0].order,
@@ -195,6 +197,8 @@ export function useStoryboardOps(options: {
       dialogue: panelsToMerge.map((panel) => panel.dialogue).filter(Boolean).join('\n') || undefined,
       narration: panelsToMerge.map((panel) => panel.narration).filter(Boolean).join('\n') || undefined,
       imagePrompt: panelsToMerge.map((panel) => panel.imagePrompt).find(Boolean),
+      cells: mergedCells.length ? mergedCells : undefined,
+      cellLabel: mergedCells.length ? cellCountLabel(mergedCells.length) : undefined,
       assetBindings,
     }
 
@@ -240,17 +244,24 @@ export function useStoryboardOps(options: {
     if (mode !== 'multi' && parts.length !== 2) return
     snapshotForUndo(`已拆分分镜 ${parent.order} 为 ${parts.length} 个`)
 
-    /** 新分镜构造：继承镜头与绑定，新 ID。 */
+    /**
+     * 新分镜构造：继承镜头与绑定，新 ID。
+     * 拆的是**页级画面文本**（按空行分段），分格结构不再对应，因此清掉 cells 与格数标签——
+     * 左栏会按"整页 = 单格"推导，不会显示过期格数。
+     */
     const makeChild = (content: string): LongProjectStoryboardPanel => ({
       id: uuidv4(), order: parent.order, content, shot: parent.shot,
+      cells: undefined, cellLabel: undefined,
       assetBindings: parent.assetBindings.map((binding) => ({ ...binding })),
     })
+    /** 保留父 ID 的那一段：继承成图与描述，但分格结构作废。 */
+    const keepParent = (content: string): LongProjectStoryboardPanel => ({ ...parent, content, cells: undefined, cellLabel: undefined })
     const children: LongProjectStoryboardPanel[] =
       mode === 'multi'
-        ? parts.map((content, index) => index === 0 ? { ...parent, content } : { ...makeChild(content), order: parent.order + index })
+        ? parts.map((content, index) => index === 0 ? keepParent(content) : { ...makeChild(content), order: parent.order + index })
         : mode === 'up'
-          ? [makeChild(parts[0]), { ...parent, content: parts[1] }]
-          : [{ ...parent, content: parts[0] }, makeChild(parts[1])]
+          ? [makeChild(parts[0]), keepParent(parts[1])]
+          : [keepParent(parts[0]), makeChild(parts[1])]
 
     const index = run.panels.findIndex((panel) => panel.id === parent.id)
     const nextPanels = autoSyncBindings([...run.panels.slice(0, index), ...children, ...run.panels.slice(index + 1)].map((panel, i) => ({ ...panel, order: i + 1 })), chapter.id)

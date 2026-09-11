@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="visible" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5 backdrop-blur-sm" @click.self="emit('close')">
+    <div v-if="visible" class="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-5 backdrop-blur-sm" @click.self="emit('close')">
       <section class="flex h-[min(720px,calc(100vh-3rem))] w-[min(860px,100%)] flex-col overflow-hidden rounded-lg border border-border-subtle bg-surface shadow-2xl">
         <header class="flex shrink-0 items-center justify-between border-b border-border-subtle px-5 py-4">
           <div><h2 class="text-base font-semibold text-text-primary">确认发送内容</h2><p class="mt-1 text-xs text-text-muted">可在本次执行前修改，修改不会覆盖系统提示词模板。</p></div>
