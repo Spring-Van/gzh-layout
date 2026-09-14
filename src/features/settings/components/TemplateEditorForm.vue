@@ -71,8 +71,20 @@
       <label v-if="isLongStoryType" class="block shrink-0 text-xs text-text-secondary">
         <span class="mb-1.5 flex items-center justify-between gap-3">
           <span>输出协议（可选）</span>
-          <button type="button" class="text-cyan-400 hover:text-cyan-300" title="填入该环节的系统推荐输出协议，可在此基础自行修改" @click="applyRecommendedProtocol">填入推荐协议</button>
+          <button type="button" class="text-cyan-400 hover:text-cyan-300" title="填入当前解析方式对应的推荐协议，可在此基础自行修改" @click="applyRecommendedProtocol">填入推荐协议</button>
         </span>
+
+        <!-- 解析方式：决定程序如何从模型返回里读回结果；换模型返回格式不一致时改这里 -->
+        <div v-if="parserOptions.length" class="mb-2 rounded-md border border-border-subtle px-3 py-2">
+          <div class="flex items-center gap-2">
+            <span class="shrink-0">解析方式</span>
+            <select :value="form.outputParser" class="field-control flex-1" @change="onParserSelect">
+              <option v-for="option in parserOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </div>
+          <span class="mt-1.5 block text-[11px] leading-4 text-text-muted">{{ parserHint }}</span>
+        </div>
+
         <textarea
           v-model="form.outputProtocol"
           rows="4"
@@ -115,10 +127,12 @@ import {
   RECOMMENDED_TEMPLATES,
   defaultOutputProtocol,
   findUnknownVariables,
+  getOutputParserSpec,
   getTemplateVariables,
   normalizeTemplateVariables,
+  outputParserOptions,
 } from '@comic/services/promptTemplateRegistry';
-import type { PromptTemplate, TemplateType } from '@comic/types';
+import type { PromptOutputParser, PromptTemplate, TemplateType } from '@comic/types';
 import SettingsFieldInput from './SettingsFieldInput.vue';
 
 export interface TemplateEditorValue {
@@ -127,6 +141,8 @@ export interface TemplateEditorValue {
   description: string;
   content: string;
   outputProtocol: string;
+  /** 模型返回解析方式（仅资产绘画提示词类型生效） */
+  outputParser: PromptOutputParser;
 }
 
 const props = defineProps<{
@@ -153,7 +169,14 @@ const typeHint = computed(() => typeOptions.find(option => option.value === form
 
 const contentPlaceholder = '输入提示词内容，可用 {{变量}} 占位';
 
-const form = ref({ name: '', type: 'extract' as TemplateType, description: '', content: '', outputProtocol: '' });
+const form = ref({
+  name: '',
+  type: 'extract' as TemplateType,
+  description: '',
+  content: '',
+  outputProtocol: '',
+  outputParser: 'auto' as PromptOutputParser,
+});
 
 let snapshot = '';
 
@@ -213,7 +236,7 @@ const protocolHint = computed(() => {
   const structured: Partial<Record<TemplateType, string>> = {
     storyboard: '注意：分镜结果按「## 分镜N」标题 +「- 画面/镜头/对白/旁白」字段行解析，自定义协议必须保留该结构，否则导入/生成会解析失败。',
     extract: '注意：资产提取结果按「# 人物/场景/道具」一级标题 +「## 资产名」二级标题解析（兼容 JSON），自定义协议必须保留该结构，否则解析失败。',
-    'asset-prompt': '注意：「批量·一次性发送」按「【资产名｜状态名】提示词」逐条结构解析回填，自定义协议必须保留该结构，否则解析失败。',
+    'asset-prompt': '注意：「批量·一次性发送」的结果按下面所选「解析方式」回填。自定义协议时，请让模型返回的结构与解析方式一致，否则会解析失败；拿不准就保持「自动识别」，它会依次容忍常见格式并在条数对得上时按顺序兜底。',
   };
   const plain: Partial<Record<TemplateType, string>> = {
     analysis: '分析结果为纯文本写入文档，无固定解析结构，可自由约定返回格式。',
@@ -226,6 +249,12 @@ const protocolHint = computed(() => {
 /** 当前类型的推荐模板（含默认名称/描述，一键填入）。 */
 const recommendedTemplate = computed(() => RECOMMENDED_TEMPLATES[form.value.type]);
 
+/** 可选解析方式（只有资产绘画提示词类型需要解析回填，其余类型返回空数组）。 */
+const parserOptions = computed(() => outputParserOptions(form.value.type));
+
+/** 当前解析方式的说明文案（不同模型返回格式差异大时，这里决定了程序怎么读结果）。 */
+const parserHint = computed(() => getOutputParserSpec(form.value.outputParser)?.desc ?? '');
+
 function applyRecommendedTemplate() {
   const recommended = recommendedTemplate.value;
   if (!recommended) return;
@@ -234,9 +263,24 @@ function applyRecommendedTemplate() {
   form.value.content = recommended.content;
 }
 
-/** 填入当前类型的推荐输出协议（与运行时默认协议同源）。 */
+/** 填入当前类型 + 当前解析方式的推荐输出协议（与运行时默认协议同源，保证协议与解析器不失配）。 */
 function applyRecommendedProtocol() {
-  form.value.outputProtocol = defaultOutputProtocol(form.value.type);
+  form.value.outputProtocol = defaultOutputProtocol(form.value.type, 'batch-once', form.value.outputParser);
+}
+
+/** 切换解析方式时，若协议仍是旧的推荐协议（或为空），自动同步为新解析方式的同构协议。 */
+function changeParser(value: PromptOutputParser) {
+  const previous = form.value.outputParser;
+  const wasRecommended = !form.value.outputProtocol.trim()
+    || form.value.outputProtocol === defaultOutputProtocol(form.value.type, 'batch-once', previous);
+  form.value.outputParser = value;
+  if (wasRecommended) {
+    form.value.outputProtocol = defaultOutputProtocol(form.value.type, 'batch-once', value);
+  }
+}
+
+function onParserSelect(event: Event) {
+  changeParser((event.target as HTMLSelectElement).value as PromptOutputParser);
 }
 
 function fillForm() {
@@ -246,6 +290,8 @@ function fillForm() {
     description: props.template?.description ?? '',
     content: props.template?.content ?? '',
     outputProtocol: props.template?.outputProtocol ?? '',
+    // 存量模板没有该字段 = 自动识别（容错最强，且不改变原有解析行为）
+    outputParser: props.template?.outputParser ?? ('auto' as PromptOutputParser),
   };
   form.value = next;
   snapshot = JSON.stringify(form.value);

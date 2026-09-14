@@ -1,4 +1,4 @@
-import type { TemplateType } from '@comic/types'
+import type { PromptOutputParser, TemplateType } from '@comic/types'
 
 /**
  * 提示词模板注册表（单一事实来源）：
@@ -173,6 +173,27 @@ export const ASSET_PROMPT_BATCH_PROTOCOL = `只输出中文，不要解释、不
 /** 资产提示词「逐条发送 / 单条重写」的默认协议：结果直接取全文回填，无需解析。 */
 export const ASSET_PROMPT_PER_ITEM_PROTOCOL = `只输出一段完整的中文提示词正文，不要任何前缀、解释或分点。包含外观、服饰/材质、姿态或氛围、画风要求；不写镜头语言；不编造与给定信息冲突的细节。`
 
+/** 资产提示词「JSON 结构化」协议：解析走 extractJson，字段名固定，不受模型排版习惯影响。 */
+export const ASSET_PROMPT_JSON_PROTOCOL = `只输出一个 JSON 数组，不要解释、不要代码块标记。
+数组每个元素是一个对象，字段固定为 asset（资产名）、variant（状态名）、prompt（绘画提示词正文）。
+asset 与 variant 必须与清单中的资产名、状态名完全一致、一字不差，不要遗漏任何状态、不要新增。
+prompt 为一段完整可直接用于生图的中文描述，包含外观、服饰/材质、姿态或氛围、画风要求；不写镜头语言，不要分点。
+只基于清单给定信息与风格上下文，不要编造与原文冲突的细节。
+示例：[{"asset":"角色名","variant":"状态名","prompt":"一段完整的中文绘画提示词"}]`
+
+/** 资产提示词「序号行」协议：每条一行、按清单序号自报家门，比名字匹配更抗漂移。 */
+export const ASSET_PROMPT_INDEXED_PROTOCOL = `只输出中文，不要解释、不要代码块。
+按清单中的状态序号逐条输出，每条单独一行，格式为：状态N：绘画提示词内容（N 为清单里的序号，必须一一对应、不重不漏）。
+每条为一段完整可直接用于生图的中文描述，包含外观、服饰/材质、姿态或氛围、画风要求；不写镜头语言，不要分点。
+只基于清单给定信息与风格上下文，不要编造与原文冲突的细节。`
+
+/** 资产提示词「严格顺序（无标记）」协议：最省 token、最不容易被模型抄错名，靠段数对齐回填。 */
+export const ASSET_PROMPT_SEQUENTIAL_PROTOCOL = `只输出中文，不要解释、不要代码块、不要任何前后缀。
+按清单顺序逐条输出，每条一个自然段，段与段之间空一行；不要写资产名、状态名或序号。
+第 1 段对应清单第 1 个状态，第 2 段对应第 2 个，依此类推，段数必须与清单状态数完全一致。
+每段为一段完整可直接用于生图的中文描述，包含外观、服饰/材质、姿态或氛围、画风要求；不写镜头语言，不要分点。
+只基于清单给定信息与风格上下文，不要编造与原文冲突的细节。`
+
 /** 各类型默认输出协议（模板未自定义时使用；设置页「填入推荐协议」按钮同源）。 */
 export const OUTPUT_PROTOCOL_DEFAULTS: Partial<Record<TemplateType, string>> = {
   analysis: `只输出中文 Markdown，不要解释、代码块或 JSON。用 ## 小节标题组织（如 ## 人物、## 场景、## 道具、## 事件与时间线、## 人物关系、## 对白、## 情绪、## 重要视觉信息），每条信息写为「- 名称：描述」列表项。`,
@@ -205,20 +226,102 @@ export const OUTPUT_PROTOCOL_DEFAULTS: Partial<Record<TemplateType, string>> = {
   'panel-prompt': `只输出一段完整、连贯的中文画面描述，不要解释、分点、对白或旁白。`,
 }
 
-/** 取类型默认输出协议（asset-prompt 按发送模式区分；无默认返回空串）。 */
-export function defaultOutputProtocol(type: TemplateType, mode: 'batch-once' | 'per-item' = 'batch-once'): string {
-  if (type === 'asset-prompt' && mode === 'per-item') return ASSET_PROMPT_PER_ITEM_PROTOCOL
+// ========== 解析方式（协议与解析器成对注册） ==========
+
+/**
+ * 解析方式档位：**每一档都自带同构的推荐协议**，选了解析方式就等于保证了协议可解析。
+ * 这是「不同模型返回格式不一致」的根本解法——协议与解析器不再各自演进、不会失配。
+ */
+export interface OutputParserSpec {
+  value: PromptOutputParser
+  label: string
+  desc: string
+  /** 该解析方式对应的推荐协议（设置页「填入推荐协议」与系统默认协议同源） */
+  protocol: string
+  /** 单条结果也是「全文回填」，该档不参与批量回填解析 */
+  perItemOnly?: boolean
+}
+
+const ASSET_PROMPT_PARSER_SPECS: OutputParserSpec[] = [
+  {
+    value: 'auto',
+    label: '自动识别（推荐）',
+    desc: '归一化后依次尝试方括号 / 加粗标题 / 行内「名：值」/ 括号 / JSON / 序号，都不成则按条数顺序兜底。换模型最稳，建议保持。',
+    protocol: ASSET_PROMPT_BATCH_PROTOCOL,
+  },
+  {
+    value: 'bracket',
+    label: '【资产名｜状态名】逐条',
+    desc: '只认方括号头部（含 [ ]、**加粗**、### 标题等变体），名字用模糊匹配兜错字。协议必须保留该结构。',
+    protocol: ASSET_PROMPT_BATCH_PROTOCOL,
+  },
+  {
+    value: 'json',
+    label: 'JSON 结构化',
+    desc: '要求模型输出 [{asset, variant, prompt}]，程序按字段取值。结构最稳，但个别模型会拒绝 JSON 或加解释文字（已容忍围栏与前后说明）。',
+    protocol: ASSET_PROMPT_JSON_PROTOCOL,
+  },
+  {
+    value: 'indexed',
+    label: '状态N：提示词',
+    desc: '每条一行并自报序号，靠序号回填。比名字匹配更抗名字漂移，适合模型爱自己编号的情况。',
+    protocol: ASSET_PROMPT_INDEXED_PROTOCOL,
+  },
+  {
+    value: 'sequential',
+    label: '严格顺序（无标记）',
+    desc: '只要每段提示词、不要名字和序号；段落数必须与状态数完全一致，不一致时报错而不是猜。最省 token。',
+    protocol: ASSET_PROMPT_SEQUENTIAL_PROTOCOL,
+  },
+  {
+    value: 'plain',
+    label: '全文直接回填（不解析）',
+    desc: '结果直接取全文写回，仅适用于「逐条发送 / 单条重写」。批量·一次性发送下只能回填一个状态。',
+    protocol: ASSET_PROMPT_PER_ITEM_PROTOCOL,
+    perItemOnly: true,
+  },
+]
+
+/** 取某模板类型的可选解析方式（目前只有资产绘画提示词需要解析回填）。 */
+export function outputParserOptions(type: TemplateType): OutputParserSpec[] {
+  return type === 'asset-prompt' ? ASSET_PROMPT_PARSER_SPECS : []
+}
+
+/** 按解析方式取档位定义。 */
+export function getOutputParserSpec(parser: PromptOutputParser | undefined): OutputParserSpec | undefined {
+  if (!parser) return undefined
+  return ASSET_PROMPT_PARSER_SPECS.find((spec) => spec.value === parser)
+}
+
+/** 取类型默认输出协议（asset-prompt 按发送模式 + 解析方式区分；无默认返回空串）。 */
+export function defaultOutputProtocol(
+  type: TemplateType,
+  mode: 'batch-once' | 'per-item' = 'batch-once',
+  parser: PromptOutputParser = 'auto',
+): string {
+  if (type === 'asset-prompt') {
+    if (mode === 'per-item') return ASSET_PROMPT_PER_ITEM_PROTOCOL
+    const spec = getOutputParserSpec(parser)
+    if (spec) return spec.protocol
+  }
   return OUTPUT_PROTOCOL_DEFAULTS[type] ?? ''
 }
 
 /**
  * 附加输出协议：模板自定义（非空）优先，否则落到类型默认协议。
  * 统一追加标签为【输出要求】。
+ * 注意：自定义协议会**完全替换**默认协议——此时解析方式必须与自定义协议保持一致（设置页会提示）。
  */
-export function applyOutputProtocol(base: string, customProtocol: string | undefined, type: TemplateType, mode: 'batch-once' | 'per-item' = 'batch-once'): string {
+export function applyOutputProtocol(
+  base: string,
+  customProtocol: string | undefined,
+  type: TemplateType,
+  mode: 'batch-once' | 'per-item' = 'batch-once',
+  parser: PromptOutputParser = 'auto',
+): string {
   const custom = customProtocol?.trim()
   if (custom) return `${base}\n\n【输出要求】\n${custom}`
-  const fallback = defaultOutputProtocol(type, mode)
+  const fallback = defaultOutputProtocol(type, mode, parser)
   return fallback ? `${base}\n\n【输出要求】\n${fallback}` : base
 }
 
@@ -498,6 +601,8 @@ export function renderPromptTemplate(options: {
   customProtocol?: string
   /** 资产提示词类型的协议模式（影响默认协议选择），其它类型忽略 */
   protocolMode?: 'batch-once' | 'per-item'
+  /** 资产提示词类型的解析方式（影响默认协议选择），其它类型忽略 */
+  outputParser?: PromptOutputParser
 }): string {
   const specs = getTemplateVariables(options.type)
   let text = normalizeTemplateVariables(options.content, options.type)
@@ -509,5 +614,5 @@ export function renderPromptTemplate(options: {
     text = text.replace(variablePattern(spec.name, 'g'), () => value)
   }
   text = text.replace(/\{\{[^{}]*\}\}/g, '')
-  return applyOutputProtocol(text, options.customProtocol, options.type, options.protocolMode)
+  return applyOutputProtocol(text, options.customProtocol, options.type, options.protocolMode, options.outputParser)
 }

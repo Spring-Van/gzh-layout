@@ -8,10 +8,11 @@
       :placeholder="placeholder"
       @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
     />
+    <span v-if="hint" class="mt-1 block text-xs leading-snug text-text-muted">{{ hint }}</span>
   </label>
 </template>
 
 <script setup lang="ts">
-defineProps<{ modelValue: string; label: string; placeholder?: string }>();
+defineProps<{ modelValue: string; label: string; placeholder?: string; hint?: string }>();
 defineEmits<{ 'update:modelValue': [value: string] }>();
 </script>

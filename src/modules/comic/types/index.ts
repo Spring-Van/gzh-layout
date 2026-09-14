@@ -448,6 +448,12 @@ export interface ModelConfig {
   baseUrl: string
   apiKey: string
   category: ModelCategory
+  /**
+   * 绕过系统代理，强制直连。
+   * 用于本机代理（Clash / v2ray 等）对某个 API 域名线路不通的场景 ——
+   * 那种情况下请求会以 `net::ERR_CONNECTION_CLOSED` 失败，而直连正常。
+   */
+  bypassProxy?: boolean
   aspectRatios?: string
   resolutions?: string
   qualities?: string
@@ -467,6 +473,17 @@ export interface OpenAIImageParams {
 
 export type TemplateType = 'style' | 'extract' | 'story' | 'storyboard' | 'asset-prompt' | 'panel-prompt' | 'analysis' | 'script'
 
+/**
+ * 模型返回的解析方式：与「输出协议」成对使用，模板作者可显式指定，避免协议与解析器失配。
+ * - auto：自动识别（默认）。归一化后依次尝试方括号头 / 标签头 / JSON / 序号，最后按顺序兜底。
+ * - bracket：【资产名｜状态名】提示词（含 [ ]、**加粗**、### 标题等变体）。
+ * - json：[{"asset":"","variant":"","prompt":""}] 或同名对象/映射形状。
+ * - indexed：状态1：提示词 / 1. 提示词 / ① 提示词，按序号回填。
+ * - sequential：无任何标记，段落数严格等于目标数时按清单顺序回填。
+ * - plain：全文直接回填，不解析（单条/逐条场景）。
+ */
+export type PromptOutputParser = 'auto' | 'bracket' | 'json' | 'indexed' | 'sequential' | 'plain'
+
 export interface PromptTemplate {
   id: string
   name: string
@@ -475,6 +492,8 @@ export interface PromptTemplate {
   content: string
   /** 自定义输出协议：拼接时附加在 prompt 末尾的返回要求；留空 = 使用系统默认输出协议（见 promptTemplateRegistry）。 */
   outputProtocol?: string
+  /** 模型返回的解析方式；留空按 auto（自动识别）处理。与 outputProtocol 同源配置，保证协议与解析器不失配。 */
+  outputParser?: PromptOutputParser
   sortOrder: number
   createdAt: number
   updatedAt: number

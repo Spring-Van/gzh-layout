@@ -7,6 +7,8 @@ import { comicDbService } from '../services/comic-database.service';
 import { comicUploadService } from '../services/comic-upload.service';
 import { comicDownloadService } from '../services/comic-download.service';
 import { comicOpenaiProxyService } from '../services/comic-openai-proxy.service';
+import { llmProxyService } from '../services/llm-proxy.service';
+import type { LlmProxyRequest } from '../services/llm-proxy.service';
 
 export function registerComicIpc(): void {
   // ========== 数据库：AppSettings ==========
@@ -162,6 +164,21 @@ export function registerComicIpc(): void {
 
   ipcMain.handle('comic:openaiProxy', (_e, request: any) => {
     return comicOpenaiProxyService.proxy(request);
+  });
+
+  // ========== LLM 转发（绕过渲染进程 CORS 限制） ==========
+
+  ipcMain.handle('comic:llmFetchStart', (event, request: LlmProxyRequest) => {
+    const sender = event.sender;
+    return llmProxyService.start(request, (chunkEvent) => {
+      if (!sender.isDestroyed()) {
+        sender.send('comic:llmFetchEvent', chunkEvent);
+      }
+    });
+  });
+
+  ipcMain.on('comic:llmFetchAbort', (_e, requestId: string) => {
+    llmProxyService.abort(requestId);
   });
 
   // ========== 文件管理 ==========

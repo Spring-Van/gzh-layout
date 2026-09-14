@@ -117,6 +117,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     downloadSingle: (url: string, filename?: string, showInFolder?: boolean) => ipcRenderer.invoke('comic:downloadSingle', url, filename, showInFolder),
     downloadBatch: (request: any) => ipcRenderer.invoke('comic:downloadBatch', request),
     openaiProxy: (request: any) => ipcRenderer.invoke('comic:openaiProxy', request),
+    llm: {
+      fetchStart: (request: any) => ipcRenderer.invoke('comic:llmFetchStart', request),
+      fetchAbort: (requestId: string) => ipcRenderer.send('comic:llmFetchAbort', requestId),
+      onFetchEvent: (callback: (event: any) => void) => {
+        const listener = (_event: any, payload: any) => callback(payload);
+        ipcRenderer.on('comic:llmFetchEvent', listener);
+        return () => ipcRenderer.off('comic:llmFetchEvent', listener);
+      },
+    },
     showInFolder: (filePath: string) => ipcRenderer.invoke('comic:showInFolder', filePath),
   },
 })

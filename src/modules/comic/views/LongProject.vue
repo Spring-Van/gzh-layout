@@ -305,6 +305,37 @@ const hoverChapterFlyout = (event: MouseEvent) => { assetFlyoutRef.value?.close(
 const hoverAssetFlyout = (event: MouseEvent) => { flyoutRef.value?.close(); assetFlyoutRef.value?.triggerEnter(triggerTop(event)); };
 /** 鼠标离开收缩侧栏时，两个浮层都进入延迟收起。 */
 const onRailMouseleave = () => { flyoutRef.value?.triggerLeave(); assetFlyoutRef.value?.triggerLeave(); };
+
+/**
+ * 「记住上次选中的章节／资产分类」的本地存档。
+ * 作用：切到其他菜单 tab 再切回、或关闭页签后重开、乃至重启应用，
+ * 都能回到上次正在编辑的章节（而不是空白）。
+ * 按项目隔离，避免多项目多开时互相覆盖。
+ * 存两类：chapter = 选中的章节 id；asset = 选中的资产分类。
+ */
+const LAST_SELECTION_PREFIX = "comic-long-last-selection:";
+type LastSelection = { chapterId?: string | null; assetCategory?: AssetLibraryCategory | null };
+
+function readLastSelection(): LastSelection {
+  try {
+    const raw = localStorage.getItem(LAST_SELECTION_PREFIX + projectId);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as LastSelection;
+    return typeof parsed === "object" && parsed !== null ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function persistLastSelection(patch: LastSelection) {
+  try {
+    const next = { ...readLastSelection(), ...patch };
+    localStorage.setItem(LAST_SELECTION_PREFIX + projectId, JSON.stringify(next));
+  } catch {
+    /* 存储异常时静默降级为不记忆 */
+  }
+}
+
 const expandedFolders = ref(new Set<string>());
 const selectedChapterId = ref<string | null>(null);
 const selectedAssetCategory = ref<AssetLibraryCategory | null>(null);
@@ -526,12 +557,13 @@ const selectChapter = async (chapter: LongProjectNode) => {
   selectedAssetCategory.value = null;
   selectedChapterId.value = chapter.id;
   draftContent.value = chapter.content ?? "";
+  persistLastSelection({ chapterId: chapter.id, assetCategory: null });
   // 分镜页签内切换章节时保持页签；其余回到本章首个可用页签（剧本起稿章节无原文页签）
   if (activeTab.value !== "storyboard") {
     activeTab.value = chapter.startMode === "script" ? "script" : "source";
   }
 };
-const selectAssetCategory = async (category: AssetLibraryCategory) => { if (isDirty.value) await saveCurrentChapter(false); selectedChapterId.value = null; selectedAssetCategory.value = category; };
+const selectAssetCategory = async (category: AssetLibraryCategory) => { if (isDirty.value) await saveCurrentChapter(false); selectedChapterId.value = null; selectedAssetCategory.value = category; persistLastSelection({ chapterId: null, assetCategory: category }); };
 const openCreateDialog = (type: LongProjectNodeType, parentId: string | null) => { editingNode.value = null; nodeDialogType.value = type; nodeDialogParentId.value = parentId; nodeDialogVisible.value = true; contextMenu.value = null; };
 const openRenameDialog = (node: LongProjectNode) => { editingNode.value = node; nodeDialogType.value = node.type; nodeDialogParentId.value = node.parentId; contextMenu.value = null; nodeDialogVisible.value = true; };
 const openContextMenu = (event: MouseEvent, node: LongProjectNode | null) => {
@@ -573,6 +605,7 @@ const handleNodeDialogSubmit = async ({ name, content, startMode }: { name: stri
     if (newNode.parentId) expandedFolders.value = new Set([...expandedFolders.value, newNode.parentId]);
     selectedChapterId.value = newNode.id;
     draftContent.value = "";
+    persistLastSelection({ chapterId: newNode.id, assetCategory: null });
     // 剧本起稿章节直接落到剧本页签
     activeTab.value = newNode.startMode === "script" ? "script" : "source";
   }
@@ -583,7 +616,7 @@ const confirmDelete = async () => {
   if (!deletingNode.value) return;
   const ids = new Set([deletingNode.value.id]);
   if (deletingNode.value.type === "folder") descendantsOf(deletingNode.value.id).forEach((node) => ids.add(node.id));
-  if (selectedChapterId.value && ids.has(selectedChapterId.value)) { selectedChapterId.value = null; draftContent.value = ""; }
+  if (selectedChapterId.value && ids.has(selectedChapterId.value)) { selectedChapterId.value = null; draftContent.value = ""; persistLastSelection({ chapterId: null }); }
   await persistNodes(nodes.value.filter((node) => !ids.has(node.id))); deletingNode.value = null;
 };
 
@@ -609,6 +642,31 @@ onBeforeUnmount(() => {
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
 });
 
+/**
+ * 恢复上次选中的章节／资产分类（来自本地存档）。
+ * - 章节：仅当该 id 在当前节点中真实存在时才恢复（防已删除/换项目后的悬空 id）；
+ * - 资产分类：无选中章节时按存档恢复；若既无章节也无存档则保持空白。
+ * 进入时同步 draftContent，避免正文区与选中章节错位。
+ */
+function restoreLastSelection() {
+  const saved = readLastSelection();
+  const savedChapterId = saved.chapterId;
+  if (savedChapterId && chapters.value.some((node) => node.id === savedChapterId)) {
+    selectedChapterId.value = savedChapterId;
+    selectedAssetCategory.value = null;
+    draftContent.value = selectedChapter.value?.content ?? "";
+    // 页签落到该章节的首个可用页签（「从剧本开始」的章节没有原文页签）
+    if (activeTab.value !== "storyboard") {
+      activeTab.value = selectedChapter.value?.startMode === "script" ? "script" : "source";
+    }
+    return;
+  }
+  if (saved.assetCategory) {
+    selectedChapterId.value = null;
+    selectedAssetCategory.value = saved.assetCategory;
+  }
+}
+
 onMounted(async () => {
   try {
     await loadProject();
@@ -621,17 +679,21 @@ onMounted(async () => {
     initDefaults(models.value, promptTemplates.value);
     // 异常恢复：页面刚加载时不可能有进行中的文档任务，残留 running 标记为失败
     await recoverInterrupted();
+    // 恢复上次选中的章节／资产分类（关闭页签后重开、重启应用均生效）
+    restoreLastSelection();
   } finally { loading.value = false; }
 });
 
 /**
  * keep-alive 激活（从其他应用页面返回）时重载项目，
  * 合并持久化队列之外可能产生的数据变更（如绘图配置直写）。
+ * 若当前没有选中章节（实例被重建/首次进入），按本地存档恢复上次选中。
  */
 onActivated(async () => {
   if (loading.value) return;
   if (isDirty.value) await saveCurrentChapter(false);
   await loadProject();
+  if (!selectedChapter.value && !selectedAssetCategory.value) restoreLastSelection();
 });
 </script>
 

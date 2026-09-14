@@ -325,6 +325,8 @@ async function saveModel(value: ModelEditorValue) {
     model: value.model,
     baseUrl: value.baseUrl,
     apiKey: value.apiKey,
+    // LLM 专属：绕过系统代理直连（见 ModelConfig.bypassProxy 的说明）
+    ...(category === 'llm' ? { bypassProxy: value.bypassProxy } : {}),
     ...(isImage ? {
       aspectRatios: value.aspectRatios,
       resolutions: value.resolutions,
@@ -366,6 +368,8 @@ async function saveTemplate(value: TemplateEditorValue) {
       description: value.description.trim(),
       content: value.content,
       outputProtocol: LONG_STORY_TEMPLATE_TYPES.includes(value.type) && value.outputProtocol.trim() ? value.outputProtocol.trim() : undefined,
+      // 解析方式只对资产绘画提示词生效（批量·一次性发送才有回填解析）
+      outputParser: value.type === 'asset-prompt' ? value.outputParser : undefined,
       sortOrder: existing.sortOrder,
       createdAt: existing.createdAt,
       updatedAt: now,
@@ -381,6 +385,8 @@ async function saveTemplate(value: TemplateEditorValue) {
       description: value.description.trim(),
       content: value.content,
       outputProtocol: LONG_STORY_TEMPLATE_TYPES.includes(value.type) && value.outputProtocol.trim() ? value.outputProtocol.trim() : undefined,
+      // 解析方式只对资产绘画提示词生效（批量·一次性发送才有回填解析）
+      outputParser: value.type === 'asset-prompt' ? value.outputParser : undefined,
       sortOrder: maxOrder + 1,
       createdAt: now,
       updatedAt: now,

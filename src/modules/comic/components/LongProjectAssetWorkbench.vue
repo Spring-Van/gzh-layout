@@ -76,8 +76,9 @@
       </div>
     </div>
 
-    <!-- 批量提示词弹窗（可选生成范围与发送方式） -->
+    <!-- 批量提示词弹窗（配置 + 提示词区 + 进度条都在同一弹窗内） -->
     <AssetPromptGenerateModal
+      ref="promptModalRef"
       v-model="promptModalVisible"
       :llm-models="llmModels"
       :templates="assetPromptTemplates"
@@ -90,7 +91,10 @@
       allow-send-mode
       :busy="promptBatchBusy"
       :build-prompt="buildPromptPreview"
+      :build-items="buildPromptItems"
       @confirm="runBatchPrompts"
+      @retry="retryFailedPrompts"
+      @save="savePromptResults"
     />
 
     <!-- 单条提示词确认弹窗 -->
@@ -145,13 +149,14 @@
 import { computed, nextTick, reactive, ref, toRaw, watch } from 'vue'
 import { Boxes, LoaderCircle, MapPin, Package, UserRound } from 'lucide-vue-next'
 import AssetVariantCard from './AssetVariantCard.vue'
-import AssetPromptGenerateModal from './AssetPromptGenerateModal.vue'
+import AssetPromptGenerateModal, { type AssetPromptRetryPayload, type AssetPromptRunItem, type AssetPromptRunResult } from './AssetPromptGenerateModal.vue'
 import AssetImageGenDrawer from './AssetImageGenDrawer.vue'
 import AssetImagePreviewModal from './AssetImagePreviewModal.vue'
 import AssetImagePickerModal from './AssetImagePickerModal.vue'
 import { useToast } from '@comic/composables/useToast'
 import { imageGenerationService } from '@comic/services/imageGenerationService'
 import { buildAssetPromptPrompt, buildSingleAssetPrompt, buildStyleContext, generateAssetPrompts, rewriteAssetPrompt, type AssetPromptTarget } from '@comic/services/assetPromptService'
+import { AssetPromptParseError, type AssetPromptParseDiagnostics } from '@comic/services/assetPromptParser'
 import type { AssetGenConfig, LongProjectAsset, LongProjectAssetVariant, ModelConfig, PromptTemplate, SharedPromptBlock } from '@comic/types'
 
 interface Props {
@@ -263,92 +268,295 @@ function buildPromptPreview(template: PromptTemplate, scope?: 'missing' | 'all',
       targetImageModel: currentImageModel.value?.name,
       templateContent: template.content,
       outputProtocol: template.outputProtocol,
+      outputParser: template.outputParser,
     })
   }
-  // 一次性发送：系统需按【资产名｜状态名】逐条解析回填，模板未自定义协议时用系统兜底协议
+  // 一次性发送：协议与解析方式同源（模板未自定义协议时，按解析方式取同构协议）
   return buildAssetPromptPrompt({
     templateContent: template.content,
     targets: targets.map(({ asset, variants }) => ({ asset: toRaw(asset), variants: variants.map(toRaw) })),
     styleContext: styleContext.value,
     targetImageModel: currentImageModel.value?.name,
     outputProtocol: template.outputProtocol,
+    outputParser: template.outputParser,
   })
 }
 
+// ========== 批量提示词：规划 → 执行（弹窗内进度） → 保存回填 ==========
+
+type BatchPromptOptions = { modelId: string; templateId: string; prompt?: string; scope?: 'missing' | 'all'; sendMode?: 'once' | 'per-item' }
+
+/** 批量弹窗实例（用于把逐条执行进度回传到弹窗内的进度视图）。 */
+const promptModalRef = ref<InstanceType<typeof AssetPromptGenerateModal> | null>(null)
+
+/** 一次批量执行的上下文（模型 / 模板 / 目标快照），「重新生成」时复用，避免读到已被改动的默认配置。 */
+type BatchRun = {
+  model: ModelConfig
+  template: PromptTemplate
+  prompt?: string
+  targets: AssetPromptTarget[]
+}
+
 /**
- * 批量提示词生成（弹窗确认后执行）。
- * - 范围：仅补缺失 / 全部重新生成；
- * - 发送方式：一次性（全部状态一份清单一次请求）/ 逐条（每个状态单独请求，失败不中断）。
+ * **按发送方式分别保存**上一次执行上下文。
+ * 两种模式可以各跑一次；若只留一份，在 A 模式跑完、B 模式跑完后再切回 A 点「重新生成」，
+ * 会错用 B 的目标与模型，把提示词发到错误的对象上。
  */
-async function runBatchPrompts(options: { modelId: string; templateId: string; prompt?: string; scope?: 'missing' | 'all'; sendMode?: 'once' | 'per-item' }) {
+const batchRuns: Record<'once' | 'per-item', BatchRun | null> = { once: null, 'per-item': null }
+
+const batchItemKey = (assetId: string, variantId: string) => `${assetId}:${variantId}`
+
+/** 记录单条进度并回传弹窗（无弹窗实例时静默跳过）。 */
+function reportItemProgress(variantId: string, status: 'running' | 'done' | 'failed', payload: { text?: string; error?: string; items?: AssetPromptRunResult[]; diagnostics?: AssetPromptParseDiagnostics } = {}) {
+  promptModalRef.value?.applyProgress({ variantId, status, ...payload })
+}
+
+/**
+ * 逐条模式的条目清单（含每条按模板拼装的初始文本）：供给弹窗展示与逐条修改。
+ * 用户改过的文本会随 confirm 的 perItemPrompts 回传，执行时原样发送。
+ */
+function buildPromptItems(template: PromptTemplate, scope?: 'missing' | 'all'): Array<AssetPromptRunItem & { prompt: string }> {
+  const targets = scope === 'all' ? allPromptTargets.value : promptTargets.value
+  return targets.flatMap(({ asset, variants }) => variants.map((variant) => ({
+    key: batchItemKey(asset.id, variant.id),
+    assetId: asset.id,
+    variantId: variant.id,
+    assetName: asset.name,
+    variantName: variant.name,
+    prompt: buildSingleAssetPrompt({
+      asset: toRaw(asset),
+      variant: toRaw(variant),
+      currentPrompt: variant.imagePrompt,
+      styleContext: styleContext.value,
+      targetImageModel: currentImageModel.value?.name,
+      templateContent: template.content,
+      outputProtocol: template.outputProtocol,
+      outputParser: template.outputParser,
+    }),
+  })))
+}
+
+/** 执行前取模板与模型（两者缺一即中止）。 */
+function resolveBatchContext(options: BatchPromptOptions) {
   const model = props.llmModels.find((m) => m.id === options.modelId)
   const template = assetPromptTemplates.value.find((t) => t.id === options.templateId)
-  if (!model || !template) return
-  const scopeTargets = options.scope === 'all' ? allPromptTargets.value : promptTargets.value
-  if (!scopeTargets.length) {
+  return model && template ? { model, template } : null
+}
+
+/**
+ * 逐条发送：每个视觉状态单独一次请求，失败不中断。
+ * 请求文本优先取用户在弹窗内修改后的 perItemPrompts，缺省回落到按模板拼装。
+ * 进度实时回传弹窗（含每条的最终文本），用户可在弹窗内逐条查看并修改。
+ *
+ * ⚠️ **不在这里落库**：结果只回传给弹窗，等用户核对后点「填充到资产」才统一写回，
+ * 否则会在用户还没审核时就直接覆盖资产里已有的绘画提示词。
+ */
+async function runPerItemPrompts(
+  context: { model: ModelConfig; template: PromptTemplate; targets: AssetPromptTarget[] },
+  userPrompts: Map<string, string>,
+  onlyVariantIds?: Set<string>,
+) {
+  let done = 0
+  let failed = 0
+  for (const { asset, variants } of context.targets) {
+    for (const variant of variants) {
+      if (onlyVariantIds && !onlyVariantIds.has(variant.id)) continue
+      promptBusyIds.add(variant.id)
+      reportItemProgress(variant.id, 'running')
+      try {
+        const prompt = userPrompts.get(variant.id) || buildSingleAssetPrompt({
+          asset: toRaw(asset),
+          variant: toRaw(variant),
+          currentPrompt: variant.imagePrompt,
+          styleContext: styleContext.value,
+          targetImageModel: currentImageModel.value?.name,
+          templateContent: context.template.content,
+          outputProtocol: context.template.outputProtocol,
+          outputParser: context.template.outputParser,
+        })
+        const imagePrompt = await rewriteAssetPrompt({ model: context.model, asset: toRaw(asset), variant: toRaw(variant), prompt })
+        reportItemProgress(variant.id, 'done', { text: imagePrompt })
+        done += 1
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '生成失败'
+        reportItemProgress(variant.id, 'failed', { error: message })
+        console.error(`[资产提示词] ${asset.name}·${variant.name} 逐条生成失败:`, error)
+        failed += 1
+      } finally {
+        promptBusyIds.delete(variant.id)
+      }
+    }
+  }
+  return { done, failed }
+}
+
+/**
+ * 生成提示词（弹窗内确认后执行，弹窗保持打开，进度显示在弹窗文本框下方）。
+ * - 范围：仅补缺失 / 全部重新生成；
+ * - 发送方式：一次性（全部状态一份清单一次请求）/ 逐条（每个状态单独请求，失败不中断，文本取弹窗内已修改的每条）；
+ * - **两种方式都不自动落库**：结果只回传到弹窗，等用户核对后点「填充到资产」才回填（见 savePromptResults）。
+ */
+async function runBatchPrompts(options: BatchPromptOptions & { perItemPrompts?: Array<{ variantId: string; prompt: string }> }) {
+  const context = resolveBatchContext(options)
+  if (!context) return
+  const sendMode = options.sendMode === 'per-item' ? 'per-item' : 'once'
+  const targets = options.scope === 'all' ? allPromptTargets.value : promptTargets.value
+  if (!targets.length) {
     toast.error(options.scope === 'all' ? '本章暂无视觉状态' : '所有状态都已有提示词，可切换为「全部重新生成」')
+    batchRuns[sendMode] = null
     return
   }
-  // 确认后立即关闭弹窗，生成进度由各状态卡片「生成中…」体现
-  promptModalVisible.value = false
+  batchRuns[sendMode] = { model: context.model, template: context.template, prompt: options.prompt, targets }
   promptBatchBusy.value = true
-  scopeTargets.forEach(({ variants }) => variants.forEach((v) => promptBusyIds.add(v.id)))
   try {
-    if (options.sendMode === 'per-item') {
-      // 逐条发送：每个视觉状态单独一次请求，失败记录后继续下一条
-      let done = 0
-      let failed = 0
-      for (const { asset, variants } of scopeTargets) {
-        for (const variant of variants) {
-          try {
-            const prompt = buildSingleAssetPrompt({
-              asset: toRaw(asset),
-              variant: toRaw(variant),
-              currentPrompt: variant.imagePrompt,
-              styleContext: styleContext.value,
-              targetImageModel: currentImageModel.value?.name,
-              templateContent: template.content,
-              outputProtocol: template.outputProtocol,
-            })
-            const imagePrompt = await rewriteAssetPrompt({ model, asset: toRaw(asset), variant: toRaw(variant), prompt })
-            emit('update:asset', { assetId: asset.id, variantId: variant.id, patch: { imagePrompt } })
-            done += 1
-          } catch (error) {
-            failed += 1
-            console.error(`[资产提示词] ${asset.name}·${variant.name} 逐条生成失败:`, error)
-          } finally {
-            promptBusyIds.delete(variant.id)
-          }
-        }
-      }
+    if (sendMode === 'per-item') {
+      const userPrompts = new Map((options.perItemPrompts ?? []).map((item) => [item.variantId, item.prompt]))
+      const { done, failed } = await runPerItemPrompts({ ...context, targets }, userPrompts)
+      // 结果只留在弹窗内，等用户核对后点「填充到资产」才写回（避免直接覆盖已有提示词）
       emit('prompt-completed')
-      emit('update:gen-config', { ...(props.assetGenConfig ?? defaultGenConfig()), promptModelId: options.modelId, promptTemplateId: options.templateId })
-      toast[failed ? 'warning' : 'success'](`逐条发送完成：成功 ${done}，失败 ${failed}`)
+      saveGenConfigSelection(options)
+      toast[failed ? 'warning' : 'success'](`逐条发送完成：成功 ${done}，失败 ${failed}，请核对后点「填充到资产」`)
     } else {
-      // 一次性发送：全部状态一份清单，一次请求返回全部
-      const targets = scopeTargets.map(({ asset, variants }) => ({ asset: toRaw(asset), variants: variants.map(toRaw) }))
-      const result = await generateAssetPrompts({
-        model,
-        template,
-        targets,
-        styleContext: styleContext.value,
-        targetImageModel: currentImageModel.value?.name,
-        prompt: options.prompt,
-      })
-      for (const item of result.items) {
-        emit('update:asset', { assetId: item.assetId, variantId: item.variantId, patch: { imagePrompt: item.imagePrompt } })
+      // 一次性发送：全部状态一份清单，一次请求返回全部；完成后展开为逐条可编辑结果
+      reportItemProgress('batch-once', 'running')
+      const sendTargets = targets.map(({ asset, variants }) => ({ asset: toRaw(asset), variants: variants.map(toRaw) }))
+      try {
+        const result = await generateAssetPrompts({
+          model: context.model,
+          template: context.template,
+          targets: sendTargets,
+          styleContext: styleContext.value,
+          targetImageModel: currentImageModel.value?.name,
+          prompt: options.prompt,
+        })
+        reportItemProgress('batch-once', 'done', {
+          items: result.items.map((item) => ({
+            assetId: item.assetId,
+            variantId: item.variantId,
+            assetName: item.assetName,
+            variantName: item.variantName,
+            imagePrompt: item.imagePrompt,
+            // 非精确命中（模糊匹配 / 顺序兜底）在弹窗里标出来，提醒用户核对归属
+            match: item.match,
+          })),
+        })
+        // 结果只留在弹窗内，等用户核对后点「填充到资产」才写回
+        emit('prompt-completed')
+        saveGenConfigSelection(options)
+        // 解析只命中部分状态时明确告警（弹窗进度区也会列出缺失项）
+        const expected = targets.reduce((count, item) => count + item.variants.length, 0)
+        if (result.items.length < expected) {
+          toast.warning(`已生成 ${result.items.length} 条，有 ${expected - result.items.length} 个状态未返回（已在弹窗内标出，可重发或单条 AI 重写）`)
+        } else {
+          toast.success(`已生成 ${result.items.length} 条提示词，请核对后点「填充到资产」写回`)
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '提示词生成失败'
+        // 解析类失败带上诊断（停在那一层 / 期望条数 / 模型原始返回），供弹窗展示与人工核对
+        reportItemProgress('batch-once', 'failed', {
+          error: message,
+          diagnostics: error instanceof AssetPromptParseError ? error.diagnostics : undefined,
+        })
+        toast.error(message)
       }
-      emit('prompt-completed')
-      emit('update:gen-config', { ...(props.assetGenConfig ?? defaultGenConfig()), promptModelId: options.modelId, promptTemplateId: options.templateId })
-      toast.success(`已生成 ${result.items.length} 条提示词`)
     }
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : '提示词生成失败')
   } finally {
     promptBusyIds.clear()
     promptBatchBusy.value = false
-    promptModalVisible.value = false
   }
+}
+
+/**
+ * 重新生成：把弹窗输入框的**当前内容**重新发给大模型。
+ * **发送内容一律取弹窗输入框的当前值**（用户改了提示词就按改后的发），不回落到首次发送时的原文。
+ * - 逐条发送：按 `payload.scope` 决定「仅重跑失败/未完成项」还是「整批重跑」；
+ * - 一次性发送：单次请求无法只补几条，按原范围整批重发。
+ * 模式以弹窗回传的 `payload.sendMode` 为准，避免两种模式各跑过一次后错用另一种的上下文。
+ */
+async function retryFailedPrompts(payload?: AssetPromptRetryPayload) {
+  if (promptBatchBusy.value) return
+  const mode = payload?.sendMode ?? 'once'
+  const run = batchRuns[mode]
+  if (!run) { toast.error('未找到上次的执行配置，请重新配置模型与模板后生成'); return }
+  const modalItems = promptModalRef.value?.items ?? []
+  const failedVariants = modalItems.filter((item) => item.status === 'failed' || item.status === 'pending')
+  // 逐条：scope === 'failed' 时只重跑失败/未完成项；'all'（或没传）则整批重跑
+  const targetIds = mode === 'per-item' && payload?.scope !== 'all' && failedVariants.length
+    ? new Set(failedVariants.map((item) => item.variantId))
+    : undefined
+  promptBatchBusy.value = true
+  try {
+    if (mode === 'per-item') {
+      // 用弹窗回传的当前文本（含用户修改）；缺失时回落到弹窗内该条文本
+      const userPrompts = new Map(
+        (payload?.perItemPrompts ?? modalItems.map((item) => ({ variantId: item.variantId, prompt: item.text })))
+          .map((item) => [item.variantId, item.prompt]),
+      )
+      const { done, failed } = await runPerItemPrompts(run, userPrompts, targetIds)
+      toast[failed ? 'warning' : 'success'](`重新生成完成：成功 ${done}，失败 ${failed}`)
+    } else {
+      // 一次性发送：按原范围整批重跑，发送内容取输入框当前文本
+      reportItemProgress('batch-once', 'running')
+      try {
+        const result = await generateAssetPrompts({
+          model: run.model,
+          template: run.template,
+          targets: run.targets.map(({ asset, variants }) => ({ asset: toRaw(asset), variants: variants.map(toRaw) })),
+          styleContext: styleContext.value,
+          targetImageModel: currentImageModel.value?.name,
+          prompt: payload?.prompt ?? run.prompt,
+        })
+        reportItemProgress('batch-once', 'done', {
+          items: result.items.map((item) => ({
+            assetId: item.assetId,
+            variantId: item.variantId,
+            assetName: item.assetName,
+            variantName: item.variantName,
+            imagePrompt: item.imagePrompt,
+            // 非精确命中（模糊匹配 / 顺序兜底）在弹窗里标出来，提醒用户核对归属
+            match: item.match,
+          })),
+        })
+        const expected = run.targets.reduce((count, item) => count + item.variants.length, 0)
+        if (result.items.length < expected) {
+          toast.warning(`已生成 ${result.items.length} 条，有 ${expected - result.items.length} 个状态未返回（已在弹窗内标出）`)
+        } else {
+          toast.success(`已生成 ${result.items.length} 条提示词，请核对后点「填充到资产」写回`)
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '提示词生成失败'
+        // 解析类失败带上诊断（停在那一层 / 期望条数 / 模型原始返回），供弹窗展示与人工核对
+        reportItemProgress('batch-once', 'failed', {
+          error: message,
+          diagnostics: error instanceof AssetPromptParseError ? error.diagnostics : undefined,
+        })
+        toast.error(message)
+      }
+    }
+  } finally {
+    promptBatchBusy.value = false
+  }
+}
+
+/**
+ * 填充到资产：把弹窗内（可能被用户修改过的）生成结果逐条回填到视觉状态。
+ * **只回填模型产出（含用户在结果视图里的修改）**，绝不拿模板拼装文本顶替；
+ * 回填后**不关闭弹窗**（弹窗侧会切到「已填充」态），用户可以继续核对、重新生成或手动关闭。
+ */
+function savePromptResults(results: AssetPromptRunResult[]) {
+  let filled = 0
+  for (const result of results) {
+    if (!result.assetId || !result.variantId || result.variantId === 'batch-once') continue
+    emit('update:asset', { assetId: result.assetId, variantId: result.variantId, patch: { imagePrompt: result.imagePrompt } })
+    filled += 1
+  }
+  emit('prompt-completed')
+  if (filled) toast.success(`已填充 ${filled} 条提示词到资产`)
+}
+
+/** 持久化本次使用的模型/模板为项目默认。 */
+function saveGenConfigSelection(options: BatchPromptOptions) {
+  emit('update:gen-config', { ...(props.assetGenConfig ?? defaultGenConfig()), promptModelId: options.modelId, promptTemplateId: options.templateId })
 }
 
 // ========== 单条提示词（确认弹窗） ==========
@@ -374,6 +582,7 @@ function buildRewritePreview(template: PromptTemplate): string {
     targetImageModel: currentImageModel.value?.name,
     templateContent: template.content,
     outputProtocol: template.outputProtocol,
+    outputParser: template.outputParser,
   })
 }
 

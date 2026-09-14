@@ -1,11 +1,21 @@
 import { v4 as uuidv4 } from 'uuid'
 import { llmService } from './llmService'
 import { defaultTemplateContent, renderPromptTemplate } from './promptTemplateRegistry'
+import {
+  AssetPromptParseError,
+  describeParseFailure,
+  parseAssetPromptResponse,
+  targetKey,
+  type AssetPromptParseItem,
+  type AssetPromptTargetIndex,
+  type AssetPromptTargetRef,
+} from './assetPromptParser'
 import type {
   AssetPromptRun,
   LongProjectAsset,
   LongProjectAssetVariant,
   ModelConfig,
+  PromptOutputParser,
   PromptTemplate,
   SharedPromptBlock,
 } from '@comic/types'
@@ -16,14 +26,8 @@ export interface AssetPromptTarget {
   variants: LongProjectAssetVariant[]
 }
 
-/** 单条解析结果：视觉状态 → 生成的绘画提示词。 */
-export interface AssetPromptResultItem {
-  assetId: string
-  variantId: string
-  assetName: string
-  variantName: string
-  imagePrompt: string
-}
+/** 单条解析结果：视觉状态 → 生成的绘画提示词（match 标记命中方式，非精确命中时 UI 会提示核对）。 */
+export type AssetPromptResultItem = AssetPromptParseItem
 
 export interface AssetPromptGenerationResult {
   rawResponse: string
@@ -36,7 +40,8 @@ const typeLabel: Record<string, string> = { character: '人物', scene: '场景'
  * 拼装最终提示词（批量·一次性发送）：模板 + 状态清单 + 风格上下文。
  * 变量：{{状态清单}} / {{风格上下文}} / {{目标生图模型}}；是否进入提示词完全由模板决定（无自动追加兜底）。
  * 未选/未配模板时用内置默认模板（与推荐模板同源，自带全部变量）。
- * 输出协议：模板自定义 outputProtocol 优先，未自定义使用批量可解析默认协议（保证结果可解析回填）。
+ * 输出协议：模板自定义 outputProtocol 优先；未自定义时按 **解析方式 outputParser** 取同构协议
+ * （协议与解析器成对注册，见 promptTemplateRegistry 的 ASSET_PROMPT_PARSER_SPECS），保证结果可解析回填。
  */
 export function buildAssetPromptPrompt(options: {
   templateContent: string
@@ -44,6 +49,7 @@ export function buildAssetPromptPrompt(options: {
   styleContext?: string
   targetImageModel?: string
   outputProtocol?: string
+  outputParser?: PromptOutputParser
 }): string {
   const { text } = buildTargetList(options.targets)
   return renderPromptTemplate({
@@ -56,23 +62,27 @@ export function buildAssetPromptPrompt(options: {
     },
     customProtocol: options.outputProtocol,
     protocolMode: 'batch-once',
+    outputParser: options.outputParser,
   })
 }
 
 /**
  * 拼装视觉状态清单文本（发模型用）。
  * 每个状态同时登记两种定位键：序号 + 「资产名##状态名」；模型按名字回写，解析时优先按名字定位。
+ * 同时返回按清单顺序排列的 `ordered`——顺序兜底（模型只给裸提示词时）依赖它。
  */
-function buildTargetList(targets: AssetPromptTarget[]): { text: string; index: Map<string, { assetId: string; variantId: string; assetName: string; variantName: string }> } {
-  const index = new Map<string, { assetId: string; variantId: string; assetName: string; variantName: string }>()
+function buildTargetList(targets: AssetPromptTarget[]): { text: string; index: AssetPromptTargetIndex; ordered: AssetPromptTargetRef[] } {
+  const index: AssetPromptTargetIndex = new Map()
+  const ordered: AssetPromptTargetRef[] = []
   const lines: string[] = []
   let counter = 0
   for (const { asset, variants } of targets) {
     for (const variant of variants) {
       counter += 1
-      const entry = { assetId: asset.id, variantId: variant.id, assetName: asset.name, variantName: variant.name }
+      const entry: AssetPromptTargetRef = { assetId: asset.id, variantId: variant.id, assetName: asset.name, variantName: variant.name }
       index.set(String(counter), entry)
       index.set(targetKey(asset.name, variant.name), entry)
+      ordered.push(entry)
       const attrs = Object.entries(asset.attributes ?? {})
         .slice(0, 8)
         .map(([k, v]) => `${k}：${Array.isArray(v) ? v.join('、') : v}`)
@@ -84,12 +94,7 @@ function buildTargetList(targets: AssetPromptTarget[]): { text: string; index: M
       )
     }
   }
-  return { text: lines.join('\n'), index }
-}
-
-/** 名字定位键：去除空白并统一常见分隔符，容忍模型输出中的全角/半角差异。 */
-function targetKey(assetName: string, variantName: string): string {
-  return `${assetName}##${variantName}`.replace(/\s+/g, '').replace(/[｜|｜/／、,，:：]/g, '|')
+  return { text: lines.join('\n'), index, ordered }
 }
 
 /** 从共用块提取风格上下文（描述部分，不含参考图——参考图只参与生图）。 */
@@ -104,50 +109,11 @@ export function buildStyleContext(sharedBlocks: SharedPromptBlock[] = [], painti
   return parts.join('\n')
 }
 
-/** 从模型返回中解析提示词：优先按「资产名｜状态名」定位，序号协议作兜底。 */
-export function parseAssetPromptResponse(content: string, index: Map<string, { assetId: string; variantId: string; assetName: string; variantName: string }>): AssetPromptResultItem[] {
-  const items: AssetPromptResultItem[] = []
-  const seen = new Set<string>()
-
-  const push = (target: { assetId: string; variantId: string; assetName: string; variantName: string } | undefined, raw: string) => {
-    if (!target || seen.has(target.variantId)) return
-    const prompt = raw.replace(/\r/g, '').split('\n').map((line) => line.trim()).filter(Boolean).join(' ').trim()
-    if (!prompt) return
-    seen.add(target.variantId)
-    items.push({ ...target, imagePrompt: prompt })
-  }
-
-  // 1. 名字协议（括号形式）：定位所有【资产名｜状态名】头，取头到下一个头之间的文本作为提示词
-  const headers: Array<{ end: number; target: { assetId: string; variantId: string; assetName: string; variantName: string } | undefined }> = []
-  for (const match of content.matchAll(/【\s*([^【】｜|｜\n]{1,40}?)\s*[｜|｜/／-]\s*([^【】｜|｜\n：:]{1,40}?)\s*】/g)) {
-    headers.push({ end: (match.index ?? 0) + match[0].length, target: index.get(targetKey(match[1], match[2])) })
-  }
-  headers.forEach((header, i) => {
-    const next = headers[i + 1]
-    // 下一个头之前还有一次定位：回退找下一个【 的位置，避免把下一个头之前的内容误吞
-    const sliceEnd = next ? content.lastIndexOf('【', next.end) : content.length
-    push(header.target, content.slice(header.end, sliceEnd > header.end ? sliceEnd : content.length))
-  })
-
-  // 2. 名字协议（行首无括号形式）：资产名｜状态名：提示词（整行）
-  if (!items.length) {
-    for (const match of content.matchAll(/^[-*]?\s*([^\n：:【」「｜|｜]{1,40}?)\s*[｜|｜/／-]\s*([^\n：:【」「｜|｜]{1,40}?)\s*[：:]\s*(.+)$/gm)) {
-      push(index.get(targetKey(match[1], match[2])), match[3])
-    }
-  }
-
-  // 3. 都没命中时，回退到“状态N”序号协议
-  if (!items.length) {
-    for (const match of content.matchAll(/状态\s*(\d+)\s*[：:]\s*([\s\S]*?)(?=\n[-*]?\s*状态\s*\d+\s*[：:]|$)/g)) {
-      push(index.get(match[1]), match[2])
-    }
-  }
-  return items
-}
-
 /**
  * 批量生成资产绘画提示词：一次 LLM 调用覆盖整章目标。
  * 返回逐条结果，由调用方回填到 variant.imagePrompt。
+ * 解析走多层容错管线（见 assetPromptParser）：完全无命中时抛出带诊断的错误，
+ * 由 UI 展示「停在哪一层 / 模型原始返回」，用户不必盲猜重试。
  */
 export async function generateAssetPrompts(options: {
   model: ModelConfig
@@ -157,7 +123,7 @@ export async function generateAssetPrompts(options: {
   targetImageModel?: string
   prompt?: string
 }): Promise<AssetPromptGenerationResult> {
-  const { text, index } = buildTargetList(options.targets)
+  const { text, index, ordered } = buildTargetList(options.targets)
   if (!text) throw new Error('没有需要生成提示词的视觉状态')
   const prompt = options.prompt ?? buildAssetPromptPrompt({
     templateContent: options.template.content,
@@ -165,17 +131,16 @@ export async function generateAssetPrompts(options: {
     styleContext: options.styleContext,
     targetImageModel: options.targetImageModel,
     outputProtocol: options.template.outputProtocol,
+    outputParser: options.template.outputParser,
   })
   const result = await llmService.call({ modelConfig: options.model, userMessage: prompt })
   if (!result.success || !result.content) throw new Error(result.error || '模型没有返回内容')
-  const items = parseAssetPromptResponse(result.content, index)
-  if (!items.length) {
-    throw new Error(
-      options.template.outputProtocol?.trim()
-        ? '模型返回无法解析回填：自定义输出协议与解析格式不匹配。建议在模板输出协议中使用「【资产名｜状态名】提示词」逐条格式，或改用逐条发送。'
-        : '模型返回中没有可识别的状态提示词，请检查模板或重试',
-    )
-  }
+  const { items, diagnostics } = parseAssetPromptResponse(result.content, {
+    index,
+    ordered,
+    parser: options.template.outputParser,
+  })
+  if (!items.length) throw new AssetPromptParseError(describeParseFailure(diagnostics), diagnostics)
   return { rawResponse: result.content, items }
 }
 
@@ -195,6 +160,8 @@ export function buildSingleAssetPrompt(options: {
   instruction?: string
   templateContent?: string
   outputProtocol?: string
+  /** 解析方式（逐条路径恒为全文回填，此处仅用于与批量路径保持配置一致） */
+  outputParser?: PromptOutputParser
   /** 目标生图模型名（逐条路径与批量路径对齐） */
   targetImageModel?: string
 }): string {
@@ -215,6 +182,7 @@ export function buildSingleAssetPrompt(options: {
       },
       customProtocol: options.outputProtocol,
       protocolMode: 'per-item',
+      outputParser: options.outputParser,
     })
   }
   return `请为以下漫画资产的视觉状态重写一段可直接用于生图的中文绘画提示词。
