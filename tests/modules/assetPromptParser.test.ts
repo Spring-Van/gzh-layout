@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  extractSinglePromptText,
   normalizeModelOutput,
   parseAssetPromptResponse,
   targetKey,
@@ -7,7 +8,7 @@ import {
 } from '../../src/modules/comic/services/assetPromptParser';
 
 /** 构造解析上下文（与 assetPromptService.buildTargetList 同构）。 */
-function makeContext(entries: Array<[string, string]>, parser?: AssetPromptParseContext['parser']): AssetPromptParseContext {
+function makeContext(entries: Array<[string, string]>): AssetPromptParseContext {
   const ordered = entries.map(([assetName, variantName], index) => ({
     assetId: `asset-${index}`,
     variantId: `variant-${index}`,
@@ -19,7 +20,7 @@ function makeContext(entries: Array<[string, string]>, parser?: AssetPromptParse
     index.set(String(i + 1), ref);
     index.set(targetKey(ref.assetName, ref.variantName), ref);
   });
-  return { index, ordered, parser };
+  return { index, ordered };
 }
 
 const twoTargets: Array<[string, string]> = [['小明', '少年期'], ['小巷', '雨夜']];
@@ -180,27 +181,25 @@ describe('资产提示词回填解析（多层容错）', () => {
     expect(diagnostics.missing).toEqual(['小明｜少年期', '小巷｜雨夜']);
   });
 
-  it('⑫ 显式解析方式：bracket 档不认序号，json 档不认纯文本，plain 档全文回填单条', () => {
-    const bracketOnly = parseAssetPromptResponse('状态1：黑色短发少年。', makeContext([['小明', '少年期']], 'bracket'));
-    expect(bracketOnly.items).toHaveLength(0);
-    expect(bracketOnly.diagnostics.stage).toBe('bracket');
-
-    const jsonOnly = parseAssetPromptResponse('【小明｜少年期】黑色短发少年。', makeContext([['小明', '少年期']], 'json'));
-    expect(jsonOnly.items).toHaveLength(0);
-    expect(jsonOnly.diagnostics.stage).toBe('json');
-
-    const plain = parseAssetPromptResponse('黑色短发少年，校服湿透。', makeContext([['小明', '少年期']], 'plain'));
-    expect(plain.items).toHaveLength(1);
-    expect(plain.items[0].imagePrompt).toBe('黑色短发少年，校服湿透。');
+  it('⑫ 单条回填（逐条发送 / 单条重写）：与批量同格式，命中即取正文；只给裸文本时退化为整段正文', () => {
+    const ref = { assetId: 'asset-0', variantId: 'variant-0', assetName: '小明', variantName: '少年期' };
+    expect(extractSinglePromptText('【小明｜少年期】黑色短发少年，校服湿透。', ref)).toBe('黑色短发少年，校服湿透。');
+    // 模型加了客套前言也不影响（逐条场景不存在错配风险，宁可原样收下）
+    expect(extractSinglePromptText('好的，这是重写后的提示词：\n\n黑色短发少年，校服湿透。', ref)).toBe('黑色短发少年，校服湿透。');
+    // 名字漂移（状态名少字）仍能按模糊匹配取到那一条
+    expect(extractSinglePromptText('【小明｜少年】黑色短发少年。', ref)).toBe('黑色短发少年。');
   });
 
-  it('⑬ sequential 档：段数不等时报错而非错配', () => {
-    const ok = parseAssetPromptResponse('第一段提示词。\n\n第二段提示词。', makeContext(twoTargets, 'sequential'));
-    expect(ok.items).toHaveLength(2);
+  it('⑬ 无档位：模型换其它形态（JSON）也能救回；全部不识别时停在 none', () => {
+    const jsonLike = parseAssetPromptResponse(
+      '[{"asset":"小明","variant":"少年期","prompt":"黑色短发少年。"}]',
+      makeContext([['小明', '少年期']]),
+    );
+    expect(jsonLike.items).toHaveLength(1);
 
-    const bad = parseAssetPromptResponse('只有一段提示词。', makeContext(twoTargets, 'sequential'));
-    expect(bad.items).toHaveLength(0);
-    expect(bad.diagnostics.stage).toBe('order');
+    const nothing = parseAssetPromptResponse('抱歉，我无法完成这个请求。', makeContext(twoTargets));
+    expect(nothing.items).toHaveLength(0);
+    expect(nothing.diagnostics.stage).toBe('none');
   });
 
   it('⑭ 未注册的目标不会被误填，缺失项在诊断里列全', () => {

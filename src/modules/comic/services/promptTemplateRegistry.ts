@@ -1,4 +1,4 @@
-import type { PromptOutputParser, TemplateType } from '@comic/types'
+import type { TemplateType } from '@comic/types'
 
 /**
  * 提示词模板注册表（单一事实来源）：
@@ -163,39 +163,31 @@ export function getTemplateVariables(type: TemplateType): PromptVariableSpec[] {
   return VARIABLE_REGISTRY[type] ?? []
 }
 
-// ========== 输出协议 ==========
+// ========== 返回格式说明（内联进模板内容，不再由系统注入） ==========
 
-/** 资产提示词「批量·一次性发送」的默认协议：与解析回填格式同构，保证结果可程序解析。 */
-export const ASSET_PROMPT_BATCH_PROTOCOL = `只输出中文，不要解释、不要代码块。
-逐条输出，每条格式为：【资产名｜状态名】绘画提示词内容（一段完整可直接用于生图的描述，包含外观、服饰/材质、姿态或氛围、画风要求；不写镜头语言，不要分点）。
-资产名与状态名必须与清单中的完全一致、一字不差，不要遗漏任何状态、不要新增。提示词只基于清单给定信息与风格上下文，不要编造与原文冲突的细节。`
+/**
+ * **全链路统一返回格式：Markdown**（不要 JSON、不要代码块）。
+ *
+ * 格式说明**直接写在各类型模板的默认内容里**（见下方 RECOMMENDED_TEMPLATES），
+ * 渲染时不再另外追加协议段 —— **模板内容就是唯一的提示词来源**。
+ * 代价是用户若改掉内容里的格式约定就可能改坏解析，因此设置页对「结果会被解析」的环节
+ * 在底部给一行提示：这些环节的结果按 Markdown 结构解析。
+ *
+ * 本常量保留两个用途：
+ * 1. 内联进推荐模板内容（withFormatSpec）；
+ * 2. 分镜「页面 AI 优化」等系统自查提示词复用同一份格式文本，避免两处描述不一致。
+ */
 
-/** 资产提示词「逐条发送 / 单条重写」的默认协议：结果直接取全文回填，无需解析。 */
-export const ASSET_PROMPT_PER_ITEM_PROTOCOL = `只输出一段完整的中文提示词正文，不要任何前缀、解释或分点。包含外观、服饰/材质、姿态或氛围、画风要求；不写镜头语言；不编造与给定信息冲突的细节。`
+/** 资产绘画提示词的返回格式说明：Markdown 逐条「【资产名｜状态名】+ 提示词正文」。 */
+export const ASSET_PROMPT_FORMAT = `只输出中文 Markdown，不要解释、不要代码块、不要 JSON。
+清单里的每个状态各输出一条，格式固定为：
+【资产名｜状态名】
+提示词正文
 
-/** 资产提示词「JSON 结构化」协议：解析走 extractJson，字段名固定，不受模型排版习惯影响。 */
-export const ASSET_PROMPT_JSON_PROTOCOL = `只输出一个 JSON 数组，不要解释、不要代码块标记。
-数组每个元素是一个对象，字段固定为 asset（资产名）、variant（状态名）、prompt（绘画提示词正文）。
-asset 与 variant 必须与清单中的资产名、状态名完全一致、一字不差，不要遗漏任何状态、不要新增。
-prompt 为一段完整可直接用于生图的中文描述，包含外观、服饰/材质、姿态或氛围、画风要求；不写镜头语言，不要分点。
-只基于清单给定信息与风格上下文，不要编造与原文冲突的细节。
-示例：[{"asset":"角色名","variant":"状态名","prompt":"一段完整的中文绘画提示词"}]`
+「资产名｜状态名」必须与清单中的完全一致、一字不差；不要遗漏任何状态、不要新增、不要打乱顺序。`
 
-/** 资产提示词「序号行」协议：每条一行、按清单序号自报家门，比名字匹配更抗漂移。 */
-export const ASSET_PROMPT_INDEXED_PROTOCOL = `只输出中文，不要解释、不要代码块。
-按清单中的状态序号逐条输出，每条单独一行，格式为：状态N：绘画提示词内容（N 为清单里的序号，必须一一对应、不重不漏）。
-每条为一段完整可直接用于生图的中文描述，包含外观、服饰/材质、姿态或氛围、画风要求；不写镜头语言，不要分点。
-只基于清单给定信息与风格上下文，不要编造与原文冲突的细节。`
-
-/** 资产提示词「严格顺序（无标记）」协议：最省 token、最不容易被模型抄错名，靠段数对齐回填。 */
-export const ASSET_PROMPT_SEQUENTIAL_PROTOCOL = `只输出中文，不要解释、不要代码块、不要任何前后缀。
-按清单顺序逐条输出，每条一个自然段，段与段之间空一行；不要写资产名、状态名或序号。
-第 1 段对应清单第 1 个状态，第 2 段对应第 2 个，依此类推，段数必须与清单状态数完全一致。
-每段为一段完整可直接用于生图的中文描述，包含外观、服饰/材质、姿态或氛围、画风要求；不写镜头语言，不要分点。
-只基于清单给定信息与风格上下文，不要编造与原文冲突的细节。`
-
-/** 各类型默认输出协议（模板未自定义时使用；设置页「填入推荐协议」按钮同源）。 */
-export const OUTPUT_PROTOCOL_DEFAULTS: Partial<Record<TemplateType, string>> = {
+/** 各类型的结果结构说明（Markdown）：程序按它解析，因此默认模板内容必须带上。 */
+export const OUTPUT_FORMAT_SPECS: Partial<Record<TemplateType, string>> = {
   analysis: `只输出中文 Markdown，不要解释、代码块或 JSON。用 ## 小节标题组织（如 ## 人物、## 场景、## 道具、## 事件与时间线、## 人物关系、## 对白、## 情绪、## 重要视觉信息），每条信息写为「- 名称：描述」列表项。`,
   script: `只输出中文 Markdown，不要解释、代码块或 JSON。用 ## 场景 N 组织每个剧本场景，场景内用「- 属性名：内容」列表项写明场景、剧情、人物、动作、情绪、对白与剧情目的。`,
   storyboard: `只输出中文 Markdown，不要解释、代码块或 JSON。
@@ -222,107 +214,19 @@ export const OUTPUT_PROTOCOL_DEFAULTS: Partial<Record<TemplateType, string>> = {
 只基于原文明确内容，不要编造。
 判断资产价值：在章节原文中反复出现、或承载关键剧情/镜头重点的应提取；只出现一次且无辨识要求的不要提取。
 资产已存在且本章外观未变化时，视觉状态名必须与已有状态名完全一致；仅当原文出现明确外观变化时才新建视觉状态。`,
-  'asset-prompt': ASSET_PROMPT_BATCH_PROTOCOL,
-  'panel-prompt': `只输出一段完整、连贯的中文画面描述，不要解释、分点、对白或旁白。`,
+  'asset-prompt': ASSET_PROMPT_FORMAT,
+  'panel-prompt': `只输出一段完整、连贯的中文 Markdown 文本，不要解释、代码块或 JSON，不要分点、对白或旁白。`,
 }
 
-// ========== 解析方式（协议与解析器成对注册） ==========
-
-/**
- * 解析方式档位：**每一档都自带同构的推荐协议**，选了解析方式就等于保证了协议可解析。
- * 这是「不同模型返回格式不一致」的根本解法——协议与解析器不再各自演进、不会失配。
- */
-export interface OutputParserSpec {
-  value: PromptOutputParser
-  label: string
-  desc: string
-  /** 该解析方式对应的推荐协议（设置页「填入推荐协议」与系统默认协议同源） */
-  protocol: string
-  /** 单条结果也是「全文回填」，该档不参与批量回填解析 */
-  perItemOnly?: boolean
+/** 取类型的结果结构说明（该环节不需要固定结构时返回空串）。 */
+export function outputFormatSpec(type: TemplateType): string {
+  return OUTPUT_FORMAT_SPECS[type] ?? ''
 }
 
-const ASSET_PROMPT_PARSER_SPECS: OutputParserSpec[] = [
-  {
-    value: 'auto',
-    label: '自动识别（推荐）',
-    desc: '归一化后依次尝试方括号 / 加粗标题 / 行内「名：值」/ 括号 / JSON / 序号，都不成则按条数顺序兜底。换模型最稳，建议保持。',
-    protocol: ASSET_PROMPT_BATCH_PROTOCOL,
-  },
-  {
-    value: 'bracket',
-    label: '【资产名｜状态名】逐条',
-    desc: '只认方括号头部（含 [ ]、**加粗**、### 标题等变体），名字用模糊匹配兜错字。协议必须保留该结构。',
-    protocol: ASSET_PROMPT_BATCH_PROTOCOL,
-  },
-  {
-    value: 'json',
-    label: 'JSON 结构化',
-    desc: '要求模型输出 [{asset, variant, prompt}]，程序按字段取值。结构最稳，但个别模型会拒绝 JSON 或加解释文字（已容忍围栏与前后说明）。',
-    protocol: ASSET_PROMPT_JSON_PROTOCOL,
-  },
-  {
-    value: 'indexed',
-    label: '状态N：提示词',
-    desc: '每条一行并自报序号，靠序号回填。比名字匹配更抗名字漂移，适合模型爱自己编号的情况。',
-    protocol: ASSET_PROMPT_INDEXED_PROTOCOL,
-  },
-  {
-    value: 'sequential',
-    label: '严格顺序（无标记）',
-    desc: '只要每段提示词、不要名字和序号；段落数必须与状态数完全一致，不一致时报错而不是猜。最省 token。',
-    protocol: ASSET_PROMPT_SEQUENTIAL_PROTOCOL,
-  },
-  {
-    value: 'plain',
-    label: '全文直接回填（不解析）',
-    desc: '结果直接取全文写回，仅适用于「逐条发送 / 单条重写」。批量·一次性发送下只能回填一个状态。',
-    protocol: ASSET_PROMPT_PER_ITEM_PROTOCOL,
-    perItemOnly: true,
-  },
-]
-
-/** 取某模板类型的可选解析方式（目前只有资产绘画提示词需要解析回填）。 */
-export function outputParserOptions(type: TemplateType): OutputParserSpec[] {
-  return type === 'asset-prompt' ? ASSET_PROMPT_PARSER_SPECS : []
-}
-
-/** 按解析方式取档位定义。 */
-export function getOutputParserSpec(parser: PromptOutputParser | undefined): OutputParserSpec | undefined {
-  if (!parser) return undefined
-  return ASSET_PROMPT_PARSER_SPECS.find((spec) => spec.value === parser)
-}
-
-/** 取类型默认输出协议（asset-prompt 按发送模式 + 解析方式区分；无默认返回空串）。 */
-export function defaultOutputProtocol(
-  type: TemplateType,
-  mode: 'batch-once' | 'per-item' = 'batch-once',
-  parser: PromptOutputParser = 'auto',
-): string {
-  if (type === 'asset-prompt') {
-    if (mode === 'per-item') return ASSET_PROMPT_PER_ITEM_PROTOCOL
-    const spec = getOutputParserSpec(parser)
-    if (spec) return spec.protocol
-  }
-  return OUTPUT_PROTOCOL_DEFAULTS[type] ?? ''
-}
-
-/**
- * 附加输出协议：模板自定义（非空）优先，否则落到类型默认协议。
- * 统一追加标签为【输出要求】。
- * 注意：自定义协议会**完全替换**默认协议——此时解析方式必须与自定义协议保持一致（设置页会提示）。
- */
-export function applyOutputProtocol(
-  base: string,
-  customProtocol: string | undefined,
-  type: TemplateType,
-  mode: 'batch-once' | 'per-item' = 'batch-once',
-  parser: PromptOutputParser = 'auto',
-): string {
-  const custom = customProtocol?.trim()
-  if (custom) return `${base}\n\n【输出要求】\n${custom}`
-  const fallback = defaultOutputProtocol(type, mode, parser)
-  return fallback ? `${base}\n\n【输出要求】\n${fallback}` : base
+/** 把类型的结果结构说明拼到模板内容末尾 —— 推荐模板内容的唯一构建入口。 */
+function withFormatSpec(content: string, type: TemplateType): string {
+  const spec = outputFormatSpec(type)
+  return spec ? `${content}\n\n【返回格式】\n${spec}` : content
 }
 
 // ========== 推荐模板（设置页「填入推荐模板」与文案同源） ==========
@@ -335,7 +239,7 @@ export interface RecommendedTemplate {
   content: string
 }
 
-export const RECOMMENDED_TEMPLATES: Partial<Record<TemplateType, RecommendedTemplate>> = {
+const RECOMMENDED_TEMPLATE_BASE: Partial<Record<TemplateType, RecommendedTemplate>> = {
   analysis: {
     name: '长篇章节原文分析',
     description: '通读章节原文，结构化输出人物/场景/道具/事件/时间线/关系/对白/情绪/重要视觉信息。',
@@ -463,7 +367,7 @@ export const RECOMMENDED_TEMPLATES: Partial<Record<TemplateType, RecommendedTemp
 【输出原则】
 - 宁缺毋滥：只提取真正会影响后续画面一致性的资产。
 - 不要输出原文中没有根据的设定、外貌细节、背景故事或绘画风格。
-- 系统会自动处理输出结构；请严格遵守系统附加的格式要求。
+- 系统会自动处理输出结构；请严格遵守下面【返回格式】约定的输出结构。
 
 【章节原文】
 {{章节原文}}
@@ -539,6 +443,19 @@ export const RECOMMENDED_TEMPLATES: Partial<Record<TemplateType, RecommendedTemp
 }
 
 /**
+ * 推荐模板 = 模板正文 + 该类型的结果结构说明（`withFormatSpec`）。
+ *
+ * 默认模板**自带返回格式约定**，所以运行时不需要再注入协议段；用户改模板正文时就顺便改了格式要求，
+ * 设置页对「结果会被解析」的环节给一行提示，避免改坏解析后无从察觉。
+ */
+export const RECOMMENDED_TEMPLATES: Partial<Record<TemplateType, RecommendedTemplate>> = Object.fromEntries(
+  (Object.entries(RECOMMENDED_TEMPLATE_BASE) as Array<[TemplateType, RecommendedTemplate]>).map(([type, template]) => [
+    type,
+    { ...template, content: withFormatSpec(template.content, type) },
+  ]),
+) as Partial<Record<TemplateType, RecommendedTemplate>>
+
+/**
  * 无用户模板时的内置模板内容：与推荐模板同源。
  * 去掉了自动追加兜底之后，内置模板必须自己写全该类型的全部变量，否则等于空提示词。
  */
@@ -590,19 +507,14 @@ export function migrateTemplateContent(content: string, type: TemplateType): str
  * 1. 归一化：旧英文占位符 → 中文占位符；
  * 2. 只替换「模板里写了的」变量（值为空替换为 emptyText）；
  *    模板没写的变量一律不出现，绝不自动追加——插入哪些变量完全由模板作者决定；
- * 3. 清理未注册的 {{...}} 占位符（防误插变量污染提示词）；
- * 4. 附加输出协议：自定义 > 类型默认（asset-prompt 分批量/逐条两种默认）。
+ * 3. 清理未注册的 {{...}} 占位符（防误插变量污染提示词）。
+ *
+ * 不再附加任何协议段：返回格式等约定已写在模板内容里（见 OUTPUT_FORMAT_SPECS / RECOMMENDED_TEMPLATES）。
  */
 export function renderPromptTemplate(options: {
   type: TemplateType
   content: string
   values: Record<string, string | undefined>
-  /** 模板自定义输出协议；空则落到类型默认协议 */
-  customProtocol?: string
-  /** 资产提示词类型的协议模式（影响默认协议选择），其它类型忽略 */
-  protocolMode?: 'batch-once' | 'per-item'
-  /** 资产提示词类型的解析方式（影响默认协议选择），其它类型忽略 */
-  outputParser?: PromptOutputParser
 }): string {
   const specs = getTemplateVariables(options.type)
   let text = normalizeTemplateVariables(options.content, options.type)
@@ -614,5 +526,5 @@ export function renderPromptTemplate(options: {
     text = text.replace(variablePattern(spec.name, 'g'), () => value)
   }
   text = text.replace(/\{\{[^{}]*\}\}/g, '')
-  return applyOutputProtocol(text, options.customProtocol, options.type, options.protocolMode, options.outputParser)
+  return text
 }

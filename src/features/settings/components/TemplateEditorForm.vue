@@ -67,34 +67,10 @@
         />
       </label>
 
-      <!-- 输出协议：长篇故事全部环节支持；留空使用系统默认协议 -->
-      <label v-if="isLongStoryType" class="block shrink-0 text-xs text-text-secondary">
-        <span class="mb-1.5 flex items-center justify-between gap-3">
-          <span>输出协议（可选）</span>
-          <button type="button" class="text-cyan-400 hover:text-cyan-300" title="填入当前解析方式对应的推荐协议，可在此基础自行修改" @click="applyRecommendedProtocol">填入推荐协议</button>
-        </span>
-
-        <!-- 解析方式：决定程序如何从模型返回里读回结果；换模型返回格式不一致时改这里 -->
-        <div v-if="parserOptions.length" class="mb-2 rounded-md border border-border-subtle px-3 py-2">
-          <div class="flex items-center gap-2">
-            <span class="shrink-0">解析方式</span>
-            <select :value="form.outputParser" class="field-control flex-1" @change="onParserSelect">
-              <option v-for="option in parserOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-            </select>
-          </div>
-          <span class="mt-1.5 block text-[11px] leading-4 text-text-muted">{{ parserHint }}</span>
-        </div>
-
-        <textarea
-          v-model="form.outputProtocol"
-          rows="4"
-          class="w-full resize-y rounded-lg border border-border-subtle bg-input-bg px-3 py-2 text-sm leading-relaxed text-text-primary placeholder-text-muted focus:outline-none focus:border-cyan-500/50"
-          placeholder="自定义模型返回要求，附加在最终提示词末尾"
-        />
-        <span class="mt-1 block text-[11px] leading-4 text-text-muted">
-          {{ protocolHint }}
-        </span>
-      </label>
+      <!-- 结果会被程序解析的环节：底部一行提示，避免用户改掉内容里的格式约定后无从察觉 -->
+      <p v-if="parseHint" class="shrink-0 text-[11px] leading-4 text-amber-700 dark:text-amber-300">
+        {{ parseHint }}
+      </p>
     </div>
 
     <footer class="flex shrink-0 items-center justify-between gap-3 border-t border-border-subtle bg-surface px-6 py-3">
@@ -123,26 +99,20 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import {
-  LONG_STORY_TEMPLATE_TYPES,
   RECOMMENDED_TEMPLATES,
-  defaultOutputProtocol,
   findUnknownVariables,
-  getOutputParserSpec,
   getTemplateVariables,
   normalizeTemplateVariables,
-  outputParserOptions,
 } from '@comic/services/promptTemplateRegistry';
-import type { PromptOutputParser, PromptTemplate, TemplateType } from '@comic/types';
+import type { PromptTemplate, TemplateType } from '@comic/types';
 import SettingsFieldInput from './SettingsFieldInput.vue';
 
 export interface TemplateEditorValue {
   name: string;
   type: TemplateType;
   description: string;
+  /** 提示词内容，也是唯一的提示词来源（返回格式约定直接写在这里） */
   content: string;
-  outputProtocol: string;
-  /** 模型返回解析方式（仅资产绘画提示词类型生效） */
-  outputParser: PromptOutputParser;
 }
 
 const props = defineProps<{
@@ -174,8 +144,6 @@ const form = ref({
   type: 'extract' as TemplateType,
   description: '',
   content: '',
-  outputProtocol: '',
-  outputParser: 'auto' as PromptOutputParser,
 });
 
 let snapshot = '';
@@ -226,34 +194,23 @@ function insertVariable(name: string) {
   });
 }
 
-// ========== 输出协议 / 推荐模板 ==========
+// ========== 解析提示 / 推荐模板 ==========
 
-const isLongStoryType = computed(() => LONG_STORY_TEMPLATE_TYPES.includes(form.value.type));
+/**
+ * 结果会被程序解析的环节：底部只提示一行。
+ * 返回格式约定已写进模板内容（推荐模板自带），用户改动内容就可能改坏解析，所以必须提醒。
+ */
+const PARSE_HINTS: Partial<Record<TemplateType, string>> = {
+  storyboard: '本环节结果按 Markdown 解析，请保留上面的输出结构。',
+  extract: '本环节结果按 Markdown 解析，请保留上面的输出结构。',
+  'asset-prompt': '本环节结果按 Markdown 解析，请保留上面的输出结构。',
+  story: '本环节结果按 JSON 解析，请保留上面的 JSON 结构。',
+};
 
-/** 输出协议提示：按类型区分解析依赖（结构化类型自定义协议需保持解析结构，纯文本类型无结构约束）。 */
-const protocolHint = computed(() => {
-  const base = '留空 = 使用系统默认输出协议（点「填入推荐协议」可查看）。';
-  const structured: Partial<Record<TemplateType, string>> = {
-    storyboard: '注意：分镜结果按「## 分镜N」标题 +「- 画面/镜头/对白/旁白」字段行解析，自定义协议必须保留该结构，否则导入/生成会解析失败。',
-    extract: '注意：资产提取结果按「# 人物/场景/道具」一级标题 +「## 资产名」二级标题解析（兼容 JSON），自定义协议必须保留该结构，否则解析失败。',
-    'asset-prompt': '注意：「批量·一次性发送」的结果按下面所选「解析方式」回填。自定义协议时，请让模型返回的结构与解析方式一致，否则会解析失败；拿不准就保持「自动识别」，它会依次容忍常见格式并在条数对得上时按顺序兜底。',
-  };
-  const plain: Partial<Record<TemplateType, string>> = {
-    analysis: '分析结果为纯文本写入文档，无固定解析结构，可自由约定返回格式。',
-    script: '剧本为纯文本写入文档，无固定解析结构，可自由约定返回格式。',
-    'panel-prompt': '画面描述逐镜单独调用、纯文本返回，无固定解析结构。',
-  };
-  return base + ' ' + (structured[form.value.type] ?? plain[form.value.type] ?? '');
-});
+const parseHint = computed(() => PARSE_HINTS[form.value.type] ?? '');
 
 /** 当前类型的推荐模板（含默认名称/描述，一键填入）。 */
 const recommendedTemplate = computed(() => RECOMMENDED_TEMPLATES[form.value.type]);
-
-/** 可选解析方式（只有资产绘画提示词类型需要解析回填，其余类型返回空数组）。 */
-const parserOptions = computed(() => outputParserOptions(form.value.type));
-
-/** 当前解析方式的说明文案（不同模型返回格式差异大时，这里决定了程序怎么读结果）。 */
-const parserHint = computed(() => getOutputParserSpec(form.value.outputParser)?.desc ?? '');
 
 function applyRecommendedTemplate() {
   const recommended = recommendedTemplate.value;
@@ -263,35 +220,12 @@ function applyRecommendedTemplate() {
   form.value.content = recommended.content;
 }
 
-/** 填入当前类型 + 当前解析方式的推荐输出协议（与运行时默认协议同源，保证协议与解析器不失配）。 */
-function applyRecommendedProtocol() {
-  form.value.outputProtocol = defaultOutputProtocol(form.value.type, 'batch-once', form.value.outputParser);
-}
-
-/** 切换解析方式时，若协议仍是旧的推荐协议（或为空），自动同步为新解析方式的同构协议。 */
-function changeParser(value: PromptOutputParser) {
-  const previous = form.value.outputParser;
-  const wasRecommended = !form.value.outputProtocol.trim()
-    || form.value.outputProtocol === defaultOutputProtocol(form.value.type, 'batch-once', previous);
-  form.value.outputParser = value;
-  if (wasRecommended) {
-    form.value.outputProtocol = defaultOutputProtocol(form.value.type, 'batch-once', value);
-  }
-}
-
-function onParserSelect(event: Event) {
-  changeParser((event.target as HTMLSelectElement).value as PromptOutputParser);
-}
-
 function fillForm() {
   const next = {
     name: props.template?.name ?? '',
     type: props.template?.type ?? ('extract' as TemplateType),
     description: props.template?.description ?? '',
     content: props.template?.content ?? '',
-    outputProtocol: props.template?.outputProtocol ?? '',
-    // 存量模板没有该字段 = 自动识别（容错最强，且不改变原有解析行为）
-    outputParser: props.template?.outputParser ?? ('auto' as PromptOutputParser),
   };
   form.value = next;
   snapshot = JSON.stringify(form.value);

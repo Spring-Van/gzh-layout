@@ -1,0 +1,485 @@
+﻿
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mD:/xiang/gzh-layout[39m
+
+ [32m鉁?[39m tests/features/extractUtils.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+ [32m鉁?[39m tests/modules/httpTransport.test.ts [2m([22m[2m15 tests[22m[2m)[22m[90m 18[2mms[22m[39m
+ [32m鉁?[39m tests/shared/contentBlocksHtml.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 2[2mms[22m[39m
+ [32m鉁?[39m tests/electron/secret-storage.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+ [32m鉁?[39m tests/shared/imageUrl.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+ [32m鉁?[39m tests/features/promptTemplateRegistry.test.ts [2m([22m[2m19 tests[22m[2m)[22m[90m 9[2mms[22m[39m
+ [32m鉁?[39m tests/modules/assetPromptParser.test.ts [2m([22m[2m15 tests[22m[2m)[22m[90m 12[2mms[22m[39m
+node.exe : [90mstderr[2m | tests/modules/llmService.test.ts[2m > [22m[2mll
+mService.testConnection 路 娴嬭瘯鍐呭涓庤瘖鏂洖鏄?[2m > [22m[2m缃戠粶澶辫触鏃朵篃甯︿笂宸插皾璇曠殑鍦板潃
+所在位置 行:1 字符: 1
++ & "C:\Users\admin\.workbuddy\binaries\node\versions\22.22.2-3/node.ex ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([90mstderr[2m...鏃朵篃甯︿笂宸插皾璇曠殑鍦板潃 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[22m[39m[llmService] 璇锋眰澶辫触 {
+  url: [32m'https://x.test/v1/chat/completions'[39m,
+  channel: [32m'browser'[39m,
+  bypassProxy: [33mfalse[39m,
+  step: [33m0[39m,
+  error: TypeError: Failed to fetch
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:357:15
+      at mockCall [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+spy@2.1.9/node_modules/[4m@vitest/spy[24m/dist/index.js:61:17[
+90m)[39m
+      at spy [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m
+/tinyspy@3.0.2/node_modules/[4mtinyspy[24m/dist/index.js:45:80[90m)[39m
+      at Module.transportFetch [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\httpTransport.ts:223:21[90m)[39m
+      at requestChatCompletions [90m(D:\xiang\gzh-layout\[39msrc\modules\comi
+c\services\llmService.ts:292:26[90m)[39m
+      at Object.testConnection [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\llmService.ts:383:29[90m)[39m
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:361:37
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:146:14
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:533:11
+      at runWithTimeout [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4
+m.pnpm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/inde
+x.js:39:7[90m)[39m
+}
+
+[90mstderr[2m | tests/modules/llmService.test.ts[2m > [22m[2mllmService 路 
+鐬椂鏂繛鑷姩閲嶈瘯[2m > [22m[2m杩炴帴琚叧闂?(net::ERR_CONNECTION_CLOSED) 鏃跺悓涓€鍦板潃閲嶅彂涓€娆
+″苟鎴愬姛
+[22m[39m[llmService] 璇锋眰澶辫触 {
+  url: [32m'https://x.test/v1/chat/completions'[39m,
+  channel: [32m'browser'[39m,
+  bypassProxy: [33mfalse[39m,
+  step: [33m0[39m,
+  error: TypeError: net::ERR_CONNECTION_CLOSED
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:393:32
+      at mockCall [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+spy@2.1.9/node_modules/[4m@vitest/spy[24m/dist/index.js:61:17[
+90m)[39m
+      at spy [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m
+/tinyspy@3.0.2/node_modules/[4mtinyspy[24m/dist/index.js:45:80[90m)[39m
+      at Module.transportFetch [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\httpTransport.ts:223:21[90m)[39m
+      at requestChatCompletions [90m(D:\xiang\gzh-layout\[39msrc\modules\comi
+c\services\llmService.ts:292:26[90m)[39m
+      at Object.testConnection [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\llmService.ts:383:29[90m)[39m
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:398:37
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:146:14
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:533:11
+      at runWithTimeout [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4
+m.pnpm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/inde
+x.js:39:7[90m)[39m
+}
+
+ [32m鉁?[39m tests/electron/json-file-store.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 62[2mms[22m[39m
+ [32m鉁?[39m tests/electron/image-history.service.test.ts [2m([22m[2m2 tests[22m[2m)[22m[90m 17[2mms[22m[39m
+ [32m鉁?[39m tests/electron/llm-proxy.service.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 66[2mms[22m[39m
+ [32m鉁?[39m tests/electron/database-services.integration.test.ts [2m([22m[2m2 tests[22m[2m)[22m[90m 217[2mms[22m[39m
+ [32m鉁?[39m tests/shared/taskManager.test.ts [2m([22m[2m2 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+[90mstderr[2m | tests/modules/llmService.test.ts[2m > [22m[2mllmService 路 
+鐬椂鏂繛鑷姩閲嶈瘯[2m > [22m[2m杩炴帴琚噸缃?(net::ERR_CONNECTION_RESET) 鍚岀悊閲嶅彂
+[22m[39m[llmService] 璇锋眰澶辫触 {
+  url: [32m'https://x.test/v1/chat/completions'[39m,
+  channel: [32m'browser'[39m,
+  bypassProxy: [33mfalse[39m,
+  step: [33m0[39m,
+  error: TypeError: net::ERR_CONNECTION_RESET
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:410:32
+      at mockCall [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+spy@2.1.9/node_modules/[4m@vitest/spy[24m/dist/index.js:61:17[
+90m)[39m
+      at spy [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m
+/tinyspy@3.0.2/node_modules/[4mtinyspy[24m/dist/index.js:45:80[90m)[39m
+      at Module.transportFetch [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\httpTransport.ts:223:21[90m)[39m
+      at requestChatCompletions [90m(D:\xiang\gzh-layout\[39msrc\modules\comi
+c\services\llmService.ts:292:26[90m)[39m
+      at Object.testConnection [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\llmService.ts:383:29[90m)[39m
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:415:37
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:146:14
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:533:11
+      at runWithTimeout [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4
+m.pnpm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/inde
+x.js:39:7[90m)[39m
+}
+
+ [32m鉁?[39m tests/features/manualImport.test.ts [2m([22m[2m15 tests[22m[2m)[22m[90m 11[2mms[22m[39m
+ [32m鉁?[39m tests/features/promptBuilders.test.ts [2m([22m[2m12 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+[90mstderr[2m | tests/modules/llmService.test.ts[2m > [22m[2mllmService 路 
+鐬椂鏂繛鑷姩閲嶈瘯[2m > [22m[2m閲嶈瘯鍚庝粛澶辫触鏃跺湪鎻愮ず閲屽啓鏄庡凡閲嶈瘯杩囷紝骞朵繚鐣欏師濮嬮敊璇?[22m[39m[ll
+mService] 璇锋眰澶辫触 {
+  url: [32m'https://x.test/v1/chat/completions'[39m,
+  channel: [32m'browser'[39m,
+  bypassProxy: [33mfalse[39m,
+  step: [33m0[39m,
+  error: TypeError: net::ERR_CONNECTION_CLOSED
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:427:15
+      at mockCall [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+spy@2.1.9/node_modules/[4m@vitest/spy[24m/dist/index.js:61:17[
+90m)[39m
+      at spy [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m
+/tinyspy@3.0.2/node_modules/[4mtinyspy[24m/dist/index.js:45:80[90m)[39m
+      at Module.transportFetch [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\httpTransport.ts:223:21[90m)[39m
+      at requestChatCompletions [90m(D:\xiang\gzh-layout\[39msrc\modules\comi
+c\services\llmService.ts:292:26[90m)[39m
+      at Object.testConnection [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\llmService.ts:383:29[90m)[39m
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:431:37
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:146:14
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:533:11
+      at runWithTimeout [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4
+m.pnpm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/inde
+x.js:39:7[90m)[39m
+}
+
+[90mstderr[2m | tests/modules/llmService.test.ts[2m > [22m[2mllmService 路 
+鐬椂鏂繛鑷姩閲嶈瘯[2m > [22m[2m閲嶈瘯鍚庝粛澶辫触鏃跺湪鎻愮ず閲屽啓鏄庡凡閲嶈瘯杩囷紝骞朵繚鐣欏師濮嬮敊璇?[22m[39m[ll
+mService] 璇锋眰澶辫触 {
+  url: [32m'https://x.test/v1/chat/completions'[39m,
+  channel: [32m'browser'[39m,
+  bypassProxy: [33mtrue[39m,
+  step: [33m1[39m,
+  error: TypeError: net::ERR_CONNECTION_CLOSED
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:427:15
+      at mockCall [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+spy@2.1.9/node_modules/[4m@vitest/spy[24m/dist/index.js:61:17[
+90m)[39m
+      at spy [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m
+/tinyspy@3.0.2/node_modules/[4mtinyspy[24m/dist/index.js:45:80[90m)[39m
+      at Module.transportFetch [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\httpTransport.ts:223:21[90m)[39m
+      at requestChatCompletions [90m(D:\xiang\gzh-layout\[39msrc\modules\comi
+c\services\llmService.ts:292:26[90m)[39m
+      at Object.testConnection [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\llmService.ts:383:23[90m)[39m
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:431:20
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:533:5
+      at runTest [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:10
+56:11[90m)[39m
+      at runSuite [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+205:15[90m)[39m
+}
+
+[90mstderr[2m | tests/modules/llmService.test.ts[2m > [22m[2mllmService 路 
+鐬椂鏂繛鑷姩閲嶈瘯[2m > [22m[2m娴忚鍣?CORS 绫?Failed to fetch 涓嶉噸璇曪紙閲嶈瘯娌℃湁鎰忎箟锛?[22m
+[39m[llmService] 璇锋眰澶辫触 {
+  url: [32m'https://x.test/v1/chat/completions'[39m,
+  channel: [32m'browser'[39m,
+  bypassProxy: [33mfalse[39m,
+  step: [33m0[39m,
+  error: TypeError: Failed to fetch
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:445:15
+      at mockCall [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+spy@2.1.9/node_modules/[4m@vitest/spy[24m/dist/index.js:61:17[
+90m)[39m
+      at spy [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m
+/tinyspy@3.0.2/node_modules/[4mtinyspy[24m/dist/index.js:45:80[90m)[39m
+      at Module.transportFetch [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\httpTransport.ts:223:21[90m)[39m
+      at requestChatCompletions [90m(D:\xiang\gzh-layout\[39msrc\modules\comi
+c\services\llmService.ts:292:26[90m)[39m
+      at Object.testConnection [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\llmService.ts:383:29[90m)[39m
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:449:37
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:146:14
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:533:11
+      at runWithTimeout [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4
+m.pnpm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/inde
+x.js:39:7[90m)[39m
+}
+
+[90mstderr[2m | tests/modules/llmService.test.ts[2m > [22m[2mllmService 路 
+鐬椂鏂繛鑷姩閲嶈瘯[2m > [22m[2m鍝嶅簲澶村凡鍒般€佽 body 鏃舵墠琚柇杩烇紝涔熶細閲嶅彂涓€娆★紙闀胯姹傝浠ｇ悊鍥炴敹鐨勫
+吀鍨嬪満鏅級
+[22m[39m[llmService] 璇诲彇鍝嶅簲涓柇锛岃嚜鍔ㄩ噸鍙?{
+  attempt: [33m1[39m,
+  bypassProxy: [33mfalse[39m,
+  error: TypeError: net::ERR_CONNECTION_CLOSED
+      at Object.text [90m(D:\xiang\gzh-layout\[39mtests\modules\llmService.te
+st.ts:465:15[90m)[39m
+      at readBodyTextWithRetry [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\llmService.ts:247:28[90m)[39m
+      at Object.testConnection [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\llmService.ts:393:29[90m)[39m
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:477:20
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:533:5
+      at runTest [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:10
+56:11[90m)[39m
+      at runSuite [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+205:15[90m)[39m
+      at runSuite [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+205:15[90m)[39m
+      at runFiles [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+262:5[90m)[39m
+      at startTests [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pn
+pm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js
+:1271:3[90m)[39m
+}
+
+[90mstderr[2m | tests/modules/llmService.test.ts[2m > [22m[2mllmService 路 
+绯荤粺浠ｇ悊澶辫触鑷姩鏀圭敤鐩磋繛[2m > [22m[2m璧扮郴缁熶唬鐞嗗け璐ュ悗锛岀浜屾鏀逛负缁曡繃浠ｇ悊鐩磋繛骞舵垚鍔?[22m[39m
+[llmService] 璇锋眰澶辫触 {
+  url: [32m'https://x.test/v1/chat/completions'[39m,
+  channel: [32m'electron-main'[39m,
+  bypassProxy: [33mfalse[39m,
+  step: [33m0[39m,
+  error: TypeError: net::ERR_CONNECTION_CLOSED
+      at bridgedFetch [90m(D:\xiang\gzh-layout\[39msrc\modules\comic\services
+\httpTransport.ts:180:11[90m)[39m
+      at requestChatCompletions [90m(D:\xiang\gzh-layout\[39msrc\modules\comi
+c\services\llmService.ts:292:20[90m)[39m
+      at Object.testConnection [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\llmService.ts:383:23[90m)[39m
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:529:20
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:533:5
+      at runTest [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:10
+56:11[90m)[39m
+      at runSuite [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+205:15[90m)[39m
+      at runSuite [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+205:15[90m)[39m
+      at runFiles [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+262:5[90m)[39m
+      at startTests [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pn
+pm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js
+:1271:3[90m)[39m
+}
+
+[90mstderr[2m | tests/modules/llmService.test.ts[2m > [22m[2mllmService 路 
+绯荤粺浠ｇ悊澶辫触鑷姩鏀圭敤鐩磋繛[2m > [22m[2m涓ゆ潯璺兘澶辫触鏃讹紝鎻愮ず閲屽啓鏄庛€屽惈缁曡繃绯荤粺浠ｇ悊鐩磋繛銆?[22m[3
+9m[llmService] 璇锋眰澶辫触 {
+  url: [32m'https://x.test/v1/chat/completions'[39m,
+  channel: [32m'electron-main'[39m,
+  bypassProxy: [33mfalse[39m,
+  step: [33m0[39m,
+  error: TypeError: net::ERR_CONNECTION_CLOSED
+      at bridgedFetch [90m(D:\xiang\gzh-layout\[39msrc\modules\comic\services
+\httpTransport.ts:180:11[90m)[39m
+      at requestChatCompletions [90m(D:\xiang\gzh-layout\[39msrc\modules\comi
+c\services\llmService.ts:292:20[90m)[39m
+      at Object.testConnection [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\llmService.ts:383:23[90m)[39m
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:553:20
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:533:5
+      at runTest [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:10
+56:11[90m)[39m
+      at runSuite [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+205:15[90m)[39m
+      at runSuite [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+205:15[90m)[39m
+      at runFiles [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+262:5[90m)[39m
+      at startTests [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pn
+pm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js
+:1271:3[90m)[39m
+}
+
+[90mstderr[2m | tests/modules/llmService.test.ts[2m > [22m[2mllmService 路 
+绯荤粺浠ｇ悊澶辫触鑷姩鏀圭敤鐩磋繛[2m > [22m[2m涓ゆ潯璺兘澶辫触鏃讹紝鎻愮ず閲屽啓鏄庛€屽惈缁曡繃绯荤粺浠ｇ悊鐩磋繛銆?[22m[3
+9m[llmService] 璇锋眰澶辫触 {
+  url: [32m'https://x.test/v1/chat/completions'[39m,
+  channel: [32m'electron-main'[39m,
+  bypassProxy: [33mtrue[39m,
+  step: [33m1[39m,
+  error: TypeError: net::ERR_CONNECTION_CLOSED
+      at bridgedFetch [90m(D:\xiang\gzh-layout\[39msrc\modules\comic\services
+\httpTransport.ts:180:11[90m)[39m
+      at requestChatCompletions [90m(D:\xiang\gzh-layout\[39msrc\modules\comi
+c\services\llmService.ts:292:20[90m)[39m
+      at Object.testConnection [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\llmService.ts:383:23[90m)[39m
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:553:20
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:533:5
+      at runTest [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:10
+56:11[90m)[39m
+      at runSuite [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+205:15[90m)[39m
+      at runSuite [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+205:15[90m)[39m
+      at runFiles [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+262:5[90m)[39m
+      at startTests [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pn
+pm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js
+:1271:3[90m)[39m
+}
+
+[90mstderr[2m | tests/modules/llmService.test.ts[2m > [22m[2mllmService 路 
+绯荤粺浠ｇ悊澶辫触鑷姩鏀圭敤鐩磋繛[2m > [22m[2m鍕句簡鐩磋繛浠嶅け璐ユ椂锛屾彁绀哄啓鏄庤蛋鐨勬槸鐩磋繛
+[22m[39m[llmService] 璇锋眰澶辫触 {
+  url: [32m'https://x.test/v1/chat/completions'[39m,
+  channel: [32m'electron-main'[39m,
+  bypassProxy: [33mtrue[39m,
+  step: [33m0[39m,
+  error: TypeError: net::ERR_CONNECTION_CLOSED
+      at bridgedFetch [90m(D:\xiang\gzh-layout\[39msrc\modules\comic\services
+\httpTransport.ts:180:11[90m)[39m
+      at requestChatCompletions [90m(D:\xiang\gzh-layout\[39msrc\modules\comi
+c\services\llmService.ts:292:20[90m)[39m
+      at Object.testConnection [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\llmService.ts:383:23[90m)[39m
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:564:20
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:533:5
+      at runTest [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:10
+56:11[90m)[39m
+      at runSuite [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+205:15[90m)[39m
+      at runSuite [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+205:15[90m)[39m
+      at runFiles [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+262:5[90m)[39m
+      at startTests [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pn
+pm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js
+:1271:3[90m)[39m
+}
+
+[90mstderr[2m | tests/modules/llmService.test.ts[2m > [22m[2mllmService 路 
+绯荤粺浠ｇ悊澶辫触鑷姩鏀圭敤鐩磋繛[2m > [22m[2m鍕句簡鐩磋繛浠嶅け璐ユ椂锛屾彁绀哄啓鏄庤蛋鐨勬槸鐩磋繛
+[22m[39m[llmService] 璇锋眰澶辫触 {
+  url: [32m'https://x.test/v1/chat/completions'[39m,
+  channel: [32m'electron-main'[39m,
+  bypassProxy: [33mtrue[39m,
+  step: [33m1[39m,
+  error: TypeError: net::ERR_CONNECTION_CLOSED
+      at bridgedFetch [90m(D:\xiang\gzh-layout\[39msrc\modules\comic\services
+\httpTransport.ts:180:11[90m)[39m
+      at requestChatCompletions [90m(D:\xiang\gzh-layout\[39msrc\modules\comi
+c\services\llmService.ts:292:20[90m)[39m
+      at Object.testConnection [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\llmService.ts:383:23[90m)[39m
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:564:20
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:533:5
+      at runTest [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:10
+56:11[90m)[39m
+      at runSuite [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+205:15[90m)[39m
+      at runSuite [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+205:15[90m)[39m
+      at runFiles [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+262:5[90m)[39m
+      at startTests [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pn
+pm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js
+:1271:3[90m)[39m
+}
+
+[90mstderr[2m | tests/modules/llmService.test.ts[2m > [22m[2mllmService 路 
+绯荤粺浠ｇ悊澶辫触鑷姩鏀圭敤鐩磋繛[2m > [22m[2m娴忚鍣ㄧ幆澧冿紙鏃犳ˉ鎺ワ級鏃犱粠缁曡繃浠ｇ悊锛屾彁绀洪噷涓嶈皫鎶ョ洿杩?[22m[
+39m[llmService] 璇锋眰澶辫触 {
+  url: [32m'https://x.test/v1/chat/completions'[39m,
+  channel: [32m'browser'[39m,
+  bypassProxy: [33mfalse[39m,
+  step: [33m0[39m,
+  error: TypeError: net::ERR_CONNECTION_CLOSED
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:576:15
+      at mockCall [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+spy@2.1.9/node_modules/[4m@vitest/spy[24m/dist/index.js:61:17[
+90m)[39m
+      at spy [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m
+/tinyspy@3.0.2/node_modules/[4mtinyspy[24m/dist/index.js:45:80[90m)[39m
+      at Module.transportFetch [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\httpTransport.ts:223:21[90m)[39m
+      at requestChatCompletions [90m(D:\xiang\gzh-layout\[39msrc\modules\comi
+c\services\llmService.ts:292:26[90m)[39m
+      at Object.testConnection [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\llmService.ts:383:29[90m)[39m
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:580:37
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:146:14
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:533:11
+      at runWithTimeout [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4
+m.pnpm[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/inde
+x.js:39:7[90m)[39m
+}
+
+[90mstderr[2m | tests/modules/llmService.test.ts[2m > [22m[2mllmService 路 
+绯荤粺浠ｇ悊澶辫触鑷姩鏀圭敤鐩磋繛[2m > [22m[2m娴忚鍣ㄧ幆澧冿紙鏃犳ˉ鎺ワ級鏃犱粠缁曡繃浠ｇ悊锛屾彁绀洪噷涓嶈皫鎶ョ洿杩?[22m[
+39m[llmService] 璇锋眰澶辫触 {
+  url: [32m'https://x.test/v1/chat/completions'[39m,
+  channel: [32m'browser'[39m,
+  bypassProxy: [33mtrue[39m,
+  step: [33m1[39m,
+  error: TypeError: net::ERR_CONNECTION_CLOSED
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:576:15
+      at mockCall [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+spy@2.1.9/node_modules/[4m@vitest/spy[24m/dist/index.js:61:17[
+90m)[39m
+      at spy [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m
+/tinyspy@3.0.2/node_modules/[4mtinyspy[24m/dist/index.js:45:80[90m)[39m
+      at Module.transportFetch [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\httpTransport.ts:223:21[90m)[39m
+      at requestChatCompletions [90m(D:\xiang\gzh-layout\[39msrc\modules\comi
+c\services\llmService.ts:292:26[90m)[39m
+      at Object.testConnection [90m(D:\xiang\gzh-layout\[39msrc\modules\comic
+\services\llmService.ts:383:23[90m)[39m
+      at [90mD:\xiang\gzh-layout\[39mtests\modules\llmService.test.ts:580:20
+      at [90mfile:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm[24m/@vit
+est+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:533:5
+      at runTest [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:10
+56:11[90m)[39m
+      at runSuite [90m(file:///D:/xiang/gzh-layout/[39mnode_modules/[4m.pnpm
+[24m/@vitest+runner@2.1.9/node_modules/[4m@vitest/runner[24m/dist/index.js:1
+205:15[90m)[39m
+}
+
+ [32m鉁?[39m tests/modules/llmService.test.ts [2m([22m[2m35 tests[22m[2m)[22m[33m 4943[2mms[22m[39m
+   [33m[2m鉁?[22m[39m llmService 路 鐬椂鏂繛鑷姩閲嶈瘯[2m > [22m杩炴帴琚叧闂?(net::ERR_CONNECTION_CLOSED) 鏃跺悓涓€鍦板潃閲嶅彂涓€娆″苟鎴愬姛 [33m603[2mms[22m[39m
+   [33m[2m鉁?[22m[39m llmService 路 鐬椂鏂繛鑷姩閲嶈瘯[2m > [22m杩炴帴琚噸缃?(net::ERR_CONNECTION_RESET) 鍚岀悊閲嶅彂 [33m616[2mms[22m[39m
+   [33m[2m鉁?[22m[39m llmService 路 鐬椂鏂繛鑷姩閲嶈瘯[2m > [22m閲嶈瘯鍚庝粛澶辫触鏃跺湪鎻愮ず閲屽啓鏄庡凡閲嶈瘯杩囷紝骞朵繚鐣欏師濮嬮敊璇?[33m618[2mms[22m[39m
+   [33m[2m鉁?[22m[39m llmService 路 鐬椂鏂繛鑷姩閲嶈瘯[2m > [22m鍝嶅簲澶村凡鍒般€佽 body 鏃舵墠琚柇杩烇紝涔熶細閲嶅彂涓€娆★紙闀胯姹傝浠ｇ悊鍥炴敹鐨勫吀鍨嬪満鏅級 [33m616[2mms[22m[39m
+   [33m[2m鉁?[22m[39m llmService 路 绯荤粺浠ｇ悊澶辫触鑷姩鏀圭敤鐩磋繛[2m > [22m璧扮郴缁熶唬鐞嗗け璐ュ悗锛岀浜屾鏀逛负缁曡繃浠ｇ悊鐩磋繛骞舵垚鍔?[33m627[2mms[22m[39m
+   [33m[2m鉁?[22m[39m llmService 路 绯荤粺浠ｇ悊澶辫触鑷姩鏀圭敤鐩磋繛[2m > [22m涓ゆ潯璺兘澶辫触鏃讹紝鎻愮ず閲屽啓鏄庛€屽惈缁曡繃绯荤粺浠ｇ悊鐩磋繛銆?[33m609[2mms[22m[39m
+   [33m[2m鉁?[22m[39m llmService 路 绯荤粺浠ｇ悊澶辫触鑷姩鏀圭敤鐩磋繛[2m > [22m鍕句簡鐩磋繛浠嶅け璐ユ椂锛屾彁绀哄啓鏄庤蛋鐨勬槸鐩磋繛 [33m613[2mms[22m[39m
+   [33m[2m鉁?[22m[39m llmService 路 绯荤粺浠ｇ悊澶辫触鑷姩鏀圭敤鐩磋繛[2m > [22m娴忚鍣ㄧ幆澧冿紙鏃犳ˉ鎺ワ級鏃犱粠缁曡繃浠ｇ悊锛屾彁绀洪噷涓嶈皫鎶ョ洿杩?[33m613[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m15 passed[39m[22m[90m (15)[39m
+[2m      Tests [22m [1m[32m158 passed[39m[22m[90m (158)[39m
+[2m   Start at [22m 14:12:20
+[2m   Duration [22m 6.70s[2m (transform 4.17s, setup 0ms, collect 7.78s, tests 5.38s, environment 5ms, prepare 9.18s)[22m
+

@@ -1,18 +1,20 @@
-import type { PromptOutputParser } from '@comic/types'
-
 /**
- * 资产绘画提示词回填解析器（多层容错）。
+ * 资产绘画提示词回填解析器（多层容错，单管线）。
  *
- * 设计目标：**不管哪个模型、用什么格式返回，只要能拿到 N 段提示词就尽量回填成功。**
- * 不同模型（以及同一模型不同温度）会自由发挥：裹代码块、加客套前言、换包裹符号、
- * 换分隔符、名字漂移、直接吐 JSON、只给裸提示词……任何一条都不能让整批请求白跑。
+ * 设计目标：**格式固定为 Markdown 逐条，但解析要足够宽容——不管哪个模型怎么自由发挥，
+ * 只要能拿到 N 段提示词就尽量回填成功。** 不同模型（以及同一模型不同温度）会裹代码块、
+ * 加客套前言、换包裹符号、换分隔符、名字漂移、直接吐 JSON、只给裸提示词……任何一条都不能让整批请求白跑。
  *
- * 管线（见 docs/长篇故事提示词模块梳理.md「回填解析」）：
+ * 管线：
  *   ① 归一化预处理  normalizeModelOutput  剥围栏 / 去零宽与 emoji / 统一换行
  *   ② 多形态头识别  scanHeaders           逐行扫描，按优先级尝试 6 类头部形态
  *   ③ 模糊名字匹配  createResolver        精确 → 紧凑 → 子集交集 → 状态名全库唯一 → 资产下单状态
- *   ④ 顺序兜底      splitSegments         段落数严格等于目标数时，按清单顺序 1:1 回填
- *   ⑤ 诊断          diagnostics           失败时带原始返回 / 期望条数 / 停在那一层
+ *   ④ 其它形态容错  runJson / runIndexed  模型自作主张给 JSON 或序号时照样能收
+ *   ⑤ 顺序兜底      splitSegments         段落数严格等于目标数时，按清单顺序 1:1 回填
+ *   ⑥ 诊断          diagnostics           失败时带原始返回 / 期望条数 / 停在哪一步
+ *
+ * 不再有「解析方式」档位：返回格式由系统固定（见 promptTemplateRegistry 的 ASSET_PROMPT_FORMAT），
+ * 用户写的输出协议只作为内容要求，改不坏解析。
  *
  * 关键安全机制：**候选头必须先 resolve 成功才算头**（两遍法）。
  * 否则「- 视觉描述：少年模样 - 略显疲惫」这类正文行会被误判成头部并把段落切碎。
@@ -37,11 +39,10 @@ export interface AssetPromptParseItem extends AssetPromptTargetRef {
   match: AssetPromptMatchKind
 }
 
-/** 解析停在哪一层（失败定位）；ok = 全部命中。 */
-export type AssetPromptParseStage = 'ok' | 'plain' | 'bracket' | 'json' | 'indexed' | 'order'
+/** 解析停在哪一步（失败定位）；ok = 命中，none = 全部形态都没识别出来。 */
+export type AssetPromptParseStage = 'ok' | 'bracket' | 'json' | 'indexed' | 'order' | 'none'
 
 export interface AssetPromptParseDiagnostics {
-  parser: PromptOutputParser
   stage: AssetPromptParseStage
   expected: number
   parsed: number
@@ -61,8 +62,6 @@ export interface AssetPromptParseContext {
   index: AssetPromptTargetIndex
   /** 按清单顺序排列的目标（顺序兜底与模糊匹配的权威来源）。 */
   ordered: AssetPromptTargetRef[]
-  /** 用户配置的解析方式；缺省 auto。 */
-  parser?: PromptOutputParser
 }
 
 /** 名字定位键：去除空白并统一常见分隔符，容忍模型输出中的全角/半角差异。 */
@@ -475,7 +474,6 @@ const CIRCLED_NUMBERS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱�
  * 命中优先级：精确 > 模糊（弹性匹配）> 顺序兜底；同一状态只回填一次（先到先得）。
  */
 export function parseAssetPromptResponse(content: string, context: AssetPromptParseContext): AssetPromptParseOutcome {
-  const parser = context.parser ?? 'auto'
   const ordered = context.ordered
   const expected = ordered.length
   const resolve = createResolver(context)
@@ -534,34 +532,17 @@ export function parseAssetPromptResponse(content: string, context: AssetPromptPa
     candidates.forEach((segment, index) => add(ordered[index], 'order', segment))
   }
 
-  if (parser === 'plain') {
-    if (expected === 1) add(ordered[0], 'order', normalized)
-  } else if (parser === 'json') {
-    runJson()
-  } else if (parser === 'bracket') {
-    runBracket()
-  } else if (parser === 'indexed') {
-    runIndexed()
-  } else if (parser === 'sequential') {
-    runByOrder()
-  } else {
-    runBracket()
-    if (!collected.length) runJson()
-    if (!collected.length) runIndexed()
-    if (!collected.length) runByOrder()
-  }
+  /**
+   * 单管线，不再有档位。
+   * 头部识别是协议要求的形态；后面三层纯粹是容错——模型自作主张吐 JSON、
+   * 自己编号、或干脆不给任何标记，都尽量救回来。
+   */
+  runBracket()
+  if (!collected.length) runJson()
+  if (!collected.length) runIndexed()
+  if (!collected.length) runByOrder()
 
-  const stage: AssetPromptParseStage = collected.length
-    ? 'ok'
-    : parser === 'plain'
-      ? 'plain'
-      : parser === 'json'
-        ? 'json'
-        : parser === 'bracket'
-          ? 'bracket'
-          : parser === 'indexed'
-            ? 'indexed'
-            : 'order'
+  const stage: AssetPromptParseStage = collected.length ? 'ok' : 'none'
 
   const missing = ordered
     .filter((ref) => !seen.has(ref.variantId))
@@ -569,7 +550,7 @@ export function parseAssetPromptResponse(content: string, context: AssetPromptPa
 
   return {
     items: collected,
-    diagnostics: { parser, stage, expected, parsed: collected.length, missing, raw: content },
+    diagnostics: { stage, expected, parsed: collected.length, missing, raw: content },
   }
 }
 
@@ -584,15 +565,40 @@ export class AssetPromptParseError extends Error {
   }
 }
 
-/** 当前解析方式下的失败文案（区分「协议与解析不匹配」与「模型没按协议输出」）。 */
+/** 解析失败 / 只回填一部分时的文案（统一 Markdown 口径，不再提解析方式）。 */
 export function describeParseFailure(diagnostics: AssetPromptParseDiagnostics): string {
-  const { parser, parsed, expected } = diagnostics
+  const { parsed, expected } = diagnostics
   if (!parsed) {
-    if (parser === 'json') return '模型返回无法解析回填：未找到合法 JSON 数组。建议核对解析方式是否与输出协议一致。'
-    if (parser === 'bracket') return '模型返回无法解析回填：未找到「【资产名｜状态名】提示词」结构。建议核对解析方式是否与输出协议一致。'
-    if (parser === 'indexed') return '模型返回无法解析回填：未找到「状态N：提示词」序号结构。建议核对解析方式是否与输出协议一致。'
-    if (parser === 'sequential') return `模型返回无法解析回填：期望 ${expected} 段，实际段数与清单不一致。建议改用「自动识别」。`
-    return '模型返回中没有可识别的状态提示词。已尝试全部常见格式，可在弹窗内查看原始返回后重试。'
+    return '模型返回无法解析回填：没识别到「【资产名｜状态名】+ 提示词」的 Markdown 逐条结构，按条数顺序兜底也没对上。可在弹窗内查看模型原始返回后重试；若模板的「内容要求」里要求了 JSON 或其它格式，请删掉——返回格式统一为 Markdown。'
   }
   return `模型返回只解析出 ${parsed}/${expected} 条，其余状态未返回。可在弹窗内查看原始返回后重发。`
+}
+
+// ========== 单条回填（逐条发送 / 单条重写） ==========
+
+/**
+ * 单条回填：与批量同格式、同容错管线，只是目标只有一条。
+ * 命中头部就取那一条正文；完全没命中（模型只给裸文本、或加了客套前言）时退化为整段正文——
+ * 单条场景不存在「张冠李戴」的风险，宁可原样收下，也不要因为格式细节把结果丢掉。
+ */
+export function extractSinglePromptText(content: string, ref: AssetPromptTargetRef): string {
+  const index: AssetPromptTargetIndex = new Map([
+    ['1', ref],
+    [targetKey(ref.assetName, ref.variantName), ref],
+  ])
+  const { items } = parseAssetPromptResponse(content, { index, ordered: [ref] })
+  if (items.length) return items[0].imagePrompt
+  return cleanPromptText(stripLeadingHeader(normalizeModelOutput(content)))
+}
+
+/** 兜底路径：剥掉行首的头部包装（【资产名｜状态名】/ 资产名：）与首行客套说明，返回可用正文。 */
+function stripLeadingHeader(text: string): string {
+  const lines = text.split('\n')
+  const first = (lines[0] ?? '').trim()
+  if (/^[#>\-*+\s·]*(?:[【\[].{1,60}?[】\]]|(?:资产名|资产|视觉状态|视觉状态名|状态名|状态)\s*[:：])/.test(first)) {
+    lines.shift()
+  }
+  while (lines.length > 1 && !lines[0].trim()) lines.shift()
+  if (lines.length > 1 && isNoiseLine(lines[0].trim())) lines.shift()
+  return lines.join('\n')
 }

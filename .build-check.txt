@@ -1,0 +1,105 @@
+﻿[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+node.exe : Browserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+所在位置 行:1 字符: 1
++ & "C:\Users\admin\.workbuddy\binaries\node\versions\22.22.2-3/node.ex ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Browserslist: b...ld. Please run::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+[32m鉁?[39m 2157 modules transformed.
+rendering chunks...
+computing gzip size...
+[2m../../gzh-build-check/[22m[32mindex.html                                                                 [39m[1m[2m  0.47 kB[22m[1m[22m[2m 鈹?gzip:   0.33 kB[22m
+[2m../../gzh-build-check/[22m[35massets/ExtractView-orFZJRm8.css                                            [39m[1m[2m  0.15 kB[22m[1m[22m[2m 鈹?gzip:   0.13 kB[22m
+[2m../../gzh-build-check/[22m[35massets/ProjectEditor-C8wOECVP.css                                          [39m[1m[2m  0.18 kB[22m[1m[22m[2m 鈹?gzip:   0.12 kB[22m
+[2m../../gzh-build-check/[22m[35massets/ImagePreviewModal-DHZOvv2x.css                                      [39m[1m[2m  0.18 kB[22m[1m[22m[2m 鈹?gzip:   0.12 kB[22m
+[2m../../gzh-build-check/[22m[35massets/PromptTemplatesView-D7KgC__Q.css                                    [39m[1m[2m  0.21 kB[22m[1m[22m[2m 鈹?gzip:   0.14 kB[22m
+[2m../../gzh-build-check/[22m[35massets/ComicLayout-DCrirPox.css                                            [39m[1m[2m  0.23 kB[22m[1m[22m[2m 鈹?gzip:   0.14 kB[22m
+[2m../../gzh-build-check/[22m[35massets/SyncView-BJ3SZRgD.css                                               [39m[1m[2m  0.33 kB[22m[1m[22m[2m 鈹?gzip:   0.15 kB[22m
+[2m../../gzh-build-check/[22m[35massets/ModalStyleTemplate-D0w3ZRnS.css                                     [39m[1m[2m  0.33 kB[22m[1m[22m[2m 鈹?gzip:   0.15 kB[22m
+[2m../../gzh-build-check/[22m[35massets/ModalCoverTemplate-CmRktyFs.css                                     [39m[1m[2m  0.38 kB[22m[1m[22m[2m 鈹?gzip:   0.17 kB[22m
+[2m../../gzh-build-check/[22m[35massets/ConfirmDialog-CEFSy-GQ.css                                          [39m[1m[2m  0.48 kB[22m[1m[22m[2m 鈹?gzip:   0.16 kB[22m
+[2m../../gzh-build-check/[22m[35massets/ProjectList-CAd0V4_0.css                                            [39m[1m[2m  0.57 kB[22m[1m[22m[2m 鈹?gzip:   0.18 kB[22m
+[2m../../gzh-build-check/[22m[35massets/ImageStudioView-Burc5EJo.css                                        [39m[1m[2m  0.68 kB[22m[1m[22m[2m 鈹?gzip:   0.26 kB[22m
+[2m../../gzh-build-check/[22m[35massets/MaterialLibrary-DYlhHD8Y.css                                        [39m[1m[2m  0.70 kB[22m[1m[22m[2m 鈹?gzip:   0.22 kB[22m
+[2m../../gzh-build-check/[22m[35massets/TypesetView-CMJh2qkv.css                                            [39m[1m[2m  0.79 kB[22m[1m[22m[2m 鈹?gzip:   0.26 kB[22m
+[2m../../gzh-build-check/[22m[35massets/PageSync-DJmngvtU.css                                               [39m[1m[2m  0.95 kB[22m[1m[22m[2m 鈹?gzip:   0.27 kB[22m
+[2m../../gzh-build-check/[22m[35massets/ImageConfigDrawer-aPS6JfMF.css                                      [39m[1m[2m  1.13 kB[22m[1m[22m[2m 鈹?gzip:   0.44 kB[22m
+[2m../../gzh-build-check/[22m[35massets/ProjectAssets-CAbhd4iG.css                                          [39m[1m[2m  1.38 kB[22m[1m[22m[2m 鈹?gzip:   0.38 kB[22m
+[2m../../gzh-build-check/[22m[35massets/SettingsView-BFa3xySy.css                                           [39m[1m[2m  1.71 kB[22m[1m[22m[2m 鈹?gzip:   0.47 kB[22m
+[2m../../gzh-build-check/[22m[35massets/PageEditor-D6YPdlpo.css                                             [39m[1m[2m  2.50 kB[22m[1m[22m[2m 鈹?gzip:   0.77 kB[22m
+[2m../../gzh-build-check/[22m[35massets/ModalTemplate-DAMIcerg.css                                          [39m[1m[2m  2.87 kB[22m[1m[22m[2m 鈹?gzip:   0.54 kB[22m
+[2m../../gzh-build-check/[22m[35massets/coverSlotRatios-Bab7TqBA.css                                        [39m[1m[2m  3.75 kB[22m[1m[22m[2m 鈹?gzip:   0.72 kB[22m
+[2m../../gzh-build-check/[22m[35massets/LongProject-CIfRbJoO.css                                            [39m[1m[2m 18.36 kB[22m[1m[22m[2m 鈹?gzip:   3.09 kB[22m
+[2m../../gzh-build-check/[22m[35massets/index-BzGPBRWs.css                                                  [39m[1m[2m 85.32 kB[22m[1m[22m[2m 鈹?gzip:  14.48 kB[22m
+[2m../../gzh-build-check/[22m[36massets/_plugin-vue_export-helper-DlAUqK2U.js                               [39m[1m[2m  0.09 kB[22m[1m[22m[2m 鈹?gzip:   0.10 kB[22m
+[2m../../gzh-build-check/[22m[36massets/ModalCoverTemplate-GAt9_zvf.js                                      [39m[1m[2m  0.19 kB[22m[1m[22m[2m 鈹?gzip:   0.17 kB[22m
+[2m../../gzh-build-check/[22m[36massets/ModalStyleTemplate-DL9DHb-R.js                                      [39m[1m[2m  0.19 kB[22m[1m[22m[2m 鈹?gzip:   0.17 kB[22m
+[2m../../gzh-build-check/[22m[36massets/eye-MilppzZb.js                                                     [39m[1m[2m  0.43 kB[22m[1m[22m[2m 鈹?gzip:   0.31 kB[22m
+[2m../../gzh-build-check/[22m[36massets/book-open-CNLqMquJ.js                                               [39m[1m[2m  0.45 kB[22m[1m[22m[2m 鈹?gzip:   0.31 kB[22m
+[2m../../gzh-build-check/[22m[36massets/folder-open-CF1sRTRc.js                                             [39m[1m[2m  0.46 kB[22m[1m[22m[2m 鈹?gzip:   0.33 kB[22m
+[2m../../gzh-build-check/[22m[36massets/useToast-CbQINg_k.js                                                [39m[1m[2m  0.47 kB[22m[1m[22m[2m 鈹?gzip:   0.24 kB[22m
+[2m../../gzh-build-check/[22m[36massets/v4-CtRu48qb.js                                                      [39m[1m[2m  0.81 kB[22m[1m[22m[2m 鈹?gzip:   0.43 kB[22m
+[2m../../gzh-build-check/[22m[36massets/project-B9oUleWi.js                                                 [39m[1m[2m  0.95 kB[22m[1m[22m[2m 鈹?gzip:   0.48 kB[22m
+[2m../../gzh-build-check/[22m[36massets/user-round-D2pV5kZH.js                                              [39m[1m[2m  0.95 kB[22m[1m[22m[2m 鈹?gzip:   0.40 kB[22m
+[2m../../gzh-build-check/[22m[36massets/trash-2-BYbB_Q8D.js                                                 [39m[1m[2m  1.01 kB[22m[1m[22m[2m 鈹?gzip:   0.40 kB[22m
+[2m../../gzh-build-check/[22m[36massets/useTypesetNavigation-Cmppg25p.js                                    [39m[1m[2m  1.06 kB[22m[1m[22m[2m 鈹?gzip:   0.72 kB[22m
+[2m../../gzh-build-check/[22m[36massets/comic-Cr_V0kRG.js                                                   [39m[1m[2m  1.69 kB[22m[1m[22m[2m 鈹?gzip:   0.55 kB[22m
+[2m../../gzh-build-check/[22m[36massets/useTemplateRender-DPnKRjLb.js                                       [39m[1m[2m  2.07 kB[22m[1m[22m[2m 鈹?gzip:   0.92 kB[22m
+[2m../../gzh-build-check/[22m[36massets/ConfirmDialog-CcPa-qnz.js                                           [39m[1m[2m  2.19 kB[22m[1m[22m[2m 鈹?gzip:   1.19 kB[22m
+[2m../../gzh-build-check/[22m[36massets/ImagePreviewModal-DbuWcoiS.js                                       [39m[1m[2m  2.48 kB[22m[1m[22m[2m 鈹?gzip:   1.08 kB[22m
+[2m../../gzh-build-check/[22m[36massets/ComicLayout-B1fAbIqK.js                                             [39m[1m[2m  3.41 kB[22m[1m[22m[2m 鈹?gzip:   1.47 kB[22m
+[2m../../gzh-build-check/[22m[36massets/HomeView-nUgpom_-.js                                                [39m[1m[2m  4.16 kB[22m[1m[22m[2m 鈹?gzip:   1.97 kB[22m
+[2m../../gzh-build-check/[22m[36massets/sharedBlocks-DCS6wBeG.js                                            [39m[1m[2m  4.93 kB[22m[1m[22m[2m 鈹?gzip:   1.81 kB[22m
+[2m../../gzh-build-check/[22m[36massets/imageStudio-DyN1TkN8.js                                             [39m[1m[2m  5.16 kB[22m[1m[22m[2m 鈹?gzip:   2.17 kB[22m
+[2m../../gzh-build-check/[22m[36massets/imageUrl-r3uOVywd.js                                                [39m[1m[2m  5.44 kB[22m[1m[22m[2m 鈹?gzip:   1.91 kB[22m
+[2m../../gzh-build-check/[22m[36massets/contentBlocksHtml-CRexBeSb.js                                       [39m[1m[2m  5.65 kB[22m[1m[22m[2m 鈹?gzip:   2.69 kB[22m
+[2m../../gzh-build-check/[22m[36massets/useCoverManager-DTXDcRl3.js                                         [39m[1m[2m  5.93 kB[22m[1m[22m[2m 鈹?gzip:   1.90 kB[22m
+[2m../../gzh-build-check/[22m[36massets/useCoverGenerator-DJCT4b-B.js                                       [39m[1m[2m  5.96 kB[22m[1m[22m[2m 鈹?gzip:   2.86 kB[22m
+[2m../../gzh-build-check/[22m[36massets/StyleTemplateView-BekDpE3t.js                                       [39m[1m[2m  6.88 kB[22m[1m[22m[2m 鈹?gzip:   2.51 kB[22m
+[2m../../gzh-build-check/[22m[36massets/llmService-CxOQWdIt.js                                              [39m[1m[2m  8.37 kB[22m[1m[22m[2m 鈹?gzip:   4.26 kB[22m
+[2m../../gzh-build-check/[22m[36massets/ModalStyleTemplate.vue_vue_type_script_setup_true_lang-Qn4LV3Ub.js  [39m[1m[2m 10.04 kB[22m[1m[22m[2m 鈹?gzip:   3.47 kB[22m
+[2m../../gzh-build-check/[22m[36massets/ModalAccount-B4RW9Teb.js                                            [39m[1m[2m 10.12 kB[22m[1m[22m[2m 鈹?gzip:   3.78 kB[22m
+[2m../../gzh-build-check/[22m[36massets/promptTemplateRegistry-BYDigMrP.js                                  [39m[1m[2m 10.22 kB[22m[1m[22m[2m 鈹?gzip:   8.55 kB[22m
+[2m../../gzh-build-check/[22m[36massets/ModalCoverTemplate.vue_vue_type_script_setup_true_lang-Cj72zINk.js  [39m[1m[2m 10.34 kB[22m[1m[22m[2m 鈹?gzip:   3.72 kB[22m
+[2m../../gzh-build-check/[22m[36massets/ProjectList-oKiIYSaI.js                                             [39m[1m[2m 11.15 kB[22m[1m[22m[2m 鈹?gzip:   4.66 kB[22m
+[2m../../gzh-build-check/[22m[36massets/ModalTemplate-CCnqLoNT.js                                           [39m[1m[2m 11.29 kB[22m[1m[22m[2m 鈹?gzip:   4.15 kB[22m
+[2m../../gzh-build-check/[22m[36massets/imageGenerationService-CDxjRV31.js                                  [39m[1m[2m 12.40 kB[22m[1m[22m[2m 鈹?gzip:   3.93 kB[22m
+[2m../../gzh-build-check/[22m[36massets/SyncView-AT2s6fkL.js                                                [39m[1m[2m 13.97 kB[22m[1m[22m[2m 鈹?gzip:   5.64 kB[22m
+[2m../../gzh-build-check/[22m[36massets/ProjectEditor-BlhqWVkZ.js                                           [39m[1m[2m 14.79 kB[22m[1m[22m[2m 鈹?gzip:   5.71 kB[22m
+[2m../../gzh-build-check/[22m[36massets/PromptTemplatesView-DY41tJhv.js                                     [39m[1m[2m 14.89 kB[22m[1m[22m[2m 鈹?gzip:   4.22 kB[22m
+[2m../../gzh-build-check/[22m[36massets/MaterialLibrary-Dk6MQSwq.js                                         [39m[1m[2m 17.53 kB[22m[1m[22m[2m 鈹?gzip:   5.74 kB[22m
+[2m../../gzh-build-check/[22m[36massets/GalleryView-DFS4xwkc.js                                             [39m[1m[2m 18.21 kB[22m[1m[22m[2m 鈹?gzip:   4.91 kB[22m
+[2m../../gzh-build-check/[22m[36massets/PageExport-C1SXa1uX.js                                              [39m[1m[2m 20.51 kB[22m[1m[22m[2m 鈹?gzip:   7.32 kB[22m
+[2m../../gzh-build-check/[22m[36massets/SetupView-DwO77QRB.js                                               [39m[1m[2m 20.59 kB[22m[1m[22m[2m 鈹?gzip:   6.95 kB[22m
+[2m../../gzh-build-check/[22m[36massets/ImageConfigDrawer-Xlpy43Dn.js                                       [39m[1m[2m 27.39 kB[22m[1m[22m[2m 鈹?gzip:   8.46 kB[22m
+[2m../../gzh-build-check/[22m[36massets/ImageStudioView-F4fiKszL.js                                         [39m[1m[2m 27.45 kB[22m[1m[22m[2m 鈹?gzip:   7.72 kB[22m
+[2m../../gzh-build-check/[22m[36massets/ProjectAssets-Cr4Kkj5O.js                                           [39m[1m[2m 33.66 kB[22m[1m[22m[2m 鈹?gzip:  10.29 kB[22m
+[2m../../gzh-build-check/[22m[36massets/ExtractView-CM1Vl8Vh.js                                             [39m[1m[2m 42.45 kB[22m[1m[22m[2m 鈹?gzip:  12.55 kB[22m
+[2m../../gzh-build-check/[22m[36massets/PageSync-ubI7T3xQ.js                                                [39m[1m[2m 43.11 kB[22m[1m[22m[2m 鈹?gzip:  12.84 kB[22m
+[2m../../gzh-build-check/[22m[36massets/SettingsView-8cHtLr5m.js                                            [39m[1m[2m 48.55 kB[22m[1m[22m[2m 鈹?gzip:  15.50 kB[22m
+[2m../../gzh-build-check/[22m[36massets/TypesetView-BmkbiZAu.js                                             [39m[1m[2m 57.88 kB[22m[1m[22m[2m 鈹?gzip:  14.07 kB[22m
+[2m../../gzh-build-check/[22m[36massets/PageEditor-C0pFVKCY.js                                              [39m[1m[2m 71.26 kB[22m[1m[22m[2m 鈹?gzip:  22.58 kB[22m
+[2m../../gzh-build-check/[22m[36massets/coverSlotRatios-D_4fnKzN.js                                         [39m[1m[2m 82.92 kB[22m[1m[22m[2m 鈹?gzip:  21.96 kB[22m
+[2m../../gzh-build-check/[22m[36massets/index-3RbGOYRL.js                                                   [39m[1m[2m165.81 kB[22m[1m[22m[2m 鈹?gzip:  61.07 kB[22m
+[2m../../gzh-build-check/[22m[36massets/html2canvas.esm-CBrSDip1.js                                         [39m[1m[2m201.42 kB[22m[1m[22m[2m 鈹?gzip:  48.03 kB[22m
+[2m../../gzh-build-check/[22m[36massets/LongProject-m14-7_Ol.js                                             [39m[1m[2m294.90 kB[22m[1m[22m[2m 鈹?gzip:  92.69 kB[22m
+[2m../../gzh-build-check/[22m[36massets/json-editor-C9zIGVlc.js                                             [39m[1m[2m414.84 kB[22m[1m[22m[2m 鈹?gzip: 135.27 kB[22m
+[32m鉁?built in 21.08s[39m
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32m鉁?[39m 655 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist-electron/[22m[36mmain.js  [39m[1m[33m996.17 kB[39m[22m[2m 鈹?gzip: 242.92 kB[22m
+[32m鉁?built in 10.94s[39m
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32m鉁?[39m 1 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist-electron/[22m[36mpreload.mjs  [39m[1m[2m6.93 kB[22m[1m[22m[2m 鈹?gzip: 1.26 kB[22m
+[32m鉁?built in 83ms[39m

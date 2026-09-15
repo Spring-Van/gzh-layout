@@ -253,7 +253,7 @@ const genTargets = computed(() => props.assets.flatMap((asset) => asset.variants
 const hasGenTargets = computed(() => genTargets.value.length > 0)
 
 // ========== 提示词 ==========
-/** 构建批量提示词生成用的最终 prompt（供弹窗预览，按所选范围/发送方式取目标；输出协议取模板自定义）。 */
+/** 构建批量提示词生成用的最终 prompt（供弹窗预览，按所选范围/发送方式取目标；只按模板内容拼）。 */
 function buildPromptPreview(template: PromptTemplate, scope?: 'missing' | 'all', sendMode?: 'once' | 'per-item'): string {
   const targets = scope === 'all' ? allPromptTargets.value : promptTargets.value
   // 逐条发送：预览首个目标的单条拼装提示词（结果直接取全文回填，不解析）
@@ -267,18 +267,14 @@ function buildPromptPreview(template: PromptTemplate, scope?: 'missing' | 'all',
       styleContext: styleContext.value,
       targetImageModel: currentImageModel.value?.name,
       templateContent: template.content,
-      outputProtocol: template.outputProtocol,
-      outputParser: template.outputParser,
     })
   }
-  // 一次性发送：协议与解析方式同源（模板未自定义协议时，按解析方式取同构协议）
+  // 一次性发送：返回格式约定写在模板内容里（见模板的【返回格式】段）
   return buildAssetPromptPrompt({
     templateContent: template.content,
     targets: targets.map(({ asset, variants }) => ({ asset: toRaw(asset), variants: variants.map(toRaw) })),
     styleContext: styleContext.value,
     targetImageModel: currentImageModel.value?.name,
-    outputProtocol: template.outputProtocol,
-    outputParser: template.outputParser,
   })
 }
 
@@ -330,8 +326,6 @@ function buildPromptItems(template: PromptTemplate, scope?: 'missing' | 'all'): 
       styleContext: styleContext.value,
       targetImageModel: currentImageModel.value?.name,
       templateContent: template.content,
-      outputProtocol: template.outputProtocol,
-      outputParser: template.outputParser,
     }),
   })))
 }
@@ -371,8 +365,6 @@ async function runPerItemPrompts(
           styleContext: styleContext.value,
           targetImageModel: currentImageModel.value?.name,
           templateContent: context.template.content,
-          outputProtocol: context.template.outputProtocol,
-          outputParser: context.template.outputParser,
         })
         const imagePrompt = await rewriteAssetPrompt({ model: context.model, asset: toRaw(asset), variant: toRaw(variant), prompt })
         reportItemProgress(variant.id, 'done', { text: imagePrompt })
@@ -570,7 +562,7 @@ function openRewriteModal(asset: LongProjectAsset, variant: LongProjectAssetVari
   rewriteModalVisible.value = true
 }
 
-/** 构建单条生成/重写的最终 prompt（模板 + 该状态信息；输出协议取模板自定义，未自定义则用逐条默认协议）。 */
+/** 构建单条生成/重写的最终 prompt（只按模板内容拼，运行时不追加任何协议段）。 */
 function buildRewritePreview(template: PromptTemplate): string {
   const target = rewriteTarget.value
   if (!target) return ''
@@ -581,8 +573,6 @@ function buildRewritePreview(template: PromptTemplate): string {
     styleContext: styleContext.value,
     targetImageModel: currentImageModel.value?.name,
     templateContent: template.content,
-    outputProtocol: template.outputProtocol,
-    outputParser: template.outputParser,
   })
 }
 

@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   LONG_STORY_TEMPLATE_TYPES,
+  OUTPUT_FORMAT_SPECS,
   RECOMMENDED_TEMPLATES,
-  applyOutputProtocol,
-  defaultOutputProtocol,
   findUnknownVariables,
   getTemplateVariables,
   migrateTemplateContent,
   normalizeTemplateVariables,
+  outputFormatSpec,
   renderPromptTemplate,
 } from '../../src/modules/comic/services/promptTemplateRegistry';
 
@@ -45,7 +45,8 @@ describe('promptTemplateRegistry · 渲染引擎', () => {
     });
     expect(prompt).toContain('请分析：\n第一章……');
     expect(prompt).not.toContain('{{');
-    expect(prompt).toContain('【输出要求】');
+    // 渲染不再追加任何协议段（返回格式约定写在模板内容里）
+    expect(prompt).toBe('请分析：\n第一章……');
   });
 
   it('变量在模板中但值为空：替换为 emptyText', () => {
@@ -121,52 +122,61 @@ describe('promptTemplateRegistry · 推荐模板', () => {
   });
 });
 
-describe('promptTemplateRegistry · 输出协议', () => {
-  it('自定义协议优先于默认协议', () => {
+describe('promptTemplateRegistry · 返回格式（写在模板内容里）', () => {
+  it('渲染不再追加任何协议段：模板内容就是最终提示词', () => {
     const prompt = renderPromptTemplate({
       type: 'panel-prompt',
       content: '内容',
       values: {},
-      customProtocol: '自定义要求',
     });
-    expect(prompt).toContain('【输出要求】\n自定义要求');
-    expect(prompt).not.toContain(defaultOutputProtocol('panel-prompt'));
+    expect(prompt).toBe('内容');
+    expect(prompt).not.toContain('【返回格式】');
+    expect(prompt).not.toContain('【内容要求】');
   });
 
-  it('未自定义时落到类型默认协议', () => {
-    const prompt = applyOutputProtocol('正文', undefined, 'panel-prompt');
-    expect(prompt).toBe(`正文\n\n【输出要求】\n${defaultOutputProtocol('panel-prompt')}`);
-  });
-
-  it('asset-prompt 默认协议按发送模式区分', () => {
-    const batch = defaultOutputProtocol('asset-prompt', 'batch-once');
-    const perItem = defaultOutputProtocol('asset-prompt', 'per-item');
-    expect(batch).toContain('【资产名｜状态名】');
-    expect(perItem).toContain('只输出一段完整的中文提示词正文');
-    expect(batch).not.toBe(perItem);
-  });
-
-  it('六个长篇类型均有默认协议；style/story 无', () => {
-    for (const type of ['analysis', 'script', 'storyboard', 'extract', 'asset-prompt', 'panel-prompt'] as const) {
-      expect(defaultOutputProtocol(type).length).toBeGreaterThan(0);
+  it('需要解析的环节：推荐模板内容自带【返回格式】段', () => {
+    for (const type of ['storyboard', 'extract', 'asset-prompt'] as const) {
+      const content = RECOMMENDED_TEMPLATES[type]!.content;
+      expect(content, `${type} 推荐模板缺少格式约定`).toContain('【返回格式】');
+      expect(content).toContain(outputFormatSpec(type));
     }
-    expect(defaultOutputProtocol('style')).toBe('');
-    expect(defaultOutputProtocol('story')).toBe('');
   });
 
-  it('分镜默认协议：符号规则（格用【第X格】、标题用「」、冒号后写内容）', () => {
-    const protocol = defaultOutputProtocol('storyboard');
-    expect(protocol).toContain('符号规则：分镜格用【第X格】；内容标题用「XXX」；冒号后写具体内容。');
-    expect(protocol).toContain('【第X格】');
-    expect(protocol).toContain('「字段名」：内容');
+  it('六个长篇类型的格式说明都要求 Markdown；style/story 无', () => {
+    for (const type of ['analysis', 'script', 'storyboard', 'extract', 'asset-prompt', 'panel-prompt'] as const) {
+      expect(outputFormatSpec(type).length).toBeGreaterThan(0);
+      expect(outputFormatSpec(type), `${type} 应明确要求 Markdown 返回`).toContain('Markdown');
+    }
+    expect(outputFormatSpec('style')).toBe('');
+    expect(OUTPUT_FORMAT_SPECS.story).toBeUndefined();
   });
 
-  it('分镜默认协议：列出 13 个字段，台词类字段四选一且带说话人', () => {
-    const protocol = defaultOutputProtocol('storyboard');
-    expect(protocol).toContain('景别 / 镜头 / 画面 / 人物 / 动作 / 表情 / 台词 / 心声 / 画外 / 旁白 / 音效 / 光效 / 备注');
-    expect(protocol).toContain('说话人：“台词”');
-    expect(protocol).toContain('「旁白」不带说话人');
+  it('asset-prompt 返回格式只有一份：批量与逐条同格式（逐条只解析一条）', () => {
+    const format = outputFormatSpec('asset-prompt');
+    expect(format).toContain('Markdown');
+    expect(format).toContain('【资产名｜状态名】');
+  });
+
+  it('分镜格式说明：符号规则（格用【第X格】、标题用「」、冒号后写内容）', () => {
+    const spec = outputFormatSpec('storyboard');
+    expect(spec).toContain('符号规则：分镜格用【第X格】；内容标题用「XXX」；冒号后写具体内容。');
+    expect(spec).toContain('【第X格】');
+    expect(spec).toContain('「字段名」：内容');
+  });
+
+  it('分镜格式说明：列出 13 个字段，台词类字段四选一且带说话人', () => {
+    const spec = outputFormatSpec('storyboard');
+    expect(spec).toContain('景别 / 镜头 / 画面 / 人物 / 动作 / 表情 / 台词 / 心声 / 画外 / 旁白 / 音效 / 光效 / 备注');
+    expect(spec).toContain('说话人：“台词”');
+    expect(spec).toContain('「旁白」不带说话人');
     // 【】不再用于台词包装（旧 v3 协议已废弃）
-    expect(protocol).not.toContain('说话人：【台词】');
+    expect(spec).not.toContain('说话人：【台词】');
+  });
+
+  it('资产提取格式说明：三级标题结构与解析器对齐', () => {
+    const spec = outputFormatSpec('extract');
+    expect(spec).toContain('# 人物、# 场景、# 道具');
+    expect(spec).toContain('## 资产名称');
+    expect(spec).toContain('### 视觉状态：状态名');
   });
 });

@@ -880,12 +880,11 @@ watch(chapterId, () => {
 
 // ========== 画面描述推导 ==========
 
-/** 模板解析：空模板 id / 未命中走内置默认模板，返回内容与自定义输出协议。 */
-function resolveTemplate(templateId?: string): { content: string; outputProtocol?: string } {
+/** 模板解析：空模板 id / 未命中走内置默认模板，返回提示词内容（格式约定已写在内容里）。 */
+function resolveTemplate(templateId?: string): { content: string } {
   const template = templateId ? panelPromptTemplates.value.find((item) => item.id === templateId) : undefined
   return {
     content: template?.content ?? DEFAULT_PANEL_PROMPT_TEMPLATE,
-    outputProtocol: template?.outputProtocol,
   }
 }
 
@@ -901,11 +900,10 @@ function prevEntriesOf(index: number): PrevPanelContextEntry[] {
   return entries
 }
 
-/** 拼装单镜最终提示词（输出协议取模板自定义，未自定义则不附加任何输出限制）。 */
-function buildPromptForPanel(panel: LongProjectStoryboardPanel, index: number, template: { content: string; outputProtocol?: string }): string {
+/** 拼装单镜最终提示词（只按模板内容拼，运行时不追加任何协议段）。 */
+function buildPromptForPanel(panel: LongProjectStoryboardPanel, index: number, template: { content: string }): string {
   return buildPanelPromptPrompt({
     templateContent: template.content,
-    outputProtocol: template.outputProtocol,
     panel: toRaw(panel),
     chapterOutline: chapterOutline.value,
     prevEntries: prevEntriesOf(index),
@@ -916,8 +914,8 @@ function buildPromptForPanel(panel: LongProjectStoryboardPanel, index: number, t
 }
 
 /** 弹窗回调的模板 → 拼装参数（null = 内置默认模板）。 */
-function toPromptTemplateArg(template: PromptTemplate | null): { content: string; outputProtocol?: string } {
-  return template ? { content: template.content, outputProtocol: template.outputProtocol } : { content: DEFAULT_PANEL_PROMPT_TEMPLATE }
+function toPromptTemplateArg(template: PromptTemplate | null): { content: string } {
+  return template ? { content: template.content } : { content: DEFAULT_PANEL_PROMPT_TEMPLATE }
 }
 
 /** 批量弹窗预览：按范围取首个目标分镜拼装示例。 */

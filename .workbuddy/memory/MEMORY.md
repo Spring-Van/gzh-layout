@@ -45,14 +45,43 @@
 - **入库去包装、出库带包装**：`cell.dialogue/narration` 存裸文本，喂画面描述提示词时不带标记。
 - 解析器兼容 v4 / v3（`①【镜头】画面` + `说话人：【台词】`）/ v2（`‖`）/ 旧 `- 字段：`。
 
+## 模板类型 × 解析机制（8 类模板全景）
+
+**只有 3 类需要结构化解析，其余 5 类整段消费、零解析**：
+- 零解析（返回即正文）：`analysis` / `script`（`chapterDocService.runChapterDoc` 直接 `content.trim()` 入库）、`panel-prompt`（`inferPanelPrompt` 整段作画面描述）、`story`（未见独立链路）、`style`（不调模型，作风格片段拼进别人提示词）。
+- 需解析：`asset-prompt` / `extract` / `storyboard`。
+
+**三者范式完全不同，不要用同一套方案改**：
+
+| | asset-prompt | extract | storyboard |
+|---|---|---|---|
+| 范式 | 段落切分 + **名字查表** | **标题栈** | **行级分派状态机** |
+| 归属依据 | 与预设状态清单比对 | 标题位置 | 当前页 / 当前格上下文 |
+| 层级容忍 | — | ❌ 严格 1/2/3 个 `#` | ✅ `#{1,6}` 任意层级 |
+| 容错方式 | 猜（模糊匹配 / 顺序兜底） | 认标题 + 字段/标题双形式 | 认形态 + v4/v3/v2 + 无页头自动开页 |
+| 失败后果 | 整批对不上（可静默错配） | 0 个资产 | 0 页 |
+| 历史包袱 | 无（新做） | legacy JSON | 三版协议兼容 |
+
+**关键区分：闭集映射 vs 开集生成**
+- `asset-prompt` 是**闭集**（发出去 8 个状态，必须 8 段一一对上）→ 本质是**查找问题**，模型名字一漂移就整批废 → **只有它会报「协议与解析不匹配」**。
+- `extract` / `storyboard` 是**开集**（模型自己决定几条）→ **位置即归属**，不比对名字，模型写错名也能收。extract 的 `matchExistingAsset` 只产出 `suggestedAssetId` + `decision:'merge'` **建议**，不影响数据接收。
+
+**三处共同缺口**：都不剥代码块围栏 ```、都不去前言/结语（asset-prompt 已有 `normalizeModelOutput`，另两处没有）→ 这是「归一化层」要统一补的。
+
+**三处都不用真正的 Markdown 解析器**（不建 AST），而是正则逐行近似 Markdown：好处是模型写半吊子 Markdown 也能收，坏处是换成 `**加粗**` 当标题就认不出。
+
 ## 资产提示词回填（协议 · 解析器）
 
-- **协议与解析器成对注册**：`PromptTemplate.outputParser`（`auto` / `bracket` / `json` / `indexed` / `sequential` / `plain`）决定解析，`ASSET_PROMPT_PARSER_SPECS` 每档**自带同构协议**。自定义 `outputProtocol` 会**完全替换**系统协议 → 必须与解析方式一致（设置页已提示）。存量模板无该字段 → 按 `auto`，**只警告不自动改写**（用户明确要求）。
-- **五层容错管线**（`assetPromptParser.ts`）：归一化预处理 → 多形态头识别 → 模糊名字匹配 → 顺序兜底 → 诊断。目标：**换模型 / 换格式都不能让整批请求白跑**。
+- **返回格式写进模板内容，运行时不追加任何协议段（2026-09-15 最终态）**：各类型结构说明集中在 `OUTPUT_FORMAT_SPECS`，由私有 `withFormatSpec()` 内联进 `RECOMMENDED_TEMPLATES` 每条的 content 末尾【返回格式】段；`renderPromptTemplate` 只做变量替换（签名已去掉 `customProtocol`）。设置页**删掉了整个「输出协议」编辑框**，只保留「提示词内容」+ 需要解析的环节在**底部一行提示**（「本环节结果按 Markdown 解析，请保留上面的输出结构」，`story` 为 JSON）。**已删除**：`applyOutputProtocol` / `defaultOutputProtocol` / `defaultContentRequirement` / `OUTPUT_CONTENT_DEFAULTS` / `OUTPUT_FORMAT_DEFAULTS`（改名 `OUTPUT_FORMAT_SPECS`）/ `PromptTemplate.outputProtocol` 字段 / 更早的 `PromptOutputParser` + `ASSET_PROMPT_PARSER_SPECS`。存量模板里存过的 `outputProtocol` 值被忽略，**不做数据迁移**。
+  - ⚠️ **代价**：格式约定一旦可被用户改，解析就可能被改坏 —— 这是用户明确选择的取舍（「默认提示词内容里直接含输出格式」）。所以底部那行提示是必须保留的。
+  - ⚠️ **存量模板缺口**：老模板 content 里没有【返回格式】段，批量一次性发送时模型可能不按 `【资产名｜状态名】` 返回；解析器的模糊匹配与顺序兜底仍会尽力，但建议让用户点「填入推荐模板」补齐。
+- **哪些环节真的需要解析**（决定哪些模板必须带格式约定）：`storyboard`（分镜生成 + 页面 AI 优化，`parseStoryboardResponse` / `parsePanelBlock`）、`extract`（`parseAssetExtractionResponse`）、`asset-prompt` 批量·一次性（`parseAssetPromptResponse`）、`story`（旧版漫画项目编辑器，JSON）。**不需要解析**：`analysis` / `script`（整段 Markdown 入库）、`panel-prompt`（逐镜单次调用返回纯文本，**所谓「批量生成分镜绘画提示词」是循环单次，不需要解析**）、`style`（不调模型）。
+- **统一返回格式 = Markdown，批量与逐条同一个格式**：asset-prompt 用 `ASSET_PROMPT_FORMAT`（`【资产名｜状态名】` + 提示词正文）。逐条发送 / 单条重写走 `extractSinglePromptText()`：单目标跑同一管线，命中取正文，未命中则剥掉行首包装与客套后退化为整段正文（单条不存在错配风险，宁可原样收下）。
+- **单管线多层容错**（`assetPromptParser.ts`）：归一化预处理 → 多形态头识别 → 模糊名字匹配 → JSON / 序号容错 → 顺序兜底 → 诊断（`stage: ok | bracket | json | indexed | order | none`）。目标：**换模型 / 换格式都不能让整批请求白跑**。
 - **两遍法**：候选头**必须先 resolve 成功才算头**，否则正文行 `- 视觉描述：A - B` 会被误判为头并切碎段落。
 - **顺序兜底的安全阀**：只有「段落数严格等于目标数」才 1:1 回填；条数不等**不猜**（宁可报错 + 弹窗可看原始返回）。
 - 模糊 / 顺序命中要在 UI **标出来让用户核对**（「近似匹配 / 顺序对应」），不能静默错配。
-- 解析全失败抛 `AssetPromptParseError`，**错误自带 diagnostics**（parser / stage / expected / parsed / missing / raw）→ 弹窗可查看并复制模型原始返回。
+- 解析全失败抛 `AssetPromptParseError`，**错误自带 diagnostics**（stage / expected / parsed / missing / raw）→ 弹窗可查看并复制模型原始返回。
 
 ## 主题色写法（全项目通用）
 

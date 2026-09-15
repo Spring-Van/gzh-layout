@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import type { LongProjectAsset, LongProjectStoryboardAssetBinding, LongProjectStoryboardCell, LongProjectStoryboardPanel, ModelConfig, PromptTemplate } from '@comic/types'
 import { llmService } from './llmService'
-import { defaultOutputProtocol, defaultTemplateContent, renderPromptTemplate } from './promptTemplateRegistry'
+import { defaultTemplateContent, outputFormatSpec, renderPromptTemplate } from './promptTemplateRegistry'
 
 /**
  * 组装"分镜生成"提示词：漫画剧本（主输入）+ 原文分析 / 章节原文（辅助核对）。
@@ -584,7 +584,7 @@ export function buildPanelPolishPrompt(blockText: string, scriptContext?: string
 - 只输出这一页分镜文本，不要输出其它页；不要解释、不要代码块、不要输出标题行。
 
 【输出格式】
-${defaultOutputProtocol('storyboard')}
+${outputFormatSpec('storyboard')}
 
 【所属章节漫画剧本（仅供核对本页说话人与剧情，不要据此增删本页内容）】
 ${scriptContext?.trim() || '（本章尚未生成剧本）'}

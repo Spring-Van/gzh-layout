@@ -1,9 +1,14 @@
 import { v4 as uuidv4 } from 'uuid'
 import { llmService } from './llmService'
-import { defaultTemplateContent, renderPromptTemplate } from './promptTemplateRegistry'
+import {
+  ASSET_PROMPT_FORMAT,
+  defaultTemplateContent,
+  renderPromptTemplate,
+} from './promptTemplateRegistry'
 import {
   AssetPromptParseError,
   describeParseFailure,
+  extractSinglePromptText,
   parseAssetPromptResponse,
   targetKey,
   type AssetPromptParseItem,
@@ -15,7 +20,6 @@ import type {
   LongProjectAsset,
   LongProjectAssetVariant,
   ModelConfig,
-  PromptOutputParser,
   PromptTemplate,
   SharedPromptBlock,
 } from '@comic/types'
@@ -39,17 +43,14 @@ const typeLabel: Record<string, string> = { character: '人物', scene: '场景'
 /**
  * 拼装最终提示词（批量·一次性发送）：模板 + 状态清单 + 风格上下文。
  * 变量：{{状态清单}} / {{风格上下文}} / {{目标生图模型}}；是否进入提示词完全由模板决定（无自动追加兜底）。
- * 未选/未配模板时用内置默认模板（与推荐模板同源，自带全部变量）。
- * 输出协议：模板自定义 outputProtocol 优先；未自定义时按 **解析方式 outputParser** 取同构协议
- * （协议与解析器成对注册，见 promptTemplateRegistry 的 ASSET_PROMPT_PARSER_SPECS），保证结果可解析回填。
+ * 未选/未配模板时用内置默认模板（与推荐模板同源，自带全部变量与【返回格式】约定）。
+ * 返回格式写在模板内容里，运行时不追加任何协议段。
  */
 export function buildAssetPromptPrompt(options: {
   templateContent: string
   targets: AssetPromptTarget[]
   styleContext?: string
   targetImageModel?: string
-  outputProtocol?: string
-  outputParser?: PromptOutputParser
 }): string {
   const { text } = buildTargetList(options.targets)
   return renderPromptTemplate({
@@ -60,9 +61,6 @@ export function buildAssetPromptPrompt(options: {
       风格上下文: options.styleContext ?? '',
       目标生图模型: options.targetImageModel ?? '',
     },
-    customProtocol: options.outputProtocol,
-    protocolMode: 'batch-once',
-    outputParser: options.outputParser,
   })
 }
 
@@ -130,16 +128,10 @@ export async function generateAssetPrompts(options: {
     targets: options.targets,
     styleContext: options.styleContext,
     targetImageModel: options.targetImageModel,
-    outputProtocol: options.template.outputProtocol,
-    outputParser: options.template.outputParser,
   })
   const result = await llmService.call({ modelConfig: options.model, userMessage: prompt })
   if (!result.success || !result.content) throw new Error(result.error || '模型没有返回内容')
-  const { items, diagnostics } = parseAssetPromptResponse(result.content, {
-    index,
-    ordered,
-    parser: options.template.outputParser,
-  })
+  const { items, diagnostics } = parseAssetPromptResponse(result.content, { index, ordered })
   if (!items.length) throw new AssetPromptParseError(describeParseFailure(diagnostics), diagnostics)
   return { rawResponse: result.content, items }
 }
@@ -147,9 +139,9 @@ export async function generateAssetPrompts(options: {
 /**
  * 单条生成/重写：只针对一个视觉状态，返回一段提示词文本。
  * - 传 templateContent：按模板（{{状态清单}}/{{风格上下文}}/{{目标生图模型}}）+ 状态信息拼装（用于发送前确认弹窗预览）；
- *   协议：模板自定义 outputProtocol 优先，未自定义使用逐条默认协议（结果直接取全文回填，无需解析）；
  * - 传 prompt：直接使用调用方确认后的最终文本执行；
- * - 两者都无：使用内置默认指令（含系统默认输出要求）。
+ * - 两者都无：使用内置默认指令（含系统默认内容要求与返回格式）。
+ * **返回格式与批量发送完全一致**（Markdown 逐条「【资产名｜状态名】+ 提示词」），回填时只解析这一条。
  * model 允许为空（仅拼装不调模型）。
  */
 export function buildSingleAssetPrompt(options: {
@@ -159,9 +151,6 @@ export function buildSingleAssetPrompt(options: {
   styleContext?: string
   instruction?: string
   templateContent?: string
-  outputProtocol?: string
-  /** 解析方式（逐条路径恒为全文回填，此处仅用于与批量路径保持配置一致） */
-  outputParser?: PromptOutputParser
   /** 目标生图模型名（逐条路径与批量路径对齐） */
   targetImageModel?: string
 }): string {
@@ -180,12 +169,9 @@ export function buildSingleAssetPrompt(options: {
         风格上下文: options.styleContext ?? '',
         目标生图模型: options.targetImageModel ?? '',
       },
-      customProtocol: options.outputProtocol,
-      protocolMode: 'per-item',
-      outputParser: options.outputParser,
     })
   }
-  return `请为以下漫画资产的视觉状态重写一段可直接用于生图的中文绘画提示词。
+  return `请为以下漫画资产的视觉状态生成/重写一段可直接用于生图的中文绘画提示词。
 
 【资产信息】
 ${info}
@@ -193,11 +179,20 @@ ${options.currentPrompt ? `- 当前提示词（不满意，需要重写）：${o
 ${options.styleContext ? `\n【风格上下文】\n${options.styleContext}` : ''}
 ${options.instruction ? `\n【用户要求】\n${options.instruction}` : ''}
 
-【输出要求】
-只输出一段完整的中文提示词正文，不要任何前缀、解释或分点。包含外观、服饰/材质、姿态或氛围、画风要求；不写镜头语言；不编造与给定信息冲突的细节。`
+【写作要求】
+- 每段提示词为一段完整、连贯的中文描述，不要分点；
+- 包含外观与体型、服饰与材质、姿态或氛围，结尾附上画风要求；
+- 不要出现镜头语言，不要编造与给定信息冲突的细节。
+
+【返回格式】
+${ASSET_PROMPT_FORMAT}`
 }
 
-/** 单条生成/重写执行：调用 LLM 并返回提示词文本。 */
+/**
+ * 单条生成/重写执行：调用 LLM 并回填那一条的提示词正文。
+ * 返回格式与批量一致，所以这里同样过解析器（单目标，只解析一条）——把「【资产名｜状态名】」
+ * 包装剥掉，写回资产的是干净正文；模型完全没按格式返回时退化为整段正文，不让格式细节把结果丢掉。
+ */
 export async function rewriteAssetPrompt(options: {
   model: ModelConfig
   asset: LongProjectAsset
@@ -217,7 +212,14 @@ export async function rewriteAssetPrompt(options: {
   })
   const result = await llmService.call({ modelConfig: options.model, userMessage })
   if (!result.success || !result.content) throw new Error(result.error || '模型没有返回内容')
-  return result.content.trim()
+  const text = extractSinglePromptText(result.content, {
+    assetId: options.asset.id,
+    variantId: options.variant.id,
+    assetName: options.asset.name,
+    variantName: options.variant.name,
+  })
+  if (!text) throw new Error('模型没有返回可用的提示词内容')
+  return text
 }
 
 /** 新建提示词生成任务记录（调用方持久化后执行）。 */

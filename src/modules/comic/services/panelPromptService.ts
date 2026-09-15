@@ -64,7 +64,7 @@ export function buildPanelAssetsContext(panel: LongProjectStoryboardPanel, asset
  * 拼装单镜推导的最终提示词。
  * 变量：{{当前分镜}} / {{镜头}} / {{前文分镜}} / {{本章分镜概要}} / {{绑定资产}} / {{风格上下文}} / {{目标生图模型}}；
  * 是否进入提示词完全由模板决定——模板没写的变量不会出现（无自动追加兜底）。
- * 输出协议：模板自定义 outputProtocol 优先，未自定义使用逐条默认协议（结果直接取全文回填，无需解析）。
+ * 本环节逐镜单独调用、返回纯文本，**结果不需要解析**（返回格式约定写在模板内容里）。
  */
 export function buildPanelPromptPrompt(options: {
   templateContent: string
@@ -74,7 +74,6 @@ export function buildPanelPromptPrompt(options: {
   assets: LongProjectAsset[]
   styleContext?: string
   targetImageModel?: string
-  outputProtocol?: string
 }): string {
   const { panel } = options
   // 多格页：把每格的 景别/镜头/画面/人物/动作/表情/音效/光效 一并交给模型，避免只看到汇总后的「画面」而丢细节
@@ -94,8 +93,6 @@ export function buildPanelPromptPrompt(options: {
       风格上下文: options.styleContext ?? '',
       目标生图模型: options.targetImageModel ?? '',
     },
-    customProtocol: options.outputProtocol,
-    protocolMode: 'per-item',
   })
 }
 

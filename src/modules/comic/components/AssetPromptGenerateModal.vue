@@ -233,7 +233,7 @@
                       class="text-[11px] text-cyan-500 hover:text-cyan-400 dark:text-cyan-400 dark:hover:text-cyan-300"
                       @click="openRawResponse"
                     >查看模型原始返回（{{ run.diagnostics.raw.length.toLocaleString() }} 字）</button>
-                    <span class="text-[11px] text-text-muted">可核对返回内容后在设置页改「解析方式」，或直接点「重新生成」重发</span>
+                    <span class="text-[11px] text-text-muted">可核对返回内容后调整模板的「内容要求」（返回格式统一为 Markdown），或直接点「重新生成」重发</span>
                   </div>
                 </div>
               </div>
@@ -308,7 +308,7 @@
           </div>
         </Transition>
 
-        <!-- 模型原始返回：解析失败时只读展示，便于核对是「模型没按协议输出」还是「解析方式选错」 -->
+        <!-- 模型原始返回：解析失败时只读展示，便于核对模型到底回了什么 -->
         <Transition name="fade">
           <div
             v-if="rawResponseVisible"
@@ -390,9 +390,7 @@ export interface AssetPromptRunResult {
  * 结构上兼容 assetPromptParser 的 AssetPromptParseDiagnostics，但这里不引入 service 依赖。
  */
 export interface AssetPromptParseDiagnosticsView {
-  /** 本次使用的解析方式 */
-  parser: string
-  /** 解析停在哪一层（ok / bracket / json / indexed / order / plain） */
+  /** 解析停在哪一步（ok / bracket / json / indexed / order / none） */
   stage: string
   expected: number
   parsed: number
@@ -641,32 +639,22 @@ const rawResponseVisible = ref(false)
 /** 复制反馈：按钮文案短暂变为「已复制」。 */
 const rawCopied = ref(false)
 
-/** 解析方式中文名（诊断行展示）。 */
-const PARSE_PARSER_LABELS: Record<string, string> = {
-  auto: '自动识别',
-  bracket: '【资产名｜状态名】逐条',
-  json: 'JSON 结构化',
-  indexed: '状态N：提示词',
-  sequential: '严格顺序（无标记）',
-  plain: '全文直接回填',
-}
-
-/** 解析停在哪一层的中文名（诊断行展示）。 */
+/** 解析停在哪一步的中文名（诊断行展示）。 */
 const PARSE_STAGE_LABELS: Record<string, string> = {
   ok: '全部命中',
   bracket: '「资产名｜状态名」头部识别',
   json: 'JSON 结构识别',
   indexed: '「状态N」序号识别',
   order: '清单顺序回填',
-  plain: '全文直接回填',
+  none: '所有形态都没识别出',
 }
 
-/** 解析诊断摘要：解析方式 · 停在哪一层 · 命中条数。 */
+/** 解析诊断摘要：返回格式 · 停在哪一步 · 命中条数。 */
 const parseDiagnosticsSummary = computed(() => {
   const diagnostics = state.value.diagnostics
   if (!diagnostics) return ''
   return [
-    `解析方式 ${PARSE_PARSER_LABELS[diagnostics.parser] ?? diagnostics.parser}`,
+    '返回格式 Markdown 逐条',
     `停在「${PARSE_STAGE_LABELS[diagnostics.stage] ?? diagnostics.stage}」`,
     `命中 ${diagnostics.parsed}/${diagnostics.expected} 条`,
   ].join(' · ')

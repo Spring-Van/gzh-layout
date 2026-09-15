@@ -38,7 +38,9 @@ describe('builder 关键行为（切换渲染引擎后）', () => {
     const prompt = buildAnalysisPrompt('【章节原文】\n{{chapter_content}}', '第一章正文');
     expect(prompt).toContain('【章节原文】\n第一章正文');
     expect(prompt).not.toContain('{{');
-    expect(prompt).toContain('【输出要求】');
+    // 渲染不再追加任何协议段：返回格式约定由模板内容自带
+    expect(prompt).not.toContain('【返回格式】');
+    expect(prompt).toBe('【章节原文】\n第一章正文');
   });
 
   it('漫画剧本：原文分析缺失时替换为占位提示', () => {
@@ -113,7 +115,7 @@ describe('builder 关键行为（切换渲染引擎后）', () => {
     expect(buildPanelsOutline([])).toBeUndefined();
   });
 
-  it('资产单条：逐条路径支持 {{目标生图模型}}，协议为逐条默认', () => {
+  it('资产单条：逐条路径支持 {{目标生图模型}}，运行时不追加协议段', () => {
     const prompt = buildSingleAssetPrompt({
       asset: asset(),
       variant: variant({ description: '外观描述' }),
@@ -123,8 +125,18 @@ describe('builder 关键行为（切换渲染引擎后）', () => {
     });
     expect(prompt).toContain('模型：即梦 v3');
     expect(prompt).toContain('状态：- 资产：角色C');
-    expect(prompt).toContain('【输出要求】');
-    expect(prompt).toContain('只输出一段完整的中文提示词正文');
+    // 模板内容就是最终提示词：系统不再另附【返回格式】段
+    expect(prompt.startsWith('模型：即梦 v3\n状态：- 资产：角色C（人物）')).toBe(true);
+    expect(prompt).not.toContain('【返回格式】');
+  });
+
+  it('资产单条：无模板时内置兜底自带【返回格式】逐条约定', () => {
+    const prompt = buildSingleAssetPrompt({
+      asset: asset(),
+      variant: variant({ description: '外观描述' }),
+    });
+    expect(prompt).toContain('【返回格式】');
+    expect(prompt).toContain('【资产名｜状态名】');
   });
 
   it('分镜单页 AI 优化：携带本页页块文本与剧本上下文，并复用分镜输出协议', () => {
