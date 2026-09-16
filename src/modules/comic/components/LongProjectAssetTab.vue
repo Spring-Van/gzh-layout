@@ -50,15 +50,46 @@
             title="粘贴外部 AI 生成的资产提取结果，解析后进入审核确认"
             @click="extractImportVisible = true"
           ><ClipboardPaste :size="14" />手动导入</button>
-          <button
-            class="primary-button h-9 shrink-0 px-3 text-xs"
-            :disabled="!assetTabRef?.canConfirmReview"
-            :title="assetTabRef?.canConfirmReview ? '将审核结果保存为本章资产，并自动回填分镜绑定' : '暂无待审核的资产提取结果，请先执行提取'"
-            @click="assetTabRef?.confirmReview()"
-          >
-            <CheckCircle2 :size="14" />
-            确认本章资产
-          </button>
+
+          <!-- 确认本章资产：主按钮按上次用过的方式直接执行，箭头展开切换应用方式 -->
+          <div ref="applyMenuRef" class="relative flex shrink-0 items-stretch">
+            <button
+              class="primary-button split-main h-9 text-xs"
+              :disabled="!assetTabRef?.canConfirmReview"
+              :title="confirmButtonTitle"
+              @click="confirmAssets()"
+            >
+              <CheckCircle2 :size="14" />
+              确认本章资产
+            </button>
+            <button
+              class="primary-button split-toggle h-9"
+              :disabled="!assetTabRef?.canConfirmReview"
+              title="选择应用方式：合并到已有资产 / 覆盖已有资产"
+              @click="applyMenuOpen = !applyMenuOpen"
+            ><ChevronDown :size="13" /></button>
+
+            <div
+              v-if="applyMenuOpen"
+              class="absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-lg border border-border-subtle bg-surface py-1 shadow-lg"
+            >
+              <button
+                v-for="option in applyOptions"
+                :key="option.value"
+                class="apply-option"
+                @click="confirmAssets(option.value)"
+              >
+                <Check :size="13" class="mt-0.5 shrink-0" :class="applyMode === option.value ? 'text-cyan-400' : 'text-transparent'" />
+                <span class="min-w-0 flex-1">
+                  <span class="block text-xs font-medium text-text-primary">{{ option.label }}</span>
+                  <span class="mt-0.5 block text-[11px] leading-4 text-text-muted">{{ option.hint }}</span>
+                </span>
+              </button>
+              <p class="mt-1 border-t border-border-subtle px-3 pt-2 pb-1 text-[11px] text-text-muted">
+                本次识别：并入 {{ assetTabRef?.applySummary?.merged ?? 0 }} 项 · 新建 {{ assetTabRef?.applySummary?.created ?? 0 }} 项
+              </p>
+            </div>
+          </div>
         </template>
 
         <!-- 生图工作台视图：批量提示词 / 批量生图 / 生图配置 -->
@@ -114,9 +145,9 @@
  * 确认后写回资产与章节引用，并按文本自动回填本章分镜绑定。
  * 顶部操作按钮经 #actions 插槽注入子 tab 行右侧（信息 = 提取 + 确认；生图工作台 = 批量提示词/生图/配置）。
  */
-import { computed, ref, watch, type Ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch, type Ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
-import { CheckCircle2, ClipboardPaste, LoaderCircle, Settings2, Sparkles } from 'lucide-vue-next'
+import { Check, CheckCircle2, ChevronDown, ClipboardPaste, LoaderCircle, Settings2, Sparkles } from 'lucide-vue-next'
 import { useToast } from '@comic/composables/useToast'
 import PromptRunBar from '@comic/components/common/PromptRunBar.vue'
 import ManualResultImportDialog from '@comic/components/common/ManualResultImportDialog.vue'
@@ -131,6 +162,7 @@ import {
 } from '@comic/services/assetExtractionService'
 import type {
   ComicProject,
+  ExtractionApplyMode,
   LongProjectAssetExtractionRun,
   LongProjectStoryboardPanel,
   ModelConfig,
@@ -162,6 +194,46 @@ const chapterId = computed(() => props.chapterId)
 const assetView = ref<'info' | 'images' | 'workbench'>('info')
 /** 资产视图实例引用：顶栏按钮调用其暴露的确认/工作台批量操作。 */
 const assetTabRef = ref<InstanceType<typeof PanelGenAssetTab>>()
+
+// ========== 确认应用方式（合并 / 覆盖） ==========
+
+const APPLY_MODE_KEY = 'comic-long-extract-apply-mode'
+/** 确认动作的应用方式，记忆到本地（与发送前确认偏好同一套习惯）。 */
+const applyMode = ref<ExtractionApplyMode>(localStorage.getItem(APPLY_MODE_KEY) === 'override' ? 'override' : 'merge')
+const applyMenuOpen = ref(false)
+const applyMenuRef = ref<HTMLElement>()
+
+/** 两种应用方式的文案：差异只写"谁优先 + 旧状态怎么办"，不写实现细节。 */
+const applyOptions: Array<{ value: ExtractionApplyMode; label: string; hint: string }> = [
+  { value: 'merge', label: '合并到已有资产', hint: '已有内容优先：只补空缺字段，保留全部旧视觉状态' },
+  { value: 'override', label: '覆盖已有资产', hint: '本次结果优先：重写资产信息，删除本次未出现的视觉状态' },
+]
+const applyModeLabel = computed(() => applyOptions.find((option) => option.value === applyMode.value)?.label ?? '合并到已有资产')
+const confirmButtonTitle = computed(() => assetTabRef.value?.canConfirmReview
+  ? `按「${applyModeLabel.value}」保存本次审核结果，并自动回填分镜绑定`
+  : '暂无待审核的资产提取结果，请先执行提取')
+
+/** 菜单外点击关闭。 */
+function onDocumentClick(event: MouseEvent) {
+  if (!applyMenuRef.value?.contains(event.target as Node)) applyMenuOpen.value = false
+}
+watch(applyMenuOpen, (open) => {
+  if (open) document.addEventListener('click', onDocumentClick)
+  else document.removeEventListener('click', onDocumentClick)
+})
+onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
+
+/** 执行确认：点主按钮用记忆的方式，点菜单项切换并立即执行。 */
+function confirmAssets(mode?: ExtractionApplyMode) {
+  const next = mode ?? applyMode.value
+  if (mode) {
+    applyMode.value = mode
+    localStorage.setItem(APPLY_MODE_KEY, mode)
+  }
+  applyMenuOpen.value = false
+  if (next === 'override' && !window.confirm('覆盖会用本次提取结果重写已有资产信息，并删除本次未出现的视觉状态。\n已生成参考图的旧状态也会被删除，是否继续？')) return
+  void assetTabRef.value?.confirmReview(next)
+}
 
 // ========== 派生数据 ==========
 
@@ -339,6 +411,12 @@ async function confirmExtractionImport(content: string) {
 .primary-button { display: flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: 0.5rem; background: #06b6d4; padding: 0.5rem 0.75rem; font-size: 0.75rem; font-weight: 500; color: #020617; transition: background-color 0.15s ease; }
 .primary-button:hover { background: #22d3ee; }
 .primary-button:disabled { cursor: not-allowed; opacity: 0.4; }
+/* 分体确认按钮：scoped 样式特异性高于 Tailwind 工具类，圆角 / 内边距 / 分隔线必须写在这里 */
+.split-main { padding: 0 0.75rem; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split-toggle { padding: 0 0.4rem; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid rgba(2, 6, 23, 0.25); }
+.primary-button:disabled:hover { background: #06b6d4; }
+.apply-option { display: flex; width: 100%; align-items: flex-start; gap: 0.5rem; padding: 0.5rem 0.75rem; text-align: left; transition: background-color 0.15s ease; }
+.apply-option:hover { background: var(--bg-elevated); }
 .secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: 0.5rem; border: 1px solid var(--border-default); color: var(--text-secondary); font-weight: 500; transition: color 0.15s ease, border-color 0.15s ease; background: transparent; }
 .secondary-button:hover { color: var(--text-primary); border-color: var(--border-strong); }
 </style>

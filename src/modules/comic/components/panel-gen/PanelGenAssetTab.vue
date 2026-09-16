@@ -114,6 +114,8 @@
  * 提取底稿 = 章节原文（无原文时以漫画剧本兜底，页面顶栏提示）；
  * 提取上下文 = 原文分析 + 漫画剧本 + 分镜概要（本章有已完成分镜时）+ 已有资产；
  * 确认后写回资产与章节引用，并按文本自动回填本章分镜绑定。
+ * 确认支持两种应用方式（ExtractionApplyMode）：merge 已有值优先 / override 本次结果优先；
+ * override 删除旧视觉状态后会额外修复分镜上指向已删状态的悬空绑定。
  */
 import { computed, ref } from "vue";
 import { FileText, ClipboardPaste, Images, Info, LoaderCircle, MapPin, Package, Palette, ScanText, UserRound } from "lucide-vue-next";
@@ -121,12 +123,13 @@ import LongProjectAssetExtractionReview from "@comic/components/LongProjectAsset
 import LongProjectChapterAssets from "@comic/components/LongProjectChapterAssets.vue";
 import LongProjectAssetWorkbench from "@comic/components/LongProjectAssetWorkbench.vue";
 import { useToast } from "@comic/composables/useToast";
-import { countCandidatesAppearances } from "@comic/services/assetExtractionService";
-import { backfillPanelAutoBindings, buildExtractionConfirmResult } from "@comic/services/assetExtractionConfirm";
+import { countCandidatesAppearances, sortAssetsByExtractionOrder } from "@comic/services/assetExtractionService";
+import { backfillPanelAutoBindings, buildExtractionConfirmResult, repairDanglingBindings } from "@comic/services/assetExtractionConfirm";
 import { LONG_CHAPTER_STAGE_ORDER } from "@comic/types";
 import type {
   AssetGenConfig,
   ComicProject,
+  ExtractionApplyMode,
   LongProjectAsset,
   LongProjectAssetExtractionRun,
   LongProjectAssetVariant,
@@ -198,15 +201,19 @@ const selectedChapterAssets = computed(() => props.chapterAssets.filter((entry) 
 
 // ========== 进度概览（tab 栏右侧 chips） ==========
 
-/** 工作台资产：按章节引用过滤出本章相关的 variants（与分镜生成同一口径）。 */
+/**
+ * 工作台资产：按章节引用过滤出本章相关的 variants（与分镜生成同一口径），
+ * 顺序对齐「信息」审核页左列（人物 → 场景 → 道具，组内按本次提取的候选顺序）。
+ */
 const workbenchAssets = computed(() => {
-  if (!selectedChapterAssets.value.length) return props.assets;
-  return props.assets.flatMap((asset) => {
+  if (!selectedChapterAssets.value.length) return sortAssetsByExtractionOrder(props.assets, latestRun.value);
+  const filtered = props.assets.flatMap((asset) => {
     const entries = selectedChapterAssets.value.filter((entry) => entry.assetId === asset.id);
     if (!entries.length) return [];
     const variantIds = new Set(entries.map((entry) => entry.variantId).filter((id): id is string => Boolean(id)));
     return [{ ...asset, variants: variantIds.size ? asset.variants.filter((variant) => variantIds.has(variant.id)) : asset.variants }];
   });
+  return sortAssetsByExtractionOrder(filtered, latestRun.value);
 });
 
 const totalVariants = computed(() => workbenchAssets.value.reduce((count, asset) => count + asset.variants.length, 0));
@@ -214,6 +221,13 @@ const promptProgress = computed(() => `${workbenchAssets.value.reduce((count, as
 const imageProgress = computed(() => `${workbenchAssets.value.reduce((count, asset) => count + asset.variants.filter((v) => (v.generatedImageIds ?? []).length).length, 0)}/${totalVariants.value}`);
 
 // ========== 审核与确认 ==========
+
+/** 本次候选中「并入已有资产 / 新建」的数量，供确认按钮下拉展示影响面。 */
+const applySummary = computed(() => {
+  const candidates = (latestRun.value?.candidates ?? []).filter((candidate) => candidate.decision !== "ignore" && candidate.decision !== "pending");
+  const merged = candidates.filter((candidate) => Boolean(candidate.suggestedAssetId)).length;
+  return { merged, created: candidates.length - merged };
+});
 
 /** 持久化更新提取 run 的部分字段。 */
 function updateRun(runId: string, changes: Partial<LongProjectAssetExtractionRun>) {
@@ -233,8 +247,9 @@ function updateExtractionCandidate(candidate: LongProjectAssetExtractionRun["can
   });
 }
 
-/** 确认提取结果：写回资产/章节引用，回填分镜绑定，推进章节阶段（由页面顶栏触发）。 */
-async function confirmExtraction() {
+/** 确认提取结果：写回资产/章节引用，回填分镜绑定，推进章节阶段（由页面顶栏触发）。
+ * mode：merge = 已有值优先（默认）；override = 本次结果优先（旧视觉状态删除，随后修复悬空绑定）。 */
+async function confirmExtraction(mode: ExtractionApplyMode = "merge") {
   const run = latestRun.value;
   if (!run) return;
   if (run.candidates.some((candidate) => candidate.decision === "merge" && !candidate.suggestedAssetId)) {
@@ -243,7 +258,7 @@ async function confirmExtraction() {
   }
   const chapterId = props.chapter.id;
   await props.mutateLongProjectData((data) => {
-    const result = buildExtractionConfirmResult(run, chapterId, data.assets ?? [], data.chapterAssets ?? []);
+    const result = buildExtractionConfirmResult(run, chapterId, data.assets ?? [], data.chapterAssets ?? [], mode);
     data.assets = result.assets;
     data.chapterAssets = result.chapterAssets;
     data.assetExtractionRuns = (data.assetExtractionRuns ?? []).map((item) => item.id === run.id ? { ...item, status: "confirmed" as const, updatedAt: Date.now() } : item);
@@ -255,18 +270,22 @@ async function confirmExtraction() {
         ? { ...node, stage: "assets-ready" as const, updatedAt: Date.now() }
         : { ...node, updatedAt: Date.now() };
     });
-    // 按文本自动回填本章已完成分镜的资产绑定
     const chapterOrders = Object.fromEntries(
       (data.nodes ?? []).filter((node) => node.type === "chapter")
         .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt)
         .map((node, index) => [node.id, index]),
     );
-    data.storyboardRuns = (data.storyboardRuns ?? []).map((item) =>
-      item.chapterId === chapterId && item.status === "completed"
-        ? { ...item, panels: backfillPanelAutoBindings(item.panels, result.assets, chapterId, chapterOrders), updatedAt: Date.now() }
-        : item)
+    data.storyboardRuns = (data.storyboardRuns ?? []).map((item) => {
+      // 本章已完成分镜：按文本重算 auto-text 绑定
+      const panels = item.chapterId === chapterId && item.status === "completed"
+        ? backfillPanelAutoBindings(item.panels, result.assets, chapterId, chapterOrders)
+        : item.panels;
+      // 覆盖会删除视觉状态，分镜上指向已删状态的绑定会悬空 → 全项目范围兜底修复
+      const repaired = mode === "override" ? repairDanglingBindings(panels, result.assets, item.chapterId, chapterOrders) : panels;
+      return repaired === item.panels ? item : { ...item, panels: repaired, updatedAt: Date.now() };
+    });
   });
-  toast.success("已确认本章资产，分镜绑定已自动回填");
+  toast.success(mode === "override" ? "已按「覆盖」确认本章资产，分镜绑定已重算" : "已确认本章资产，分镜绑定已自动回填");
 }
 
 // ========== 生图工作台回写 ==========
@@ -298,8 +317,10 @@ function updateAssetGenConfig(config: AssetGenConfig) {
 defineExpose({
   /** 信息 tab：是否存在待确认的提取结果（最近一次 run 已完成未确认）。 */
   canConfirmReview: computed(() => latestRun.value?.status === "completed"),
-  /** 信息 tab：确认本章资产。 */
-  confirmReview: () => { void confirmExtraction(); },
+  /** 信息 tab：本次候选的影响面（并入 N 项 / 新建 M 项）。 */
+  applySummary,
+  /** 信息 tab：确认本章资产（mode 缺省为 merge）。 */
+  confirmReview: (mode?: ExtractionApplyMode) => { void confirmExtraction(mode); },
   /** 生图工作台 tab：工作台实例（批量操作按钮转发；非工作台 tab 时为 null）。 */
   workbench: computed(() => (props.view === "workbench" ? workbenchRef.value : null)),
 });

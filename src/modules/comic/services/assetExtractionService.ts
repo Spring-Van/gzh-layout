@@ -4,6 +4,7 @@ import { defaultTemplateContent, renderPromptTemplate } from './promptTemplateRe
 import type {
   LongProjectAsset,
   LongProjectAssetExtractionCandidate,
+  LongProjectAssetExtractionRun,
   LongProjectAssetType,
   LongProjectExtractedState,
   LongProjectStoryboardCell,
@@ -396,6 +397,35 @@ export function countCandidatesAppearances(
     for (const { candidateId } of spans) counts[candidateId] = (counts[candidateId] ?? 0) + 1
   }
   return counts
+}
+
+/** 资产展示类型顺序（与审核页左列、图片页分组一致）。 */
+const ASSET_TYPE_ORDER: LongProjectAssetType[] = ['character', 'scene', 'prop']
+
+/**
+ * 按本章提取结果的顺序给资产排序，让生图工作台列表与「信息」审核页左列一一对应：
+ * 先按类型（人物 → 场景 → 道具），组内按候选在 run 中的出现顺序。
+ * 候选 → 资产的对应关系优先用 suggestedAssetId；新建资产在确认前没有 id，用名称/别名归一化补位。
+ * 不在本次提取结果中的资产排在最后并保持原有相对顺序（稳定排序）；无 run 或无候选时原样返回。
+ */
+export function sortAssetsByExtractionOrder(assets: LongProjectAsset[], run: LongProjectAssetExtractionRun | null | undefined): LongProjectAsset[] {
+  const candidates = (run?.candidates ?? []).filter((candidate) => candidate.decision !== 'ignore' && candidate.decision !== 'pending')
+  if (!candidates.length) return assets
+  const sequence = ASSET_TYPE_ORDER.flatMap((type) => candidates.filter((candidate) => candidate.type === type))
+  const rank = new Map<string, number>()
+  sequence.forEach((candidate, index) => {
+    if (candidate.suggestedAssetId && !rank.has(candidate.suggestedAssetId)) rank.set(candidate.suggestedAssetId, index)
+  })
+  for (const asset of assets) {
+    if (rank.has(asset.id)) continue
+    const names = new Set([asset.name, ...asset.aliases].map(normalize).filter(Boolean))
+    const index = sequence.findIndex((candidate) => candidate.type === asset.type && [candidate.name, ...candidate.aliases].some((name) => names.has(normalize(name))))
+    if (index >= 0) rank.set(asset.id, index)
+  }
+  return assets
+    .map((asset, index) => ({ asset, index }))
+    .sort((a, b) => (rank.get(a.asset.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.asset.id) ?? Number.MAX_SAFE_INTEGER) || a.index - b.index)
+    .map((item) => item.asset)
 }
 
 export async function extractChapterAssets(options: {

@@ -126,6 +126,15 @@ export type AssetExtractionCandidateDecision = 'pending' | 'create' | 'merge' | 
 export type AssetExtractionRunStatus = 'running' | 'completed' | 'failed' | 'confirmed'
 
 /**
+ * 资产提取确认的应用方式（批次级，用户在选择确认动作时决定）。
+ * - merge：已有值优先。已有资产的 content/description/attributes 不被覆盖，只补空缺，
+ *   已有视觉状态只追加章节引用与空缺字段，本次未出现的旧状态保留。
+ * - override：本次结果优先。已有资产的 content/description/attributes 被候选重写，
+ *   视觉状态整表重建，本次未出现的旧状态一律删除（无状态候选除外，见 overrideAssetWithCandidate）。
+ */
+export type ExtractionApplyMode = 'merge' | 'override'
+
+/**
  * 章节级 AI 文档（原文分析 / 漫画剧本）：每章一份，可编辑，作为后续环节的上下文输入。
  * sourceContent 记录生成时的原文快照，用于检测"原文已变更"。
  */

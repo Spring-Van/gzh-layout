@@ -1,7 +1,7 @@
 <template>
   <section class="flex min-h-0 flex-1 flex-col bg-app-bg">
     <div class="flex min-h-0 flex-1">
-      <!-- 左：候选资产列表（按类型分组，决策状态点） -->
+      <!-- 左：候选资产列表（按类型分组，名称后跟归属标记「并入 / 新建」） -->
       <aside class="custom-scrollbar w-60 shrink-0 overflow-y-auto border-r border-border-subtle bg-surface p-3">
         <div class="mb-3 flex items-center justify-between px-1">
           <span class="text-xs font-medium text-text-secondary">本次识别</span>
@@ -14,11 +14,12 @@
             :key="candidate.id"
             class="mb-1 flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-text-secondary hover:bg-elevated"
             :class="selectedId === candidate.id ? 'bg-cyan-500/12 text-text-primary' : ''"
+            :title="decisionTitle(candidate)"
             @click="selectCandidate(candidate.id)"
           >
             <component :is="group.icon" :size="15" class="shrink-0 text-text-muted" />
             <span class="min-w-0 flex-1 truncate">{{ candidate.name }}</span>
-            <span class="h-1.5 w-1.5 shrink-0 rounded-full" :class="typeDotClass(candidate.type)" />
+            <span class="shrink-0 rounded border px-1 py-px text-[10px] leading-4" :class="decisionChipClass(candidate)">{{ decisionChipLabel(candidate) }}</span>
           </button>
         </template>
       </aside>
@@ -26,9 +27,12 @@
       <template v-if="activeCandidate">
         <!-- 中 3/4：资产信息（Markdown 预览 / 编辑，视觉状态改动自动同步右侧） -->
         <div class="flex min-w-0 flex-[3] flex-col overflow-hidden">
-          <div class="flex h-9 shrink-0 items-center justify-between border-b border-border-subtle bg-surface px-4">
-            <span class="text-[11px] text-text-muted">{{ editing ? 'Markdown 编辑 · 视觉状态改动自动同步右侧标签' : '资产信息' }}</span>
-            <div class="flex items-center gap-0.5">
+          <div class="flex h-9 shrink-0 items-center justify-between gap-3 border-b border-border-subtle bg-surface px-4">
+            <div class="flex min-w-0 items-center gap-2">
+              <span class="min-w-0 truncate text-[11px] text-text-muted">{{ editing ? 'Markdown 编辑 · 视觉状态改动自动同步右侧标签' : '资产信息' }}</span>
+              <span class="shrink-0 rounded border px-1.5 py-px text-[11px]" :class="activeDecisionChipClass">{{ activeDecisionText }}</span>
+            </div>
+            <div class="flex shrink-0 items-center gap-0.5">
               <button class="mode-button" :class="!editing ? 'mode-button-active' : ''" @click="editing = false">预览</button>
               <button class="mode-button" :class="editing ? 'mode-button-active' : ''" @click="editing = true">编辑</button>
             </div>
@@ -47,16 +51,19 @@
         <div class="flex min-w-[170px] flex-1 flex-col overflow-hidden border-l border-border-subtle bg-surface">
           <div class="flex h-9 shrink-0 items-center justify-between border-b border-border-subtle px-4">
             <span class="text-xs font-medium text-text-secondary">视觉状态</span>
-            <span class="text-[11px] text-text-muted">{{ states.length }} 个</span>
+            <span class="text-[11px] text-text-muted">{{ states.length }} 个<template v-if="matchedStateCount"> · {{ matchedStateCount }} 归属</template></span>
           </div>
           <div class="custom-scrollbar flex min-h-0 flex-1 flex-wrap content-start gap-2 overflow-y-auto p-3">
             <span
               v-for="state in states"
               :key="state.id"
               class="state-tag"
-              :class="stateTagClass"
+              :class="[stateTagClass, state.suggestedVariantId ? 'state-tag-matched' : '']"
               :title="stateTitle(state)"
-            >{{ state.name }}</span>
+            >
+              <span v-if="state.suggestedVariantId" class="state-tag-dot" />
+              {{ state.name }}
+            </span>
             <p v-if="!states.length" class="w-full px-1 py-4 text-center text-[11px] leading-5 text-text-muted">无视觉状态<br>确认时只保存资产信息</p>
           </div>
         </div>
@@ -73,7 +80,8 @@
  * 左列候选列表 + 中列（3/4）资产信息 Markdown 预览/编辑 + 右列（1/4）视觉状态标签。
  * 视觉状态的增删改一律通过中列 Markdown 完成——patchContent 解析后自动同步结构化
  * 字段并做归属匹配（matchVariantForState），右侧标签为只读展示（紫点=归属到已有状态）。
- * 确认动作由页面顶栏「确认本章资产」承载。
+ * 左列候选显示「并入 XX / 新建资产」归属标签，右侧 header 显示归属数量，让确认时的合并/覆盖不再是盲选。
+ * 确认动作由页面顶栏「确认本章资产」承载（可选择合并或覆盖）。
  */
 import { computed, ref, watch } from 'vue'
 import { MapPin, Package, UserRound } from 'lucide-vue-next'
@@ -95,8 +103,35 @@ const groups = computed(() => [{ type: 'character' as const, label: '人物', ic
 const typeTone = computed<'character' | 'scene' | 'prop'>(() => activeCandidate.value?.type ?? 'character')
 /** 视觉状态 tag 配色：与图片 tab 资产卡一致（人物青 / 场景绿 / 道具琥珀）。 */
 const stateTagClass = computed(() => `state-tag-${typeTone.value}`)
-const suggestedAsset = computed(() => activeCandidate.value?.suggestedAssetId ? props.assets.find((item) => item.id === activeCandidate.value?.suggestedAssetId) ?? null : null)
+/** 候选的归属建议目标资产（左列标签与中列归属说明共用）。 */
+function suggestedAssetOf(candidate: LongProjectAssetExtractionCandidate | null | undefined): LongProjectAsset | null {
+  if (!candidate?.suggestedAssetId) return null
+  return props.assets.find((item) => item.id === candidate.suggestedAssetId) ?? null
+}
+const suggestedAsset = computed(() => suggestedAssetOf(activeCandidate.value))
+/** 左列候选名称后的归属标记（只两个字，详情放 title 与中列）。 */
+function decisionChipLabel(candidate: LongProjectAssetExtractionCandidate): string {
+  return candidate.suggestedAssetId ? '并入' : '新建'
+}
+function decisionChipClass(candidate: LongProjectAssetExtractionCandidate | null | undefined): string {
+  return candidate?.suggestedAssetId
+    ? 'border-violet-500/40 text-violet-600 dark:text-violet-300'
+    : 'border-border-subtle text-text-muted'
+}
+/** 左列候选的悬停说明：写清并入哪个资产，避免合并 / 覆盖变成盲选。 */
+function decisionTitle(candidate: LongProjectAssetExtractionCandidate): string {
+  const target = suggestedAssetOf(candidate)
+  return target ? `${candidate.name}｜并入已有资产「${target.name}」` : `${candidate.name}｜新建资产`
+}
+/** 中列头部的归属说明：完整文案，补足左列短标记的信息。 */
+const activeDecisionText = computed(() => {
+  const target = suggestedAssetOf(activeCandidate.value)
+  return target ? `并入已有资产「${target.name}」` : '新建资产'
+})
+const activeDecisionChipClass = computed(() => decisionChipClass(activeCandidate.value))
 const states = computed<LongProjectExtractedState[]>(() => activeCandidate.value ? getCandidateStates(activeCandidate.value) : [])
+/** 归属到已有资产的视觉状态数量（右列 header 提示）。 */
+const matchedStateCount = computed(() => states.value.filter((state) => Boolean(state.suggestedVariantId)).length)
 const activeContent = computed(() => activeCandidate.value?.content || '')
 /** 预览 HTML：给「视觉状态：xxx」标题/列表项注入当前类型色高亮类。 */
 const previewHtml = computed(() => {
@@ -107,10 +142,6 @@ const previewHtml = computed(() => {
     .replace(/<li>((?:视觉状态|视觉版本)[：:])/g, `<li class="${cls}">$1`)
 })
 
-/** 左列表候选右侧标记点：按资产类型着色（人物青 / 场景绿 / 道具琥珀）。 */
-function typeDotClass(type: LongProjectAssetExtractionCandidate['type']): string {
-  return ({ character: 'bg-cyan-400', scene: 'bg-emerald-400', prop: 'bg-amber-400' })[type]
-}
 function selectCandidate(id: string) { selectedId.value = id }
 
 /**
@@ -168,6 +199,9 @@ function stateTitle(state: LongProjectExtractedState): string {
 .mode-button{border-radius:.3rem;padding:.25rem .5rem;font-size:.7rem;color:var(--text-muted)}
 .mode-button:hover,.mode-button-active{color:#22d3ee;background:rgba(34,211,238,.1)}
 .state-tag{display:inline-flex;align-items:center;gap:.3rem;border:1px solid var(--border-subtle);border-radius:999px;background:var(--bg-app);padding:.3rem .65rem;font-size:.72rem;color:var(--text-secondary)}
+/* 归属到已有视觉状态：虚点标记，悬停可见「归属到已有状态 X」 */
+.state-tag-matched{border-style:dashed}
+.state-tag-dot{width:.3rem;height:.3rem;flex-shrink:0;border-radius:999px;background:#a78bfa}
 .state-tag-character{border-color:rgba(34,211,238,.45);color:#22d3ee}
 .state-tag-scene{border-color:rgba(52,211,153,.45);color:#34d399}
 .state-tag-prop{border-color:rgba(251,191,36,.45);color:#fbbf24}

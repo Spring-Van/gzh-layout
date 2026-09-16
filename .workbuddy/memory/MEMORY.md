@@ -20,6 +20,7 @@
 
 **坑**：
 1. scoped 样式 `.menu-item { color: inherit }` 编译成 `.menu-item[data-v-x]`（特异性 0,2,0），会**压过** `text-red-400`（0,1,0）—— 需要颜色时用同层级的自定义类，别叠 Tailwind 语义色。
+   - **同理适用于一切属性**，不只颜色：组件 scoped 里定义了 `.primary-button { border-radius: .5rem }`，模板上再写 `rounded-r-none`（同为 0,1,0 的 Tailwind 工具类）**不会生效**。做分体按钮（split button）这类需要局部改圆角/边框/内边距的，必须在 scoped 里加同层级类（如 `.split-main { padding: 0 .75rem; border-top-right-radius: 0 }`），并保证定义在基类**之后**（特异性相同时靠样式表顺序决胜）。
 2. 全屏抽屉（`z-[101]`）里开 z-50 子弹窗 → 被盖住看不见。资产链路 6 个浮层已提到 130/131 修复。
 
 ## UI 沟通约定（避免返工）
@@ -38,6 +39,20 @@
 - **AI 生成结果一律「人工确认后才写回」**：生成/重试成功**不自动落库**（会自动覆盖用户已有的内容，用户明确否决过），结果只留在弹窗内 + 顶部「未填充」提醒；写回靠显式的「填充到资产」按钮（主按钮）。**有结果未填充时关闭弹窗必须二次确认**（取消 / 直接关闭 / 填充并关闭）。
 - **「发送内容」与「生成结果」必须分成两个字段存、两个视图看**：`item.text`（要发给大模型的内容，可改后重新生成）/ `item.result`（模型返回，可改后填充）；`item.originalText` / `item.resultOriginal` 分别供「重置本条」/「重置结果」。**别用同一个字段先装提示词、再被结果覆盖** —— 那样用户永远回不到「我发出去的是什么」。
 - **重跑范围要让用户选**：逐条模式下失败后底部同时给「仅重跑失败（N）」与「重新生成」（整批）两个按钮，不要二选一替用户决定；一次性发送受单次请求限制只能整批重发（UI 文案写明）。
+
+## 资产提取确认（ExtractionApplyMode）
+
+确认「本章资产」是**批次级**选择，两种语义边界必须分清（`assetExtractionConfirm.ts`）：
+
+| | merge（默认） | override |
+|---|---|---|
+| 资产级 content/description/attributes | **已有值优先**，只补空缺 | 候选优先（候选为空回退旧值） |
+| 视觉状态 | 只补空缺，保留全部旧状态 | **整表重建**，本次未出现的一律删除 |
+| aliases | 始终求并集（身份标识不做取舍） | 同 |
+
+- **例外**：override 遇到「候选没有任何视觉状态」（模型未按格式返回）时**保留旧状态**，否则一次退化返回就清空资产的视觉身份。
+- **悬空绑定**：override 删状态会让分镜上 `model/manual/chapter-range` 来源绑定的 `visualVersionId` 失效（`syncPanelsAutoBindings` 只重算 auto-text）→ 必须跑 `repairDanglingBindings` 回落 `defaultVariant`，**全项目范围跑**（悬空即坏数据）。
+- 审核页必须把归属建议显出来（左列「并入 XX / 新建资产」），否则用户选合并/覆盖是盲选。
 
 ## 长篇故事 · 分镜格式（v4，详见 docs/长篇故事剧本与分镜格式定稿.md）
 
@@ -98,4 +113,7 @@
 
 ## 工程校验三件套
 
-`npx vue-tsc --noEmit -p tsconfig.json` → `npx vitest run` → `npx vite build --outDir "D:/<临时目录>" --emptyOutDir`（构建产物必须写 **Windows 绝对路径**，Git Bash 的 `$TEMP` 会被解析到 D:\tmp）。⚠️ `vite build` 在本机受 OOM 影响**常无法完成**（2026-09-14 实测**有一次成功**：`--outDir "D:/gzh-build-check"`，8.24s 出完整产物）—— 所以**每次都要试**，失败时只在交付说明里标注「构建未验证」，不要预先认定失败。
+`npx vue-tsc --noEmit -p tsconfig.json` → `npx vitest run` → `npx vite build --outDir "D:/<临时目录>" --emptyOutDir`（构建产物必须写 **Windows 绝对路径**，Git Bash 的 `$TEMP` 会被解析到 D:\tmp）。
+
+- **构建要带 `NODE_OPTIONS=--max-old-space-size=6144`**（2026-09-16 实测：不带时 `vite build` 会被 SIGTERM 杀掉且**不输出任何日志**；带上后 7.57s 正常出产物）。报错时先看 exit code，别只看是否有日志。
+- **Bash 工具偶尔丢失 coreutils**：`tail` / `wc` / `dirname` 报 `command not found`（PATH 里只有 `Git/cmd`，没有 `/usr/bin`）。前缀 `export PATH="/c/Users/admin/.workbuddy/binaries/PortableGit/versions/1.2.0/usr/bin:$PATH" &&` 即可修复；不要把这类报错当成命令本身失败。

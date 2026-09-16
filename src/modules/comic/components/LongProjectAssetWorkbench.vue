@@ -10,17 +10,28 @@
             缺图
           </label>
         </div>
-        <button
-          v-for="item in visibleAssets"
-          :key="item.asset.id"
-          class="mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors"
-          :class="selectedAssetId === item.asset.id ? 'bg-cyan-500/10 text-cyan-400' : 'text-text-secondary hover:bg-app-bg'"
-          @click="selectedAssetId = item.asset.id"
-        >
-          <span class="h-1.5 w-1.5 shrink-0 rounded-full" :class="item.missing ? 'bg-amber-400' : 'bg-emerald-400'" :title="item.missing ? '缺参考图' : '参考图齐全'" />
-          <span class="min-w-0 flex-1 truncate">{{ item.asset.name }}</span>
-          <span class="shrink-0 text-[11px] text-text-muted">{{ item.asset.variants.length }}</span>
-        </button>
+        <template v-for="(group, groupIndex) in visibleGroups" :key="group.type">
+          <p
+            v-if="group.items.length"
+            class="mb-1 flex items-center gap-1.5 px-2 text-[11px] font-medium text-text-muted"
+            :class="groupIndex === 0 ? 'mt-0.5' : 'mt-3'"
+          >
+            <component :is="group.icon" :size="12" class="shrink-0" />
+            {{ group.label }}
+            <span>{{ group.items.length }}</span>
+          </p>
+          <button
+            v-for="item in group.items"
+            :key="item.asset.id"
+            class="mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors"
+            :class="selectedAssetId === item.asset.id ? 'bg-cyan-500/10 text-cyan-400' : 'text-text-secondary hover:bg-app-bg'"
+            @click="selectedAssetId = item.asset.id"
+          >
+            <span class="h-1.5 w-1.5 shrink-0 rounded-full" :class="item.missing ? 'bg-amber-400' : 'bg-emerald-400'" :title="item.missing ? '缺参考图' : '参考图齐全'" />
+            <span class="min-w-0 flex-1 truncate">{{ item.asset.name }}</span>
+            <span class="shrink-0 text-[11px] text-text-muted">{{ item.asset.variants.length }}</span>
+          </button>
+        </template>
         <p v-if="!visibleAssets.length" class="px-2 py-4 text-xs text-text-muted">{{ filterMissing ? '全部资产都已有参考图' : '本章暂无资产' }}</p>
       </aside>
 
@@ -208,12 +219,22 @@ const batchDone = ref(0)
 const batchTotal = ref(0)
 
 // ========== 派生数据 ==========
+
+/** 资产类型分组的标签与图标（数组顺序即左列表分组顺序，与审核页左列 / 图片页一致）。 */
+const ASSET_TYPE_META: Array<{ type: LongProjectAsset['type']; label: string; icon: typeof Boxes }> = [
+  { type: 'character', label: '人物', icon: UserRound },
+  { type: 'scene', label: '场景', icon: MapPin },
+  { type: 'prop', label: '道具', icon: Package },
+]
+
 /** 工作资产：带缺图标记（无生成图 = 缺）。 */
 const workAssets = computed(() => props.assets.map((asset) => ({
   asset,
   missing: asset.variants.some((variant) => !(variant.generatedImageIds ?? []).length),
 })))
 const visibleAssets = computed(() => filterMissing.value ? workAssets.value.filter((item) => item.missing) : workAssets.value)
+/** 左列表按类型分组（人物 → 场景 → 道具），顺序由 assets 入参决定（PanelGenAssetTab 已按提取顺序排好）。 */
+const visibleGroups = computed(() => ASSET_TYPE_META.map((meta) => ({ ...meta, items: visibleAssets.value.filter((item) => item.asset.type === meta.type) })))
 const selectedItem = computed(() => workAssets.value.find((item) => item.asset.id === selectedAssetId.value) ?? visibleAssets.value[0] ?? null)
 /** 当前选中的视觉状态（id 失效或未选时回退第一个）。 */
 const selectedVariant = computed(() => {
