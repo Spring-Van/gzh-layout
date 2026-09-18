@@ -1,13 +1,28 @@
 <template>
   <div class="flex h-full flex-col overflow-hidden">
-    <!-- 内容区：圆角卡片输入框（与提示词模式一致，单一输入框呈现整页） -->
+    <!-- 内容区：圆角卡片输入框（与提示词模式一致，单一输入框呈现整页）
+         叠加高亮层：textarea 文字透明，背后按资产类型着色渲染资产名，悬停出资产卡 -->
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
-      <div class="min-h-0 flex-1 rounded-xl border border-border-subtle bg-surface p-4 shadow-sm shadow-black/10">
+      <div class="relative min-h-0 flex-1 rounded-xl border border-border-subtle bg-surface p-4 shadow-sm shadow-black/10">
+        <div ref="layerEl" class="pointer-events-none absolute inset-4 overflow-hidden whitespace-pre-wrap break-all text-xs leading-relaxed text-text-primary" aria-hidden="true">
+          <template v-for="(segment, index) in segments" :key="index">
+            <span
+              v-if="segment.text"
+              :class="segment.asset ? 'asset-highlight' : ''"
+              :style="segment.asset ? assetHighlightStyle(segment.asset.type) : undefined"
+              :title="segment.asset ? `${segment.asset.name} · 悬停查看资产图` : ''"
+              :data-asset-id="segment.asset?.id"
+            >{{ segment.text }}</span>
+          </template>
+        </div>
         <textarea
           v-if="panel"
           v-model="draftText"
-          class="custom-scrollbar h-full w-full resize-none bg-transparent text-xs leading-relaxed text-text-primary outline-none placeholder:text-text-muted focus:outline-none"
+          class="custom-scrollbar relative h-full w-full resize-none bg-transparent text-xs leading-relaxed text-transparent caret-cyan-400 outline-none placeholder:text-text-muted focus:outline-none"
           placeholder="一页一块，一格一段，行序即页序：&#10;【第1格】&#10;「景别」：近景&#10;「镜头」：……&#10;「画面」：本格画面内容。&#10;「人物」：角色A&#10;「动作」：……&#10;「表情」：……&#10;「台词」：角色A：“本格台词”&#10;（分镜格用【第X格】，字段标题用「」，冒号后写内容；台词类字段有 台词 / 心声 / 画外 / 旁白，同一格只写一个）"
+          @scroll="syncScroll"
+          @mousemove="handleMove"
+          @mouseleave="handleLeave"
           @blur="commitDraft"
         />
 
@@ -19,6 +34,21 @@
         </div>
       </div>
     </div>
+
+    <!-- 资产悬停卡：悬停页面文本里的资产名即出，纯展示该资产当前视觉状态与参考图 -->
+    <AssetHoverCard
+      v-if="hoveredAsset && panel"
+      :asset="hoveredAsset"
+      :panel="panel"
+      :assets="assets"
+      :card-style="hoverCardStyle"
+      @enter="cancelHoverClose"
+      @leave="handleLeave"
+      @preview="openHoverPreview"
+    />
+
+    <!-- 悬停卡缩略图的大图预览 -->
+    <ImagePreviewModal v-model="showPreview" :images="previewImages" :image-index="previewIndex" alt="资产参考图" />
 
     <!-- 底部本页操作：与「提示词」模式的「单镜操作」同款卡片，只保留 AI 优化；
          结构操作（新增页 / 上移 / 下移 / 合并 / 拆分 / 删除）统一收在左栏右键菜单 -->
@@ -51,6 +81,10 @@
  * 生图工作台右栏「分镜内容」模式（分镜阶段）：
  * 主体为当前分镜的**单一文本编辑框**，内容即页块文本（`【第X格】` + `「景别」：内容` 等字段行），
  * 与模型输出、可复制格式完全一致——所见即所得，失焦或切换分镜自动保存。
+ *
+ * 文本里出现资产名（含别名）时按资产类型着色高亮，悬停出资产卡看该资产当前视觉状态与参考图；
+ * 判定口径与「绘画提示词」框完全一致，共用 `useAssetHighlight`（叠层渲染 + 坐标反查命中）。
+ *
  * 底部为**本页操作**（与「提示词」模式的「单镜操作」同款卡片），只保留 AI 优化
  * （按分镜协议规整这一页：补景别 / 拆超长台词 / 补说话人，不改剧情与台词文字）。
  * 结构操作（新增页、上移下移、合并、拆分、删除）已统一收进左栏分镜列表的右键菜单，不在此处。
@@ -58,7 +92,11 @@
 import { computed, ref, watch } from 'vue'
 import { ListTree, LoaderCircle, WandSparkles } from 'lucide-vue-next'
 import { parsePanelBlock, serializePanelBlock } from '@comic/services/storyboardService'
-import type { LongProjectStoryboardCell, LongProjectStoryboardPanel } from '@comic/types'
+import type { LongProjectAsset, LongProjectStoryboardCell, LongProjectStoryboardPanel } from '@comic/types'
+import ImagePreviewModal from '@comic/components/ImagePreviewModal.vue'
+import AssetHoverCard from '@comic/components/AssetHoverCard.vue'
+import { useAssetHighlight } from '@comic/composables/useAssetHighlight'
+import { assetHighlightStyle } from '@comic/utils/assetTypeTheme'
 
 /** 分镜编辑保存结果：以格列表为准，页级字段由父级汇总。 */
 export interface PanelEditPayload {
@@ -75,6 +113,8 @@ const props = defineProps<{
   opsLocked?: boolean
   /** AI 优化进行中（当前页） */
   optimizeBusy?: boolean
+  /** 项目资产库：用于在分镜文本里识别资产名并着色高亮。 */
+  assets?: LongProjectAsset[]
 }>()
 
 const emit = defineEmits<{
@@ -88,6 +128,35 @@ const cellCount = computed(() => props.panel?.cells?.length ?? 1)
 
 /** 批量任务 / AI 优化进行中统一禁用本页操作。 */
 const disabled = computed(() => Boolean(props.opsLocked || props.optimizeBusy))
+
+// ========== 文本内资产名高亮（与「绘画提示词」框共用同一套逻辑） ==========
+// 注意：本框不接 onPick —— 分镜内容里资产名很密，点名字弹大图会打断定位光标的编辑操作；
+// 看大图统一走悬停卡里的缩略图。
+const {
+  layerEl,
+  segments,
+  syncScroll,
+  handleMove,
+  handleLeave,
+  hoveredAsset,
+  hoverCardStyle,
+  cancelHoverClose,
+} = useAssetHighlight({
+  text: () => draftText.value,
+  assets: () => props.assets ?? [],
+})
+
+/** 悬停卡缩略图的大图预览。 */
+const showPreview = ref(false)
+const previewImages = ref<string[]>([])
+const previewIndex = ref(0)
+
+/** 悬停卡里点参考图：打开大图预览。 */
+function openHoverPreview(payload: { images: string[]; index: number }) {
+  previewImages.value = [...payload.images]
+  previewIndex.value = payload.index
+  showPreview.value = true
+}
 
 // ========== 页块文本草稿（切换分镜/失焦时提交保存） ==========
 

@@ -1,35 +1,44 @@
 <template>
   <span
-    role="button"
-    tabindex="0"
-    class="inline-flex max-w-full cursor-pointer select-none items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] leading-4 transition-colors"
-    :class="tagClass"
+    :role="interactive ? 'button' : undefined"
+    :tabindex="interactive ? 0 : undefined"
+    :class="[tagClass, interactive ? 'cursor-pointer select-none transition-colors' : '']"
     :title="tooltip"
-    @click.stop="emit('inspect', resolved)"
-    @keydown.enter.stop.prevent="emit('inspect', resolved)"
+    @click.stop="interactive && emit('inspect', resolved)"
+    @keydown.enter.stop.prevent="interactive && emit('inspect', resolved)"
   >
     <component :is="typeIcon" :size="10" class="shrink-0" />
     <span class="truncate">{{ binding.assetName }}</span>
-    <span v-if="versionLabel" class="shrink-0 opacity-85">· {{ versionLabel }}</span>
+    <!-- 尾随区：默认是只读的视觉状态名；分镜工作台用 trailing 插槽换成可点击的状态切换器。 -->
+    <slot name="trailing">
+      <span v-if="versionLabel" class="shrink-0 opacity-85">· {{ versionLabel }}</span>
+    </slot>
   </span>
 </template>
 
 <script setup lang="ts">
 /**
- * 资产绑定统一 Tag：按资产类型着色（人物紫 / 场景蓝 / 道具绿 / 未匹配琥珀虚线），
- * 显示资产名与视觉状态名；点击触发 inspect 事件用于查看资产视觉状态详情与参考图。
+ * 资产绑定统一 Tag：按资产类型着色，显示资产名与视觉状态名；
+ * 点击触发 inspect 事件用于查看资产视觉状态详情与参考图。
+ *
+ * 视觉状态的展示方式由 `trailing` 插槽决定：
+ * - 不传插槽（默认）→ 只读文本 `· 状态名`；
+ * - 传插槽 → 由调用方渲染（分镜工作台在这里放「状态切换器」，让状态在框内就能直接换）。
+ *
+ * 配色不写在这里 —— 样式类 `.asset-tag--{character|scene|prop}` 定义在 `src/style.css`，
+ * 颜色来自 `tokens.css` 的 `--asset-*` 令牌。改色请改令牌，本组件无需改动。
  */
 import { computed } from 'vue'
-import { Box, MapPin, UserRound } from 'lucide-vue-next'
 import type { LongProjectAsset, LongProjectStoryboardAssetBinding } from '@comic/types'
+import { assetTagClass, assetTypeIcon, assetTypeLabel } from '@comic/utils/assetTypeTheme'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   binding: LongProjectStoryboardAssetBinding
   /** 项目资产库，用于解析类型与视觉状态；未匹配绑定时可缺省。 */
   assets?: LongProjectAsset[]
-  /** 是否可点击查看（默认可）。 */
+  /** 是否可点击查看（默认 true；纯展示场景传 false 去掉手型与按钮语义）。 */
   interactive?: boolean
-}>()
+}>(), { interactive: true })
 
 const emit = defineEmits<{
   /** 点击 tag：payload 为解析到的资产（未匹配时为 null）。 */
@@ -40,12 +49,7 @@ const emit = defineEmits<{
 const resolved = computed(() => props.assets?.find((asset) => asset.id === props.binding.assetId) ?? null)
 
 /** 类型图标。 */
-const typeIcon = computed(() => {
-  if (!resolved.value) return Box
-  if (resolved.value.type === 'character') return UserRound
-  if (resolved.value.type === 'scene') return MapPin
-  return Box
-})
+const typeIcon = computed(() => assetTypeIcon(resolved.value?.type))
 
 /** 视觉状态名：绑定快照优先，缺失时回落到资产当前状态名。 */
 const versionLabel = computed(() => {
@@ -54,18 +58,9 @@ const versionLabel = computed(() => {
   return variant?.name ?? ''
 })
 
-const typeLabelMap: Record<string, string> = { character: '人物', scene: '场景', prop: '道具' }
+const typeLabel = computed(() => assetTypeLabel(resolved.value?.type))
 
-const typeLabel = computed(() => typeLabelMap[resolved.value?.type ?? ''] ?? '未匹配')
-
-const tagClass = computed(() => {
-  // 明暗两套配色：浅色模式深字浅底，暗色模式亮字半透明底，保证两套主题下文字都清晰
-  if (!resolved.value) return 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-400/30 dark:bg-amber-500/15 dark:text-amber-200 border-dashed'
-  if (resolved.value.type === 'character') return 'border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-400/30 dark:bg-violet-500/15 dark:text-violet-200'
-  if (resolved.value.type === 'scene') return 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-400/30 dark:bg-sky-500/15 dark:text-sky-200'
-  if (resolved.value.type === 'prop') return 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-500/15 dark:text-emerald-200'
-  return 'border-border-subtle bg-elevated text-text-secondary'
-})
+const tagClass = computed(() => assetTagClass(resolved.value?.type))
 
 const tooltip = computed(() =>
   resolved.value

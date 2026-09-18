@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildAnalysisPrompt, buildScriptPrompt } from '../../src/modules/comic/services/chapterDocService';
 import { buildStoryboardPrompt, buildPanelPolishPrompt } from '../../src/modules/comic/services/storyboardService';
-import { buildAssetExtractionPrompt, buildPanelsOutline } from '../../src/modules/comic/services/assetExtractionService';
+import { buildAssetExtractionPrompt } from '../../src/modules/comic/services/assetExtractionService';
 import { buildSingleAssetPrompt } from '../../src/modules/comic/services/assetPromptService';
 import { buildPanelPromptPrompt } from '../../src/modules/comic/services/panelPromptService';
 import type { LongProjectAsset, LongProjectAssetVariant } from '../../src/modules/comic/types';
@@ -81,38 +81,18 @@ describe('builder 关键行为（切换渲染引擎后）', () => {
   });
 
   it('资产提取：只有模板插入了的变量才进入提示词', () => {
-    const template = '提取资产。\n【章节原文】\n{{章节原文}}\n【分镜概要】\n{{分镜概要}}';
+    const template = '提取资产。\n【章节原文】\n{{章节原文}}\n【原文分析】\n{{原文分析}}';
     const prompt = buildAssetExtractionPrompt(template, '第一章正文', {
       analysis: '分析正文AAA',
       script: '剧本正文BBB',
-      panelsOutline: '分镜1：开场｜人物：角色C',
       existingAssets: [asset()],
     });
-    // 插入的变量：原文 + 分镜概要
+    // 插入的变量：原文 + 分析
     expect(prompt).toContain('第一章正文');
-    expect(prompt).toContain('分镜1：开场｜人物：角色C');
+    expect(prompt).toContain('分析正文AAA');
     // 没插入的变量：即使有值也不出现
-    expect(prompt).not.toContain('分析正文AAA');
     expect(prompt).not.toContain('剧本正文BBB');
     expect(prompt).not.toContain('已有视觉状态');
-  });
-
-  it('分镜概要：每镜一行只带「画面 + 出场人物」，不含台词等字段', () => {
-    const panels = [
-      {
-        id: 'p1', order: 1, content: '汇总画面一', assetBindings: [],
-        cells: [
-          { content: '格一画面', cast: '角色A、角色B' },
-          { content: '格二画面', cast: '角色A', dialogue: '不该出现在概要里的台词' },
-        ],
-      },
-      { id: 'p2', order: 2, content: '汇总画面二', assetBindings: [], cells: [] },
-    ];
-    const outline = buildPanelsOutline(panels as any)!;
-    expect(outline).toContain('分镜1：汇总画面一｜人物：角色A、角色B');
-    expect(outline).toContain('分镜2：汇总画面二');
-    expect(outline).not.toContain('不该出现在概要里的台词');
-    expect(buildPanelsOutline([])).toBeUndefined();
   });
 
   it('资产单条：逐条路径支持 {{目标生图模型}}，运行时不追加协议段', () => {

@@ -1,5 +1,5 @@
 <template>
-  <!-- 单根节点：抽屉/页面内均直接填充父容器 -->
+  <!-- 单根节点：顶级页签内直接填充父容器 -->
   <div class="flex h-full min-h-0 flex-col overflow-hidden bg-app-bg text-text-primary">
     <!-- 资产主体：三子视图（信息 | 图片 | 生图工作台）；顶部操作按钮经 #actions 注入子 tab 行右侧 -->
     <div class="min-h-0 flex-1 overflow-hidden">
@@ -16,6 +16,8 @@
         :assets="assets"
         :chapter-assets="chapterAssets"
         :asset-extraction-runs="assetExtractionRuns"
+        :storyboard-runs="storyboardRuns"
+        :chapter-names="chapterNames"
         :asset-gen-config="assetGenConfig"
         :painting-style="project?.comicConfig?.paintingStyle"
         :shared-blocks="project?.imageGenConfig?.sharedBlocks"
@@ -51,45 +53,16 @@
             @click="extractImportVisible = true"
           ><ClipboardPaste :size="14" />手动导入</button>
 
-          <!-- 确认本章资产：主按钮按上次用过的方式直接执行，箭头展开切换应用方式 -->
-          <div ref="applyMenuRef" class="relative flex shrink-0 items-stretch">
-            <button
-              class="primary-button split-main h-9 text-xs"
-              :disabled="!assetTabRef?.canConfirmReview"
-              :title="confirmButtonTitle"
-              @click="confirmAssets()"
-            >
-              <CheckCircle2 :size="14" />
-              确认本章资产
-            </button>
-            <button
-              class="primary-button split-toggle h-9"
-              :disabled="!assetTabRef?.canConfirmReview"
-              title="选择应用方式：合并到已有资产 / 覆盖已有资产"
-              @click="applyMenuOpen = !applyMenuOpen"
-            ><ChevronDown :size="13" /></button>
-
-            <div
-              v-if="applyMenuOpen"
-              class="absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-lg border border-border-subtle bg-surface py-1 shadow-lg"
-            >
-              <button
-                v-for="option in applyOptions"
-                :key="option.value"
-                class="apply-option"
-                @click="confirmAssets(option.value)"
-              >
-                <Check :size="13" class="mt-0.5 shrink-0" :class="applyMode === option.value ? 'text-cyan-400' : 'text-transparent'" />
-                <span class="min-w-0 flex-1">
-                  <span class="block text-xs font-medium text-text-primary">{{ option.label }}</span>
-                  <span class="mt-0.5 block text-[11px] leading-4 text-text-muted">{{ option.hint }}</span>
-                </span>
-              </button>
-              <p class="mt-1 border-t border-border-subtle px-3 pt-2 pb-1 text-[11px] text-text-muted">
-                本次识别：并入 {{ assetTabRef?.applySummary?.merged ?? 0 }} 项 · 新建 {{ assetTabRef?.applySummary?.created ?? 0 }} 项
-              </p>
-            </div>
-          </div>
+          <!-- 确认本章资产：唯一行为（本次结果为准），跨章影响在确认弹窗里列明细 -->
+          <button
+            class="primary-button h-9 shrink-0 px-3 text-xs"
+            :disabled="!assetTabRef?.canConfirmReview"
+            :title="confirmButtonTitle"
+            @click="confirmAssets()"
+          >
+            <CheckCircle2 :size="14" />
+            确认本章资产
+          </button>
         </template>
 
         <!-- 生图工作台视图：批量提示词 / 批量生图 / 生图配置 -->
@@ -133,36 +106,44 @@
       @confirm="confirmExtractionImport"
       @close="extractImportVisible = false"
     />
+
+    <!-- 确认本章资产前的明细弹窗：覆盖严格全删、不做跨章保护，跨章影响必须先看见 -->
+    <ConfirmExtractionDialog
+      v-model="confirmDialogVisible"
+      :items="dropPlan"
+      @confirm="runConfirm"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 /**
- * 长篇项目「资产」面板（分镜页全屏抽屉内容）：资产提取 + 审核 + 资产生图工作台（PanelGenAssetTab 三子视图）。
+ * 长篇项目「资产」顶级页签（2026-09-18 起与分镜平级，位于其左侧）：资产提取 + 审核 + 资产生图工作台（PanelGenAssetTab 三子视图）。
+ * 新管线顺序为 原文 → 分析 → 剧本 → 资产 → 分镜：先在此确认本章资产与视觉状态（含参考图），分镜生成时注入本章资产清单。
  * 提取底稿 = 章节原文优先，无原文（从剧本开始）时以漫画剧本兜底并加说明头；
- * 提取上下文 = 原文分析 + 漫画剧本 + 分镜概要（本章最近完成分镜）+ 已有资产，
+ * 提取上下文 = 原文分析 + 漫画剧本 + 已有资产，
  * 由提示词模板决定插入哪些（模板没写的变量不会进入提示词）。
- * 确认后写回资产与章节引用，并按文本自动回填本章分镜绑定。
+ * 确认后写回资产与章节引用，并按文本自动回填本章分镜绑定（旧顺序章节有分镜时）。
  * 顶部操作按钮经 #actions 插槽注入子 tab 行右侧（信息 = 提取 + 确认；生图工作台 = 批量提示词/生图/配置）。
  */
-import { computed, onBeforeUnmount, ref, watch, type Ref } from 'vue'
+import { computed, ref, watch, type Ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
-import { Check, CheckCircle2, ChevronDown, ClipboardPaste, LoaderCircle, Settings2, Sparkles } from 'lucide-vue-next'
+import { CheckCircle2, ClipboardPaste, LoaderCircle, Settings2, Sparkles } from 'lucide-vue-next'
 import { useToast } from '@comic/composables/useToast'
 import PromptRunBar from '@comic/components/common/PromptRunBar.vue'
 import ManualResultImportDialog from '@comic/components/common/ManualResultImportDialog.vue'
+import ConfirmExtractionDialog from '@comic/components/ConfirmExtractionDialog.vue'
 import PanelGenAssetTab from '@comic/components/panel-gen/PanelGenAssetTab.vue'
 import {
   buildAssetExtractionPrompt,
   buildExtractionSourceText,
-  buildPanelsOutline,
   countCandidatesAppearances,
   extractChapterAssets,
   parseAssetExtractionResponse,
 } from '@comic/services/assetExtractionService'
+import { selectDroppedVariants } from '@comic/services/assetExtractionConfirm'
 import type {
   ComicProject,
-  ExtractionApplyMode,
   LongProjectAssetExtractionRun,
   LongProjectStoryboardPanel,
   ModelConfig,
@@ -195,44 +176,54 @@ const assetView = ref<'info' | 'images' | 'workbench'>('info')
 /** 资产视图实例引用：顶栏按钮调用其暴露的确认/工作台批量操作。 */
 const assetTabRef = ref<InstanceType<typeof PanelGenAssetTab>>()
 
-// ========== 确认应用方式（合并 / 覆盖） ==========
+// ========== 确认本章资产（唯一行为：本次结果为准） ==========
 
-const APPLY_MODE_KEY = 'comic-long-extract-apply-mode'
-/** 确认动作的应用方式，记忆到本地（与发送前确认偏好同一套习惯）。 */
-const applyMode = ref<ExtractionApplyMode>(localStorage.getItem(APPLY_MODE_KEY) === 'override' ? 'override' : 'merge')
-const applyMenuOpen = ref(false)
-const applyMenuRef = ref<HTMLElement>()
+/**
+ * 覆盖将删除的旧状态明细：逐条列出「资产 · 状态」、引用它的其他章节、图片数。
+ * 用于确认弹窗逐条核对 —— 覆盖是严格全删（不跨章感知），其他章节正在用的状态也会被删掉。
+ */
+const dropPlan = computed(() => {
+  const run = latestExtractRun.value
+  if (!run) return []
+  const chapterNameById = new Map(chapters.value.map((chapter) => [chapter.id, chapter.name]))
+  const seen = new Set<string>()
+  const items: Array<{ key: string; assetName: string; variantName: string; chapters: string[]; imageCount: number }> = []
+  for (const candidate of run.candidates) {
+    if (candidate.decision === 'ignore' || candidate.decision === 'pending' || !candidate.suggestedAssetId) continue
+    const asset = assets.value.find((item) => item.id === candidate.suggestedAssetId)
+    if (!asset) continue
+    for (const variant of selectDroppedVariants(asset, candidate)) {
+      if (seen.has(variant.id)) continue
+      seen.add(variant.id)
+      items.push({
+        key: variant.id,
+        assetName: asset.name,
+        variantName: variant.name,
+        chapters: [...new Set(chapterAssets.value
+          .filter((entry) => entry.variantId === variant.id && entry.chapterId !== chapterId.value)
+          .map((entry) => chapterNameById.get(entry.chapterId) ?? '其他章节'))],
+        imageCount: (variant.referenceImageIds?.length ?? 0) + (variant.generatedImageIds?.length ?? 0),
+      })
+    }
+  }
+  return items
+})
 
-/** 两种应用方式的文案：差异只写"谁优先 + 旧状态怎么办"，不写实现细节。 */
-const applyOptions: Array<{ value: ExtractionApplyMode; label: string; hint: string }> = [
-  { value: 'merge', label: '合并到已有资产', hint: '已有内容优先：只补空缺字段，保留全部旧视觉状态' },
-  { value: 'override', label: '覆盖已有资产', hint: '本次结果优先：重写资产信息，删除本次未出现的视觉状态' },
-]
-const applyModeLabel = computed(() => applyOptions.find((option) => option.value === applyMode.value)?.label ?? '合并到已有资产')
+const confirmDialogVisible = ref(false)
 const confirmButtonTitle = computed(() => assetTabRef.value?.canConfirmReview
-  ? `按「${applyModeLabel.value}」保存本次审核结果，并自动回填分镜绑定`
+  ? '以本次提取结果为准保存本章资产，并重算分镜绑定'
   : '暂无待审核的资产提取结果，请先执行提取')
 
-/** 菜单外点击关闭。 */
-function onDocumentClick(event: MouseEvent) {
-  if (!applyMenuRef.value?.contains(event.target as Node)) applyMenuOpen.value = false
+/** 点确认：先弹明细弹窗（跨章影响必须先看见），确认后才真正执行。 */
+function confirmAssets() {
+  if (!assetTabRef.value?.canConfirmReview) return
+  confirmDialogVisible.value = true
 }
-watch(applyMenuOpen, (open) => {
-  if (open) document.addEventListener('click', onDocumentClick)
-  else document.removeEventListener('click', onDocumentClick)
-})
-onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
 
-/** 执行确认：点主按钮用记忆的方式，点菜单项切换并立即执行。 */
-function confirmAssets(mode?: ExtractionApplyMode) {
-  const next = mode ?? applyMode.value
-  if (mode) {
-    applyMode.value = mode
-    localStorage.setItem(APPLY_MODE_KEY, mode)
-  }
-  applyMenuOpen.value = false
-  if (next === 'override' && !window.confirm('覆盖会用本次提取结果重写已有资产信息，并删除本次未出现的视觉状态。\n已生成参考图的旧状态也会被删除，是否继续？')) return
-  void assetTabRef.value?.confirmReview(next)
+/** 弹窗内确认：执行覆盖并关闭。 */
+async function runConfirm() {
+  confirmDialogVisible.value = false
+  await assetTabRef.value?.confirmReview()
 }
 
 // ========== 派生数据 ==========
@@ -245,6 +236,10 @@ const currentChapter = computed(() => chapters.value.find((chapter) => chapter.i
 const assets = computed(() => project.value?.longProjectData?.assets ?? [])
 const chapterAssets = computed(() => project.value?.longProjectData?.chapterAssets ?? [])
 const assetExtractionRuns = computed(() => project.value?.longProjectData?.assetExtractionRuns ?? [])
+/** 项目全部章节分镜（资产引用统计：哪个视觉状态的哪张图被哪些分镜在用）。 */
+const storyboardRuns = computed(() => project.value?.longProjectData?.storyboardRuns ?? [])
+/** 章节 id → 名称（引用文案展示用，避免在子组件里再解一遍章节树）。 */
+const chapterNames = computed(() => Object.fromEntries(chapters.value.map((chapter) => [chapter.id, chapter.name])))
 const assetGenConfig = computed(() => project.value?.longProjectData?.assetGenConfig)
 
 /** 本章原文分析 / 漫画剧本文档（资产提取的管线上下文）。 */
@@ -302,13 +297,12 @@ const scriptFallbackHint = computed(() =>
 const extractDisabled = computed(() => !extractionSourceText.value.trim() || !extractModelId.value || !extractTemplateId.value)
 const extractActionLabel = computed(() => chapterExtractRuns.value.length ? '重新提取' : '提取资产')
 
-/** 生成最终发送提示词：底稿（原文/剧本兜底）+ 分析 + 剧本 + 分镜概要 + 已有资产。 */
+/** 生成最终发送提示词：底稿（原文/剧本兜底）+ 分析 + 剧本 + 已有资产。 */
 function buildExtractPrompt(): string {
   const template = extractTemplates.value.find((item) => item.id === extractTemplateId.value)
   return buildAssetExtractionPrompt(template?.content ?? '', extractionSourceText.value, {
     analysis: analysisDoc.value?.content ?? '',
     script: scriptDoc.value?.content ?? '',
-    panelsOutline: buildPanelsOutline(panels.value),
     existingAssets: assets.value,
   })
 }
@@ -371,7 +365,7 @@ function parseExtractionPreview(content: string): { title: string; items: string
   const typeLabel: Record<string, string> = { character: '人物', scene: '场景', prop: '道具' }
   return {
     title: `解析到 ${candidates.length} 项资产候选`,
-    items: candidates.map((candidate) => `${typeLabel[candidate.type] ?? candidate.type} · ${candidate.name}（${candidate.decision === 'merge' ? '并入已有资产' : '新建'}）`),
+    items: candidates.map((candidate) => `${typeLabel[candidate.type] ?? candidate.type} · ${candidate.name}（${candidate.decision === 'merge' ? '沿用已有资产' : '新建'}）`),
   }
 }
 
@@ -383,10 +377,9 @@ async function confirmExtractionImport(content: string) {
   try {
     const candidates = parseAssetExtractionResponse(content, assets.value)
     if (!candidates.length) throw new Error('未识别到任何资产，请检查格式。')
-    if (panels.value.length) {
-      const counts = countCandidatesAppearances(candidates, panels.value)
-      for (const candidate of candidates) candidate.panelAppearances = counts[candidate.id] ?? 0
-    }
+    // 出现数统计：有分镜按分镜、无分镜按剧本行（新管线资产先于分镜提取，剧本为常态输入）
+    const counts = countCandidatesAppearances(candidates, panels.value, scriptDoc.value?.content ?? '')
+    for (const candidate of candidates) candidate.panelAppearances = counts[candidate.id] ?? 0
     const sourceText = extractionSourceText.value
     const now = Date.now()
     const run: LongProjectAssetExtractionRun = {
@@ -411,12 +404,7 @@ async function confirmExtractionImport(content: string) {
 .primary-button { display: flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: 0.5rem; background: #06b6d4; padding: 0.5rem 0.75rem; font-size: 0.75rem; font-weight: 500; color: #020617; transition: background-color 0.15s ease; }
 .primary-button:hover { background: #22d3ee; }
 .primary-button:disabled { cursor: not-allowed; opacity: 0.4; }
-/* 分体确认按钮：scoped 样式特异性高于 Tailwind 工具类，圆角 / 内边距 / 分隔线必须写在这里 */
-.split-main { padding: 0 0.75rem; border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.split-toggle { padding: 0 0.4rem; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid rgba(2, 6, 23, 0.25); }
 .primary-button:disabled:hover { background: #06b6d4; }
-.apply-option { display: flex; width: 100%; align-items: flex-start; gap: 0.5rem; padding: 0.5rem 0.75rem; text-align: left; transition: background-color 0.15s ease; }
-.apply-option:hover { background: var(--bg-elevated); }
 .secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: 0.5rem; border: 1px solid var(--border-default); color: var(--text-secondary); font-weight: 500; transition: color 0.15s ease, border-color 0.15s ease; background: transparent; }
 .secondary-button:hover { color: var(--text-primary); border-color: var(--border-strong); }
 </style>

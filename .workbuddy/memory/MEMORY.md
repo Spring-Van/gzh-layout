@@ -1,6 +1,16 @@
 # 项目长期约定 — gzh-layout（漫画/公众号排版工具）
 
-> 专题细节已拆出：**LLM 调用层 / 请求传输层 / 测试连接** → `topics/llm-layer.md`
+> 专题细节已拆出，用到时按需读：
+> - `topics/llm-layer.md` — LLM 调用层 / 请求传输层 / 测试连接
+> - `topics/asset-pipeline.md` — 资产提取归属匹配 / 确认落库（唯一行为：本次结果为准）/ 分镜 ↔ 视觉状态绑定与引用 / 资产提示词协议与解析器 / 8 类模板解析机制
+
+## 滚动与溢出
+
+**`custom-scrollbar` 只改滚动条外观（`::-webkit-scrollbar`），不设置 `overflow`**。想能滚必须自己写 `overflow-y-auto`。判定「能不能滚」看三件事是否齐全：父链一路 `min-h-0`（`flex` 子项默认 `min-height:auto` 会顶破高度）+ `flex-1` + `overflow-y-auto`。缺 `overflow-y-auto` 的症状是长内容被直接裁掉、滚不动。
+
+## 禁止「假保存」提示
+
+**只有用户主动触发写入时才可点亮「已保存 ✓」**。由 `watch` 监听外部值变化（AI 生成 / 提取确认回填 / 切 tab）后置位 savedAt，会让整列卡片集体闪一下提示 —— 用户没保存过任何东西，是纯噪音且误导。同类：多个条目共用一个卡片实例时，切条目要么让 `watch` 把空值也同步下去，要么直接给组件加 `:key="item.id"` 强制重建。
 
 ## 浮层 z-index 谱系（新增弹窗务必对照）
 
@@ -12,108 +22,118 @@
 | **z-50** | 常规弹窗（宿主是普通页面时用这档） |
 | z-100 / z-101 | 全屏抽屉的遮罩 / 面板 |
 | z-120 | 导入弹窗之上的覆盖确认 |
-| **z-130 / z-131** | **抽屉内**打开的子弹窗（宿主是 z-101，必须用这档） |
+| **z-130 / z-131** | **抽屉内**打开的子弹窗（宿主 z-101，必须用这档） |
 | z-200 | 大图预览（终端视图，最高业务层） |
 | z-300 / z-9999 | PageSync / Toast |
 
-**规则**：弹窗 z 值必须 > 宿主容器。通用组件（如 `ManualResultImportDialog`）**不能硬提层级**，要加 `zIndexClass` prop 由调用方决定，否则会破坏它在低层级场景的表现。
+通用组件（如 `ManualResultImportDialog`）**不能硬提层级**，要加 `zIndexClass` prop 由调用方决定。
 
-**坑**：
-1. scoped 样式 `.menu-item { color: inherit }` 编译成 `.menu-item[data-v-x]`（特异性 0,2,0），会**压过** `text-red-400`（0,1,0）—— 需要颜色时用同层级的自定义类，别叠 Tailwind 语义色。
-   - **同理适用于一切属性**，不只颜色：组件 scoped 里定义了 `.primary-button { border-radius: .5rem }`，模板上再写 `rounded-r-none`（同为 0,1,0 的 Tailwind 工具类）**不会生效**。做分体按钮（split button）这类需要局部改圆角/边框/内边距的，必须在 scoped 里加同层级类（如 `.split-main { padding: 0 .75rem; border-top-right-radius: 0 }`），并保证定义在基类**之后**（特异性相同时靠样式表顺序决胜）。
-2. 全屏抽屉（`z-[101]`）里开 z-50 子弹窗 → 被盖住看不见。资产链路 6 个浮层已提到 130/131 修复。
+**Teleport 到 body 的浮层必须自己写 `position: fixed`**（写在 scoped 类里，或挂 Tailwind `fixed`）。漏掉的症状极具迷惑性：元素退化成 **静态** 排在 `<body>` 末尾 —— `left/top` 内联样式全失效 → 视口内**看不到它**（「点了没反应」），同时它把文档撑高 → **页面出现滚动条 + 抖动**。而且类型检查和测试都抓不到（纯 CSS）。凡 `fixed inset-0` 的遮罩都记得配一个同级的定位面板。
+
+**写 z-index 的坑**：Tailwind 只有 0/10/20/30/40/50/auto，`z-130` 这种**裸值是无效类**（本项目没扩展 `zIndex`）—— 不报错、不生成任何 CSS，弹窗会静默掉到 z-auto 被抽屉盖住。抽屉内子弹窗一律写 **`z-[130]` / `z-[131]`**（任意值语法）。
+
+**坑（一条通则）**：组件 scoped 样式编译后特异性为 0,2,0，会**压过**同为 0,1,0 的 Tailwind 工具类 —— 不只颜色，一切属性都如此。要在模板上局部改圆角/边框/内边距（如分体按钮 `rounded-r-none`），必须在 scoped 里写同层级类（`.split-main { padding: 0 .75rem; border-top-right-radius: 0 }`），并保证定义在基类**之后**（特异性相同时靠样式表顺序决胜）。
 
 ## UI 沟通约定（避免返工）
 
 **「在某个弹窗内」= 同一弹窗、同一视图内增删内容**，不是「同一弹窗切换阶段/视图」。
-- 反例（已被否）：把弹窗改成 `stage: 'config' | 'progress'` 两阶段，点「开始生成」后整屏换成独立进度视图。
-- 正例：配置项与输入框**始终可见**，进度只是输入框下方的一个信息区（`v-if="started"` 控制显隐）。
+- 反例（已被否）：弹窗改成 `stage: 'config' | 'progress'`，点「开始生成」后整屏换成独立进度视图。
+- 正例：配置项与输入框**始终可见**，进度只是输入框下方的一个信息区（`v-if="started"`）。
 
 ## UI 迭代细则（弹窗内改版）
 
-- **换配置不作废输入**：切模板/模型/范围时**保留用户已编辑的文本**，只增删条目；「重置」才按当前配置重新拼装默认值。**保留与重算必须是两个独立函数**，不能共用。
-- **条目多时不用横向标签条**：用 `<select>` 下拉框 + 上/下图标按钮 + `N / M` 计数，选项前缀用 `◐/✓/✕/○` 标状态。
-- **输入框自适应高度**：未开始时 `flex-1` 撑满剩余空间（"到底"），开始生成后切 `h-[160px] shrink-0`，把空间让给进度区；容器用 `overflow-hidden` + `min-h-0`。
-- **进度回传不抢焦点**：父组件推进度改 `activeIndex` 前，先看用户是否手动选过条目（`userPickedIndex`），手动选过就不自动跟随。
-- **多模式功能的状态必须按模式分开存**：同一弹窗有多个互斥模式（如「一次性发送 / 逐条发送」）时，`started`、进度、条目、输入文本等运行态**不能做成单一全局 ref**，否则 A 模式跑完切到 B 会残留进度与按钮。做法：`runStates = { a: createState(), b: createState() }` + `state = computed(() => runStates[currentMode])`，所有读写走 `state.value`。
-- **AI 生成结果一律「人工确认后才写回」**：生成/重试成功**不自动落库**（会自动覆盖用户已有的内容，用户明确否决过），结果只留在弹窗内 + 顶部「未填充」提醒；写回靠显式的「填充到资产」按钮（主按钮）。**有结果未填充时关闭弹窗必须二次确认**（取消 / 直接关闭 / 填充并关闭）。
-- **「发送内容」与「生成结果」必须分成两个字段存、两个视图看**：`item.text`（要发给大模型的内容，可改后重新生成）/ `item.result`（模型返回，可改后填充）；`item.originalText` / `item.resultOriginal` 分别供「重置本条」/「重置结果」。**别用同一个字段先装提示词、再被结果覆盖** —— 那样用户永远回不到「我发出去的是什么」。
-- **重跑范围要让用户选**：逐条模式下失败后底部同时给「仅重跑失败（N）」与「重新生成」（整批）两个按钮，不要二选一替用户决定；一次性发送受单次请求限制只能整批重发（UI 文案写明）。
-
-## 资产提取确认（ExtractionApplyMode）
-
-确认「本章资产」是**批次级**选择，两种语义边界必须分清（`assetExtractionConfirm.ts`）：
-
-| | merge（默认） | override |
-|---|---|---|
-| 资产级 content/description/attributes | **已有值优先**，只补空缺 | 候选优先（候选为空回退旧值） |
-| 视觉状态 | 只补空缺，保留全部旧状态 | **整表重建**，本次未出现的一律删除 |
-| aliases | 始终求并集（身份标识不做取舍） | 同 |
-
-- **例外**：override 遇到「候选没有任何视觉状态」（模型未按格式返回）时**保留旧状态**，否则一次退化返回就清空资产的视觉身份。
-- **悬空绑定**：override 删状态会让分镜上 `model/manual/chapter-range` 来源绑定的 `visualVersionId` 失效（`syncPanelsAutoBindings` 只重算 auto-text）→ 必须跑 `repairDanglingBindings` 回落 `defaultVariant`，**全项目范围跑**（悬空即坏数据）。
-- 审核页必须把归属建议显出来（左列「并入 XX / 新建资产」），否则用户选合并/覆盖是盲选。
+- **换配置不作废输入**：切模板/模型/范围时**保留用户已编辑文本**，只增删条目；「重置」才按当前配置重算。**保留与重算必须是两个独立函数**。
+- **条目多时不用横向标签条**：`<select>` + 上/下图标按钮 + `N / M` 计数，选项前缀 `◐/✓/✕/○` 标状态。
+- **输入框自适应高度**：未开始时 `flex-1` 撑满剩余空间，开始后切 `h-[160px] shrink-0` 让空间给进度区；容器 `overflow-hidden` + `min-h-0`。
+- **进度回传不抢焦点**：父组件推 `activeIndex` 前先看 `userPickedIndex`，用户手动选过就不自动跟随。
+- **多模式功能的状态必须按模式分开存**：`runStates = { a: createState(), b: createState() }` + `state = computed(() => runStates[currentMode])`，否则 A 模式跑完切 B 会残留进度与按钮。
+- **AI 生成结果一律「人工确认后才写回」**：结果只留在弹窗内 + 顶部「未填充」提醒，写回靠显式「填充到资产」；**有结果未填充时关闭弹窗必须二次确认**。
+- **「发送内容」与「生成结果」分两个字段存**：`item.text` / `item.result`（+ 各自的 `original*` 供重置）。别用同一字段先装提示词再被结果覆盖。
+- **重跑范围让用户选**：逐条模式下失败后同时给「仅重跑失败（N）」与「重新生成」（整批），不替用户决定。
 
 ## 长篇故事 · 分镜格式（v4，详见 docs/长篇故事剧本与分镜格式定稿.md）
 
-- 符号规则：分镜格用 `【第X格】`；字段名用 `「XXX」`，冒号后写内容；页头 `## 分镜 N · 双格`。
+- 分镜格用 `【第X格】`；字段名用 `「XXX」`，冒号后写内容；页头 `## 分镜 N · 双格`。
 - **入库去包装、出库带包装**：`cell.dialogue/narration` 存裸文本，喂画面描述提示词时不带标记。
 - 解析器兼容 v4 / v3（`①【镜头】画面` + `说话人：【台词】`）/ v2（`‖`）/ 旧 `- 字段：`。
 
-## 模板类型 × 解析机制（8 类模板全景）
-
-**只有 3 类需要结构化解析，其余 5 类整段消费、零解析**：
-- 零解析（返回即正文）：`analysis` / `script`（`chapterDocService.runChapterDoc` 直接 `content.trim()` 入库）、`panel-prompt`（`inferPanelPrompt` 整段作画面描述）、`story`（未见独立链路）、`style`（不调模型，作风格片段拼进别人提示词）。
-- 需解析：`asset-prompt` / `extract` / `storyboard`。
-
-**三者范式完全不同，不要用同一套方案改**：
-
-| | asset-prompt | extract | storyboard |
-|---|---|---|---|
-| 范式 | 段落切分 + **名字查表** | **标题栈** | **行级分派状态机** |
-| 归属依据 | 与预设状态清单比对 | 标题位置 | 当前页 / 当前格上下文 |
-| 层级容忍 | — | ❌ 严格 1/2/3 个 `#` | ✅ `#{1,6}` 任意层级 |
-| 容错方式 | 猜（模糊匹配 / 顺序兜底） | 认标题 + 字段/标题双形式 | 认形态 + v4/v3/v2 + 无页头自动开页 |
-| 失败后果 | 整批对不上（可静默错配） | 0 个资产 | 0 页 |
-| 历史包袱 | 无（新做） | legacy JSON | 三版协议兼容 |
-
-**关键区分：闭集映射 vs 开集生成**
-- `asset-prompt` 是**闭集**（发出去 8 个状态，必须 8 段一一对上）→ 本质是**查找问题**，模型名字一漂移就整批废 → **只有它会报「协议与解析不匹配」**。
-- `extract` / `storyboard` 是**开集**（模型自己决定几条）→ **位置即归属**，不比对名字，模型写错名也能收。extract 的 `matchExistingAsset` 只产出 `suggestedAssetId` + `decision:'merge'` **建议**，不影响数据接收。
-
-**三处共同缺口**：都不剥代码块围栏 ```、都不去前言/结语（asset-prompt 已有 `normalizeModelOutput`，另两处没有）→ 这是「归一化层」要统一补的。
-
-**三处都不用真正的 Markdown 解析器**（不建 AST），而是正则逐行近似 Markdown：好处是模型写半吊子 Markdown 也能收，坏处是换成 `**加粗**` 当标题就认不出。
-
-## 资产提示词回填（协议 · 解析器）
-
-- **返回格式写进模板内容，运行时不追加任何协议段（2026-09-15 最终态）**：各类型结构说明集中在 `OUTPUT_FORMAT_SPECS`，由私有 `withFormatSpec()` 内联进 `RECOMMENDED_TEMPLATES` 每条的 content 末尾【返回格式】段；`renderPromptTemplate` 只做变量替换（签名已去掉 `customProtocol`）。设置页**删掉了整个「输出协议」编辑框**，只保留「提示词内容」+ 需要解析的环节在**底部一行提示**（「本环节结果按 Markdown 解析，请保留上面的输出结构」，`story` 为 JSON）。**已删除**：`applyOutputProtocol` / `defaultOutputProtocol` / `defaultContentRequirement` / `OUTPUT_CONTENT_DEFAULTS` / `OUTPUT_FORMAT_DEFAULTS`（改名 `OUTPUT_FORMAT_SPECS`）/ `PromptTemplate.outputProtocol` 字段 / 更早的 `PromptOutputParser` + `ASSET_PROMPT_PARSER_SPECS`。存量模板里存过的 `outputProtocol` 值被忽略，**不做数据迁移**。
-  - ⚠️ **代价**：格式约定一旦可被用户改，解析就可能被改坏 —— 这是用户明确选择的取舍（「默认提示词内容里直接含输出格式」）。所以底部那行提示是必须保留的。
-  - ⚠️ **存量模板缺口**：老模板 content 里没有【返回格式】段，批量一次性发送时模型可能不按 `【资产名｜状态名】` 返回；解析器的模糊匹配与顺序兜底仍会尽力，但建议让用户点「填入推荐模板」补齐。
-- **哪些环节真的需要解析**（决定哪些模板必须带格式约定）：`storyboard`（分镜生成 + 页面 AI 优化，`parseStoryboardResponse` / `parsePanelBlock`）、`extract`（`parseAssetExtractionResponse`）、`asset-prompt` 批量·一次性（`parseAssetPromptResponse`）、`story`（旧版漫画项目编辑器，JSON）。**不需要解析**：`analysis` / `script`（整段 Markdown 入库）、`panel-prompt`（逐镜单次调用返回纯文本，**所谓「批量生成分镜绘画提示词」是循环单次，不需要解析**）、`style`（不调模型）。
-- **统一返回格式 = Markdown，批量与逐条同一个格式**：asset-prompt 用 `ASSET_PROMPT_FORMAT`（`【资产名｜状态名】` + 提示词正文）。逐条发送 / 单条重写走 `extractSinglePromptText()`：单目标跑同一管线，命中取正文，未命中则剥掉行首包装与客套后退化为整段正文（单条不存在错配风险，宁可原样收下）。
-- **单管线多层容错**（`assetPromptParser.ts`）：归一化预处理 → 多形态头识别 → 模糊名字匹配 → JSON / 序号容错 → 顺序兜底 → 诊断（`stage: ok | bracket | json | indexed | order | none`）。目标：**换模型 / 换格式都不能让整批请求白跑**。
-- **两遍法**：候选头**必须先 resolve 成功才算头**，否则正文行 `- 视觉描述：A - B` 会被误判为头并切碎段落。
-- **顺序兜底的安全阀**：只有「段落数严格等于目标数」才 1:1 回填；条数不等**不猜**（宁可报错 + 弹窗可看原始返回）。
-- 模糊 / 顺序命中要在 UI **标出来让用户核对**（「近似匹配 / 顺序对应」），不能静默错配。
-- 解析全失败抛 `AssetPromptParseError`，**错误自带 diagnostics**（stage / expected / parsed / missing / raw）→ 弹窗可查看并复制模型原始返回。
-
 ## 主题色写法（全项目通用）
 
-`darkMode: 'class'` + CSS 变量（`:root` 浅色 / `html.dark` 暗色）。语义色（红/绿）用 **`-700 dark:-300`** 保证两主题可读（老代码的 `text-emerald-400` / `text-red-400` 只适合暗色）。**状态色只加在标题元素上，不要加在面板容器上** —— 否则会盖掉容器内 `text-text-muted` 元信息行（同为 `color` 工具类，靠样式表顺序决胜）。Tailwind 的 `bg-xxx/50` 透明度语法对 `var(--...)` 定义的语义色**不生效**。不用 `max-h` + 内层滚动去做「显示完全」，直接让表单主体 `overflow-y-auto` 完整铺开。
+`darkMode: 'class'` + CSS 变量（`:root` 浅色 / `html.dark` 暗色）。语义色（红/绿）用 **`-700 dark:-300`** 保证两主题可读。**状态色只加在标题元素上，不要加在面板容器上** —— 否则会盖掉容器内 `text-text-muted` 元信息行（同为 `color` 工具类）。Tailwind 的 `bg-xxx/50` 对 `var(--...)` 定义的语义色**不生效**。不用 `max-h` + 内层滚动做「显示完全」，直接让表单主体 `overflow-y-auto` 铺开。
+
+## 资产类型配色（人物 / 场景 / 道具）
+
+**颜色值只出现在 `src/theme/tokens.css`** 的 `--asset-character` / `--asset-scene` / `--asset-prop`（`:root` 与 `html.dark` 各一份）。改配色只改这一个文件。
+
+- `utils/assetTypeTheme.ts` 只做「类型 → 标签/图标/令牌名」映射，外加 `assetHighlightStyle()`（行内高亮）与 `assetTagClass()`；**不写颜色值**。
+- 底面用 `color-mix(in srgb, var(--asset-x) N%, transparent)` 派生（需 Chromium ≥111，Electron 30 够）。**别用 Tailwind 的 `bg-x/50`**，对 `var()` 不生效。
+- Tag 类 `.asset-tag--{type}` 与高亮类 `.asset-highlight` 定义在 `src/style.css` `@layer components`；组件模板里**不要再写 `rounded/border/px/py/text-[10px]`** —— 那些是 `@layer utilities`，会盖掉 components 层的同名属性。
+- 新增消费方（任何要按类型着色的地方）一律走这两个函数，别再复制 `violet/sky/emerald` 类名。
+
+## 输入框内资产名高亮（叠层方案）
+
+`composables/useAssetHighlight.ts` + `components/AssetHoverCard.vue` 是唯一实现，分镜内容框与提示词框共用。
+
+- **叠层结构**：高亮层绝对定位（`absolute inset-4` + `whitespace-pre-wrap break-all`，正常配色文字）在下，`textarea` 用 `text-transparent` + `caret-cyan-400` 压在上面。**两层的字体/字号/行高/内边距/断行必须逐像素一致**，否则文字错位；`custom-scrollbar` 必须做滚动同步。
+- **命中只能坐标反查**：textarea 挡住高亮层，拿不到 span 的 hover → 先按整块矩形粗筛，再对命中的 span 逐字 `Range` 取矩形精判。`mousemove` 要 rAF 节流。
+- 悬停卡延迟关闭（160ms）是必需的，否则鼠标一移向卡片就消失。
+- 高亮判定口径 = **名字命中资产库即高亮**（`buildAssetNameIndex` + `detectAssetSpans`），不按 `assetBindings` 过滤 —— 绑定本身就是扫名字产生的，按绑定过滤反而要等保存回流才有高亮。
+
+## 章节阶段（node.stage）只升不降
+
+`LONG_CHAPTER_STAGE_ORDER`（`types/index.ts`）：empty → source-ready → analysis-ready → script-ready → **assets-ready → storyboard-ready** → prompts-ready → completed（资产在分镜**之前**，新管线要求资产先就绪）。
+
+统一口径在 `utils/chapterStage.ts`：`chapterStageIndex()` / `chapterStageAtLeast()` / `stageAfterSourceEdit()`。**任何写 `node.stage` 的地方都要先过这里算目标值，不要直接赋值** —— 按"当前输入有什么"直接赋值会把已走远的阶段**降级**（真实 bug：原文正文自动保存把 `storyboard-ready` 打回 `source-ready`，且没有路径能补回）。其余写入点（useChapterDocRun ×3 / useStoryboardRun / PanelGenAssetTab）本来就带 `indexOf(current) < indexOf(next)` 守卫。
+
+## 原生控件配色：color-scheme
+
+`tokens.css` 的 `:root` 与 `html.dark` 各带一条 `color-scheme`（`light` / `dark`）—— 它决定原生控件（`<select>` 展开列表、滚动条、日期选择器、自动填充底色）按哪套**系统**配色绘制，跟 CSS 变量无关。新增原生控件前先确认这两条还在；删掉后暗色主题下的下拉列表会变白底。
+
+## 参考图清单 = 全项目唯一图号来源
+
+`services/panelRefManifest.ts` 的 `buildPanelRefManifest()` 决定「一张图是第几号」。**任何需要图号/参考图顺序的地方只能读它**，不要再自己遍历 `assetBindings`：
+
+- 编号顺序固定：**「插入最前」的共用属性图（按 sortOrder → 上传顺序）→ 人物 → 场景 → 道具**（组内按页级绑定/状态展开顺序，每状态取 1 张，走 `resolvePanelRefImage` 单选口径）。
+- **「插入最后」的块完全不参与**取图与编号（`getSharedRefImages` / `computeBlockImageNumbers` 也只算 front）—— 图号是从前往后编的，后置属性的文字却在描述之后，带图必然错位。数据保留，切回 front 即恢复。
+- **不做截断**：清单返回全部图，生图侧不 `slice`。原来的 `MAX_REF_IMAGES = 14` 已从长篇链路移除。
+- 纯函数无缓存 → **改图/换状态/调顺序立刻反映到下一次拼装**，不需要刷新按钮，也不要加落库同步。
+- 消费方四处已统一：分镜页取图 `panelRefImages`、右栏分组 `currentRefGroups`、画面描述变量、`assetUsageService` 的图片角标。
+- 不变式：`images[i]` 就是「图 i+1」。清单文本 `buildRefManifestText()` 输出「图N = 谁（用途）」——**序号由代码算，语义由模型写**，绝不指望模型自己数图。
+
+## 画面描述：两个模板类型 + 三层拼接
+
+- **`panel-prompt`（逐镜）与 `panel-prompt-chapter`（整章一次）是两个模板类型，不要合并**。变量集不同：全章用 `{{全章分镜}}` / `{{全章资产设定}}` / `{{全章参考图清单}}`，且**不含** `{{镜头}}` / `{{前文分镜}}` / `{{本章分镜概要}}`（全章分镜原文已含全部上下文）；输出协议也不同（全章要 `【分镜N】` 分段，靠 `parseChapterPanelPrompts` 对位，容错 `第N镜`/Markdown 标题/顺序兜底/漏段报告）。
+- 共用属性变量由代码拼、**不进 `imagePrompt` 字段**：`composeFinalPrompt()` = **前置共用属性 + 画面描述 + 后置共用属性**，只在生图时拼。所以改画风/换图**不必重跑 LLM**，描述字段也保持纯净（可单独复制到外部 AI）。
+- 共用属性块的拼法是 `buildBlockText()`：`属性名` → `图N、图M：属性名。` → 用户描述正文，**三段互不覆盖**。绝不要恢复「按图号回写 description」那类函数（历史 bug：上传/删图会把手填正文冲成话术）。
+- `{{风格上下文}}` 已移除（存量模板里的占位符渲染时按未注册清理，设置页会红字告警）。
+- **循环依赖陷阱**：`panelRefManifest` 依赖 `panelPromptService`，所以 `buildPanelPromptPrompt` 收的是 `refManifestText: string`（调用方用 `buildRefManifestText(buildPanelRefManifest(...))` 生成），**不要改成收 manifest 对象**，否则形成运行时循环。
 
 ## 本机调试环境（省时间）
 
-- **`ELECTRON_RUN_AS_NODE=1` 在 shell 里是设着的** → 直接跑 `electron.exe` 会退化成 Node，脚本静默跑不起来。要用 PowerShell `Remove-Item env:ELECTRON_RUN_AS_NODE` 清掉（**Bash 的 `env -u` 无效**，见下条）。
-- **Electron 可以跑起来做真实验证（2026-09-14 更正旧结论）**：唯一可行写法是 **PowerShell**：先 `Remove-Item env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue`，再 `& $exe "D:\<探针目录>" --no-sandbox`（目录里放 `package.json`(main) + 主进程 cjs：`app.whenReady()` → `net.fetch` → `fs.writeFileSync` 结果 → `app.exit(0)`）。**Bash 里 `env -u ELECTRON_RUN_AS_NODE ... electron.exe` 会退出码 0 却什么都不做；`Start-Process -RedirectStandardOutput` 也跑不起来。** 这是验证「系统代理 / CORS / 真实网络栈」类问题的唯一可靠手段。
-- **`net.fetch` 默认继承系统代理**：本机常开 Clash Verge（`127.0.0.1:7897`），凡是「curl 通但应用不通」的报错，先用 `session.defaultSession.resolveProxy(url)` 确认通道再排查。**该代理线路可能间歇性挂掉**，故 LLM 请求已内置「代理失败自动改直连」兜底 + 每模型 `bypassProxy` 开关。详见 `topics/llm-layer.md`。
-- **Bash 工具可用（2026-09-14 更正）**：`ls` / `grep` / `find` / `rm` / `curl` / `tail` 均正常，日常文件操作直接用 Bash 更快。only 例外是「启动 Electron 做网络探针」必须用 PowerShell（见上条）。
-- **PowerShell 工具不返回 stdout**，且重定向写出的是 UTF-16（Read 会判定为二进制）。用 `| Out-File -Encoding utf8` 再用 Read 读；汇总脚本交给 node 处理编码（`toString('utf8')` 失败再试 `utf16le`，并去 ANSI 色码）。
+- **Bash 工具可用**：`ls`/`grep`/`find`/`rm`/`curl`/`tail` 正常，日常文件操作直接用 Bash 更快。偶发丢失 coreutils（`tail`/`wc` 报 not found）→ 前缀 `export PATH="/c/Users/admin/.workbuddy/binaries/PortableGit/versions/1.2.0/usr/bin:$PATH" &&` 即恢复；不要把这类报错当命令失败。
+- **`ELECTRON_RUN_AS_NODE=1` 在 shell 里是设着的** → 直接跑 `electron.exe` 会退化成 Node，脚本静默跑不起来。
+- **要用真 Electron 验证（系统代理 / CORS / 真实网络栈）只能走 PowerShell**：`Remove-Item env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue` → `& $exe "D:\<探针目录>" --no-sandbox`（目录里放 `package.json`(main) + 主进程 cjs：`app.whenReady()` → `net.fetch` → 写结果 → `app.exit(0)`）。**Bash 的 `env -u` 无效（退出码 0 却什么都不做）；`Start-Process -RedirectStandardOutput` 也跑不起来。**
+- **`net.fetch` 默认继承系统代理**：本机常开 Clash Verge（`127.0.0.1:7897`）。「curl 通但应用不通」先用 `session.defaultSession.resolveProxy(url)` 确认通道。代理线路会间歇挂掉，故 LLM 请求内置「代理失败自动改直连」+ 每模型 `bypassProxy`（详见 topics/llm-layer.md）。
+- **PowerShell 工具不返回 stdout**，重定向写出的是 UTF-16（Read 会判为二进制）：用 `| Out-File -Encoding utf8` 再 Read；汇总交给 node（`toString('utf8')` 失败再试 `utf16le`，去 ANSI 色码）。
 - 浏览器内验证用 Playwright（pnpm 严格布局，`require('playwright')` 找不到，要写 `node_modules/.pnpm/playwright@x/node_modules/playwright` 绝对路径）。
 
 ## 工程校验三件套
 
-`npx vue-tsc --noEmit -p tsconfig.json` → `npx vitest run` → `npx vite build --outDir "D:/<临时目录>" --emptyOutDir`（构建产物必须写 **Windows 绝对路径**，Git Bash 的 `$TEMP` 会被解析到 D:\tmp）。
+`npx vue-tsc --noEmit -p tsconfig.json` → `npx vitest run` → `NODE_OPTIONS=--max-old-space-size=6144 npx vite build --outDir "D:/gzh-build-check" --emptyOutDir`
 
-- **构建要带 `NODE_OPTIONS=--max-old-space-size=6144`**（2026-09-16 实测：不带时 `vite build` 会被 SIGTERM 杀掉且**不输出任何日志**；带上后 7.57s 正常出产物）。报错时先看 exit code，别只看是否有日志。
-- **Bash 工具偶尔丢失 coreutils**：`tail` / `wc` / `dirname` 报 `command not found`（PATH 里只有 `Git/cmd`，没有 `/usr/bin`）。前缀 `export PATH="/c/Users/admin/.workbuddy/binaries/PortableGit/versions/1.2.0/usr/bin:$PATH" &&` 即可修复；不要把这类报错当成命令本身失败。
+- 构建产物必须写 **Windows 绝对路径**（Git Bash 的 `$TEMP` 会被解析到 D:\tmp）。
+- **必须带 `--max-old-space-size=6144`**：不带时 `vite build` 会被 SIGTERM 静默杀掉、**一行日志都没有** → 判断成败看 **exit code**，别只看日志。
+
+## 工具用法坑（会静默出错）
+
+**同一条消息里对同一个文件发多个 Edit 会互相覆盖**：每个都报 success，但只有最后一个落盘。
+改同一文件的多个位置必须**一次一个 Edit**（或合并成一个大 Edit）。发现"明明说成功了但文件没变"就是这个原因 —— 用 `grep` 复核，别信成功回显。
+
+## 提示词模板：用户自建优先，代码不藏"内置文案"
+
+**原则**：能被用户改的东西（提示词拼法）必须以"用户模板"形式存在；推荐模板只作**新建时的底稿**（设置页「填入推荐模板」/ 弹窗「新建模板（填入推荐内容）」），不做"模板缺失时用内置兜底"。用户明确否定过内置默认模板。
+
+**画面描述环节（panel-prompt / panel-prompt-chapter）的变量边界**：
+只给「分镜内容 + 资产视觉设定 + 资产参考图号清单」，**共用属性正文一律不给模型** —— 它由 `composeFinalPrompt` 在生图时拼到描述前后（唯一入口）。理由：给模型会被抄进描述 → 生图再拼一遍 → 重复；且描述被画风污染后换画风必须重跑。
+
+**图号只有一个来源**：`panelRefManifest.ts`。喂模型用 `buildRefManifestText(m, { assetsOnly: true })` —— 只列资产条目但**沿用生图真实图号**（前置共用属性图先占号），并附一行占位说明；生图取图仍用完整 `manifest.images`（不截断）。改图 / 换状态 / 调顺序都是纯函数实时算，不存在"刷新按钮"。

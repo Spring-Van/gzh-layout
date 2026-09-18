@@ -53,10 +53,11 @@ export type LongProjectNodeType = 'folder' | 'chapter'
 export type LongChapterStartMode = 'source' | 'script'
 export type LongChapterStage = 'empty' | 'source-ready' | 'analysis-ready' | 'script-ready' | 'storyboard-ready' | 'assets-ready' | 'prompts-ready' | 'completed'
 /**
- * 章节阶段推进顺序（与创作管线一致：原文 → 分析 → 剧本 → 分镜 → 资产）。
- * stage 只升不降；`prompts-ready` / `completed` 为预留终态。
+ * 章节阶段推进顺序（与创作管线一致：原文 → 分析 → 剧本 → 资产 → 分镜）。
+ * 2026-09-18 起资产提取先于分镜生成（分镜需要注入本章资产清单）；顺序只升不降，
+ * 旧数据的 stage 值不重排（indexOf 比较仍成立）；`prompts-ready` / `completed` 为预留终态。
  */
-export const LONG_CHAPTER_STAGE_ORDER: LongChapterStage[] = ['empty', 'source-ready', 'analysis-ready', 'script-ready', 'storyboard-ready', 'assets-ready', 'prompts-ready', 'completed']
+export const LONG_CHAPTER_STAGE_ORDER: LongChapterStage[] = ['empty', 'source-ready', 'analysis-ready', 'script-ready', 'assets-ready', 'storyboard-ready', 'prompts-ready', 'completed']
 export type LongProjectAssetType = 'character' | 'scene' | 'prop'
 export type AssetAttributeValueType = 'text' | 'tags' | 'number' | 'select'
 
@@ -74,6 +75,8 @@ export interface LongProjectAssetVariant {
   id: string
   name: string
   description?: string
+  /** 剧情锚点：该状态何时/因何切换生效（提取候选 state.anchor 确认时带入），供分镜环节判断状态起止与延续。 */
+  anchor?: string
   /** 当前视觉状态首次在何处确认，适用范围用于按章节生成分镜时自动推荐。 */
   firstAppearanceChapterId?: string
   chapterRange?: { startChapterId: string; endChapterId?: string }
@@ -126,15 +129,6 @@ export type AssetExtractionCandidateDecision = 'pending' | 'create' | 'merge' | 
 export type AssetExtractionRunStatus = 'running' | 'completed' | 'failed' | 'confirmed'
 
 /**
- * 资产提取确认的应用方式（批次级，用户在选择确认动作时决定）。
- * - merge：已有值优先。已有资产的 content/description/attributes 不被覆盖，只补空缺，
- *   已有视觉状态只追加章节引用与空缺字段，本次未出现的旧状态保留。
- * - override：本次结果优先。已有资产的 content/description/attributes 被候选重写，
- *   视觉状态整表重建，本次未出现的旧状态一律删除（无状态候选除外，见 overrideAssetWithCandidate）。
- */
-export type ExtractionApplyMode = 'merge' | 'override'
-
-/**
  * 章节级 AI 文档（原文分析 / 漫画剧本）：每章一份，可编辑，作为后续环节的上下文输入。
  * sourceContent 记录生成时的原文快照，用于检测"原文已变更"。
  */
@@ -165,6 +159,8 @@ export interface LongProjectExtractedState {
   id: string
   name: string
   description?: string
+  /** 剧情锚点：该状态何时/因何切换生效（如「雨夜遇袭后斗篷破损，直至章末」），供分镜环节判断状态起止。 */
+  anchor?: string
   imagePrompt?: string
   tags?: string[]
   /** 匹配到的项目已有视觉状态 id，确认时按该 id 归属。 */
@@ -195,7 +191,7 @@ export interface LongProjectAssetExtractionCandidate {
   attributes?: Record<string, string | string[] | number>
   suggestedAssetId?: string
   decision: AssetExtractionCandidateDecision
-  /** 该候选（名称/别名）在本章分镜文本中出现的分镜数，确定性计算，供审核页参考重要性。 */
+  /** 该候选（名称/别名）在本章文本中的出现数（有分镜按分镜数、暂无分镜按剧本行数），确定性计算，供审核页参考重要性。 */
   panelAppearances?: number
 }
 
@@ -207,6 +203,14 @@ export interface LongProjectStoryboardAssetBinding {
   /** 由模型、章节范围、用户选择或文本自动识别得出的建议。 */
   matchSource: 'model' | 'chapter-range' | 'manual' | 'auto-text' | 'unmatched'
   referenceImageIds?: string[]
+  /**
+   * 本镜使用的参考图（**单选，至多一个元素**；在分镜资产卡里点选后写入）。
+   * 为空 = 从未手动选过 → 取该视觉状态的**第一张**；选中的图被从资产里删除后同样回落第一张。
+   * 之所以不物化「默认 = 第一张」这个结果，是为了让资产内的图换序/删除后本镜能自动跟随。
+   * 与 referenceImageIds（绑定时的快照，仅作兜底）分开，避免"快照"与"本镜选择"两种语义混在一个字段。
+   * 解析口径统一走 `resolvePanelRefImage`。
+   */
+  selectedImageIds?: string[]
 }
 
 /**
@@ -240,6 +244,12 @@ export interface LongProjectStoryboardCell {
   dialogue?: string
   /** 本格无人称旁白 */
   narration?: string
+  /**
+   * 本格出场资产（v4「出场资产」字段，模型逐格声明 `资产名(状态名)`）。
+   * 解析/编辑保存时汇总到页级 `panel.assetBindings`（同资产多格声明取最后一格 = 镜末状态）；
+   * auto-text 回填通道只写页级，两通道在页级合流；生图参考图与画面描述按格级状态并集消费。
+   */
+  assetBindings?: LongProjectStoryboardAssetBinding[]
 }
 
 export interface LongProjectStoryboardPanel {
@@ -480,7 +490,7 @@ export interface OpenAIImageParams {
   compatibleMode?: boolean
 }
 
-export type TemplateType = 'style' | 'extract' | 'story' | 'storyboard' | 'asset-prompt' | 'panel-prompt' | 'analysis' | 'script'
+export type TemplateType = 'style' | 'extract' | 'story' | 'storyboard' | 'asset-prompt' | 'panel-prompt' | 'panel-prompt-chapter' | 'analysis' | 'script'
 
 export interface PromptTemplate {
   id: string

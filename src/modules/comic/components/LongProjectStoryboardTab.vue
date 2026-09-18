@@ -40,6 +40,13 @@
           <Sparkles v-else :size="14" />
           批量推导描述
         </button>
+        <!-- 外部 AI 代跑「整章一次生成」后回贴：按【分镜N】对位写入各镜画面描述 -->
+        <button
+          class="secondary-button h-9 shrink-0 px-3 text-xs"
+          :disabled="!panels.length"
+          :title="!panels.length ? '本章暂无分镜' : '把外部 AI 生成的整章画面描述粘贴进来（按【分镜N】对位）'"
+          @click="promptImportVisible = true"
+        ><ClipboardPaste :size="14" />导入描述</button>
         <!-- 绘图配置：绘画模型 + 共用属性，属于「提示词 → 生图」阶段；紧贴批量生图，便于生图前调参 -->
         <button
           class="secondary-button h-9 shrink-0 px-3 text-xs"
@@ -68,18 +75,9 @@
           导出发布
         </button>
       </template>
-
-      <span class="h-5 w-px shrink-0 bg-border-subtle" />
-
-      <!-- 常驻工具：资产为章节级抽屉入口，不属于任一阶段 -->
-      <button
-        class="secondary-button h-9 shrink-0 px-3 text-xs"
-        title="打开资产抽屉：提取 / 审核本章资产，生成视觉状态参考图"
-        @click="openAssetDrawer()"
-      ><Boxes :size="14" />资产</button>
     </Teleport>
 
-    <!-- 资产接力引导条：有分镜但本章资产未就绪 → 一键打开资产抽屉提取（固定视觉，保证分镜间画面一致） -->
+    <!-- 资产接力引导条：有分镜但本章资产未就绪 → 一键跳转同级「资产」页签提取（固定视觉，保证分镜间画面一致） -->
     <div
       v-if="showAssetHandoff"
       class="flex shrink-0 items-center justify-between gap-3 border-b border-amber-400/25 bg-amber-400/10 px-4 py-2"
@@ -87,7 +85,7 @@
       <p class="min-w-0 truncate text-xs text-amber-300">本章分镜已就绪，但资产尚未提取 —— 建议先固定人物 / 场景 / 道具的视觉状态，再生成分镜画面</p>
       <button
         class="flex shrink-0 items-center gap-1 rounded-lg border border-amber-400/40 px-2.5 py-1 text-xs text-amber-300 transition-colors hover:bg-amber-400/15"
-        @click="openAssetDrawer()"
+        @click="emit('go-assets')"
       >去提取资产 <ArrowRight :size="13" /></button>
     </div>
 
@@ -124,9 +122,12 @@
             <PanelAssetTabs
               :panel="currentPanel"
               :assets="assets"
+              :chapter-orders="chapterOrders"
               @update-variant-images="updateVariantImages"
+              @set-binding-images="setBindingImages"
+              @set-binding-variant="setBindingVariant"
               @preview="openPreview"
-              @go-asset-workbench="openAssetDrawer($event)"
+              @go-asset-workbench="emit('go-assets', $event)"
             />
           </div>
         </template>
@@ -163,6 +164,7 @@
           <PanelContentEditor
             v-if="stage === 'storyboard'"
             :panel="currentPanel"
+            :assets="assets"
             :run-status="latestChapterRun?.status"
             :ops-locked="opsLocked"
             :optimize-busy="currentPanel ? polishBusyIds.has(currentPanel.id) : false"
@@ -177,6 +179,7 @@
             :prompt-busy="promptBusyIds.has(currentPanel.id)"
             :generating="currentArtwork?.genStatus === 'running'"
             :ref-groups="currentRefGroups"
+            :shared-blocks="sharedBlocks"
             :generated-image="currentArtwork?.selectedImageId ?? currentArtwork?.generatedImageIds?.at(-1) ?? null"
             @infer="singleModalVisible = true"
             @save="savePromptEdit"
@@ -204,6 +207,7 @@
       v-model="mergeDialogVisible"
       :panels="mergeSelectedPanels"
       :artwork-map="artworkMap"
+      :assets="assets"
       @confirm="applyMerge"
     />
 
@@ -238,11 +242,12 @@
       </div>
     </Transition>
 
-    <!-- 批量推导确认弹窗 -->
+    <!-- 批量推导确认弹窗（逐镜 / 整章一次 两种生成方式） -->
     <PanelPromptGenerateModal
       v-model="promptModalVisible"
       :llm-models="llmModels"
       :templates="panelPromptTemplates"
+      :chapter-templates="chapterPanelPromptTemplates"
       :default-model-id="config.promptModelId"
       :default-template-id="config.promptTemplateId"
       mode="batch"
@@ -250,6 +255,9 @@
       :total-count="panels.length"
       :busy="batchPromptBusy"
       :build-prompt="buildBatchPromptPreview"
+      :build-chapter-prompt="buildChapterPromptPreview"
+      :build-copy-text="buildCopyText"
+      :create-template="createPanelPromptTemplate"
       @confirm="runBatchPrompts"
     />
 
@@ -264,6 +272,7 @@
       :panel-order="currentPanel?.order ?? 0"
       :busy="currentPanel ? promptBusyIds.has(currentPanel.id) : false"
       :build-prompt="buildSinglePromptPreview"
+      :create-template="createPanelPromptTemplate"
       @confirm="runSinglePrompt"
     />
 
@@ -295,42 +304,15 @@
       @close="storyboardImportVisible = false"
     />
 
-    <!-- 资产抽屉：全屏覆盖，自左侧滑入；首次打开后常驻，关闭不打断提取/批量生图任务 -->
-    <Teleport to="body">
-      <Transition name="slide-left">
-        <div
-          v-show="assetDrawerVisible"
-          class="fixed inset-0 z-[101] flex flex-col overflow-hidden bg-surface dark:bg-slate-800"
-        >
-          <!-- 头部 -->
-          <div class="flex shrink-0 items-center justify-between border-b border-border-subtle bg-surface px-6 py-4">
-            <div class="flex items-center gap-2">
-              <Boxes :size="18" class="text-cyan-400" />
-              <h2 class="text-base font-semibold text-text-primary">资产</h2>
-            </div>
-            <button
-              class="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-elevated hover:text-text-primary"
-              @click="assetDrawerVisible = false"
-            >
-              <X :size="16" />
-            </button>
-          </div>
-          <!-- 内容：资产提取 + 审核 + 生图工作台 -->
-          <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <LongProjectAssetTab
-              v-if="assetDrawerMounted"
-              :project-id="projectId"
-              :chapter-id="chapterId"
-              :project="project"
-              :models="models"
-              :templates="templates"
-              :focus-target="assetFocus"
-              :mutate-long-project-data="mutateLongProjectData"
-            />
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
+    <!-- 手动导入画面描述（外部 AI 代跑整章生成）：粘贴 → 按【分镜N】对位预览 → 确认写入 -->
+    <ManualResultImportDialog
+      :visible="promptImportVisible"
+      title="手动导入整章画面描述"
+      placeholder="粘贴外部 AI 生成的整章画面描述（每镜以【分镜N】开头）…"
+      :parse="parsePromptImportPreview"
+      @confirm="confirmPromptImport"
+      @close="promptImportVisible = false"
+    />
   </div>
 </template>
 
@@ -342,32 +324,36 @@
  * 内容阶段由主页面页签行的「分镜」下拉按钮持有（默认分镜，可下拉切绘图），经 v-model 注入；
  * 右栏标题栏的「分镜内容 | 提示词」两个按钮与其共用同一状态，两处入口永远一致。
  * 顶部操作区通过 Teleport 注入主页面 tab 行右侧（#storyboard-actions 容器），随阶段切换动作组——
- * 分镜内容显示「生成分镜（剧本 → 分镜）+ 手动导入」，提示词显示「批量推导描述 + 批量生图 + 导出发布 + 绘图配置」，
- * 资产为常驻抽屉入口；生成分镜是章节级动作，与「原文 / 剧本」页签执行栏同构，不再挂在单页编辑框下方。
+ * 分镜内容显示「生成分镜（剧本 → 分镜）+ 手动导入」，提示词显示「批量推导描述 + 批量生图 + 导出发布 + 绘图配置」；
+ * 资产不在本页签内（跳转主页面同级「资产」页签，经 go-assets 事件携带定位目标）；生成分镜是章节级动作，
+ * 与「原文 / 剧本」页签执行栏同构，不再挂在单页编辑框下方。
  * 分镜生成以漫画剧本为主输入、原文分析与章节原文为辅助核对（无剧本时原文兜底进剧本槽位）；
  * 画面描述按「依次推导」执行（滑动窗口携带前文），生图自动携带绑定资产参考图。
  * 数据持久化走 panelArtworks（panelId 关联），重跑分镜由迁移逻辑保留/标记过期；
  * 项目数据与持久化队列共享主页面实例（props 注入），不再独立读写。
  */
 import { computed, onMounted, reactive, ref, toRaw, watch, type Ref } from 'vue'
-import { ArrowRight, Boxes, ClipboardPaste, Download, ListTree, LoaderCircle, SlidersHorizontal, Sparkles, Undo2, X } from 'lucide-vue-next'
+import { v4 as uuidv4 } from 'uuid'
+import { ArrowRight, ClipboardPaste, Download, ListTree, LoaderCircle, SlidersHorizontal, Sparkles, Undo2 } from 'lucide-vue-next'
 import { comicDb, comicDownload } from '@/api/comic'
 import { useToast } from '@comic/composables/useToast'
 import ManualResultImportDialog from '@comic/components/common/ManualResultImportDialog.vue'
 import PromptRunBar from '@comic/components/common/PromptRunBar.vue'
 import { imageGenerationService } from '@comic/services/imageGenerationService'
+import { RECOMMENDED_TEMPLATES } from '@comic/services/promptTemplateRegistry'
 import {
-  DEFAULT_PANEL_PROMPT_TEMPLATE,
   DEFAULT_PREV_PANEL_WINDOW,
   buildChapterOutline,
+  buildChapterPanelPromptPrompt,
   buildPanelPromptPrompt,
-  buildStyleContext,
+  composeFinalPrompt,
   inferPanelPrompt,
-  resolvePanelBindings,
+  parseChapterPanelPrompts,
   type PrevPanelContextEntry,
 } from '@comic/services/panelPromptService'
-import { buildAssetNameIndex, computeAutoBindings } from '@comic/services/promptAssetService'
-import { buildStoryboardPrompt, cellCountLabel, defaultVariant, parseStoryboardResponse, polishPanelBlock, summarizeCells } from '@comic/services/storyboardService'
+import { buildPanelRefManifest, buildRefManifestText, groupManifestByType } from '@comic/services/panelRefManifest'
+import { buildAssetNameIndex, computeAutoBindings, reapplyVariantContinuation } from '@comic/services/promptAssetService'
+import { bindingsFromValue, buildStoryboardPrompt, cellCountLabel, defaultVariant, parseStoryboardResponse, polishPanelBlock, serializeBindings, summarizeCellBindings, summarizeCells, type ChapterAssetContext } from '@comic/services/storyboardService'
 import { useStoryboardRun } from '@comic/composables/useStoryboardRun'
 import { useStoryboardOps } from '@comic/composables/useStoryboardOps'
 import PanelListSidebar from '@comic/components/panel-gen/PanelListSidebar.vue'
@@ -382,16 +368,18 @@ import StoryboardSplitDialog from '@comic/components/StoryboardSplitDialog.vue'
 import ConfirmDialog from '@comic/components/ConfirmDialog.vue'
 import AssetImagePreviewModal from '@comic/components/AssetImagePreviewModal.vue'
 import ImageConfigDrawer from '@comic/components/ImageConfigDrawer.vue'
-import LongProjectAssetTab from '@comic/components/LongProjectAssetTab.vue'
 import { migrateLegacyImageGenConfig } from '@comic/utils/sharedBlocks'
 import type { PanelListItem } from '@comic/components/panel-gen/PanelListSidebar.vue'
 import type {
   ComicProject,
   ImageGenConfig,
+  LongProjectAsset,
   LongProjectPanelArtwork,
+  LongProjectStoryboardAssetBinding,
   LongProjectStoryboardPanel,
   ModelConfig,
   PromptTemplate,
+  TemplateType,
 } from '@comic/types'
 
 const props = defineProps<{
@@ -410,15 +398,16 @@ const toast = useToast()
 const emit = defineEmits<{
   /** 绘图配置已直接写库（imageGenConfig 在 longProjectData 之外），父页面需重载项目数据。 */
   (e: 'image-config-saved'): void
+  /** 提示词模板已直接写库（一键新建画面描述模板），父页面需重载模板列表。 */
+  (e: 'templates-changed'): void
+  /** 跳转主页面同级「资产」页签（可携带定位目标：直达工作台具体资产/视觉状态）。 */
+  (e: 'go-assets', payload?: { assetId: string; variantId?: string }): void
 }>()
 
 /** 主页面共享的项目数据（computed 保持 .value 读写习惯；只读）。 */
 const project = computed(() => props.project) as Ref<ComicProject | null>
 const chapterId = computed(() => props.chapterId)
 const projectId = computed(() => props.projectId)
-
-/** 生图参考图上限（与短篇生图页一致）。 */
-const MAX_REF_IMAGES = 14
 
 // ========== 页面状态 ==========
 
@@ -506,6 +495,26 @@ const chapterOutline = computed(() => buildChapterOutline(panels.value))
 /** 本章章节资产引用（确认提取后写入）。 */
 const chapterAssetEntries = computed(() =>
   (project.value?.longProjectData?.chapterAssets ?? []).filter((entry) => entry.chapterId === chapterId.value))
+/**
+ * 本章资产上下文（注入分镜提示词 {{本章资产}} 变量）：章节引用按资产归组；
+ * 引用带具体状态时只列被引用状态，否则（整资产引用 / 旧数据）列资产全部状态。
+ * 本章未确认资产时为空数组，模板变量渲染为占位提示（存量模板未写该变量时自动退化）。
+ */
+const chapterAssetContexts = computed<ChapterAssetContext[]>(() => {
+  if (!chapterAssetEntries.value.length) return []
+  const groups = new Map<string, { asset: LongProjectAsset; variantIds: Set<string> }>()
+  for (const entry of chapterAssetEntries.value) {
+    const asset = assets.value.find((item) => item.id === entry.assetId)
+    if (!asset) continue
+    const group = groups.get(asset.id) ?? { asset, variantIds: new Set<string>() }
+    if (entry.variantId) group.variantIds.add(entry.variantId)
+    groups.set(asset.id, group)
+  }
+  return [...groups.values()].map(({ asset, variantIds }) => ({
+    asset,
+    variants: variantIds.size ? asset.variants.filter((variant) => variantIds.has(variant.id)) : asset.variants,
+  }))
+})
 /** 本章最近一次资产提取 run（含手动导入）。 */
 const latestAssetExtractRun = computed(() =>
   (project.value?.longProjectData?.assetExtractionRuns ?? [])
@@ -517,22 +526,6 @@ const showAssetHandoff = computed(() =>
   && chapterAssetEntries.value.length === 0
   && latestAssetExtractRun.value?.status !== 'confirmed'
   && latestAssetExtractRun.value?.status !== 'running')
-
-// ========== 资产抽屉（左侧弹出：提取 / 审核 / 视觉状态生图） ==========
-
-/** 抽屉是否可见（v-show：首次打开后内容常驻，关闭不打断提取/批量生图任务）。 */
-const assetDrawerVisible = ref(false)
-/** 抽屉内容是否已挂载（首次打开时置 true，之后保持）。 */
-const assetDrawerMounted = ref(false)
-/** 资产接力定位目标（「无参考图」等入口打开抽屉时携带，直达工作台具体资产/视觉状态）。 */
-const assetFocus = ref<{ assetId: string; variantId?: string } | null>(null)
-
-/** 打开资产抽屉（可携带定位目标；payload 每次为新对象，确保重复点击同一目标也能触发 watch）。 */
-function openAssetDrawer(payload?: { assetId: string; variantId?: string }) {
-  assetDrawerMounted.value = true
-  assetDrawerVisible.value = true
-  assetFocus.value = payload ?? null
-}
 
 /** 本章最近一次分镜 run（含 running/failed，右栏「分镜内容」状态条数据源）。 */
 const latestChapterRun = computed(() => {
@@ -579,13 +572,16 @@ const imageModels = computed(() => props.models.filter((model) => model.category
 const panelPromptTemplates = computed(() =>
   props.templates.filter((template) => template.type === 'panel-prompt').sort((a, b) => a.sortOrder - b.sortOrder),
 )
+/** 「整章一次生成」模板（panel-prompt-chapter）：变量与输出协议都与逐镜模板不同。 */
+const chapterPanelPromptTemplates = computed(() =>
+  props.templates.filter((template) => template.type === 'panel-prompt-chapter').sort((a, b) => a.sortOrder - b.sortOrder),
+)
 const storyboardTemplates = computed(() =>
   props.templates.filter((template) => template.type === 'storyboard').sort((a, b) => a.sortOrder - b.sortOrder),
 )
 
-const styleContext = computed(() =>
-  buildStyleContext(project.value?.imageGenConfig?.sharedBlocks ?? [], project.value?.comicConfig?.paintingStyle ?? ''),
-)
+/** 绘图配置的共用属性（前置/后置共用属性的唯一来源）。 */
+const sharedBlocks = computed(() => project.value?.imageGenConfig?.sharedBlocks ?? [])
 const imageModelName = computed(() => imageModels.value.find((model) => model.id === config.imageModelId)?.name)
 
 /** 需要推导的分镜：无描述 / 推导失败 / 已过期。 */
@@ -604,27 +600,21 @@ const genTargets = computed(() =>
   }),
 )
 
-/** 当前分镜参考图分组（按类型，右栏「参考图设置」勾选用）。 */
+/** 当前分镜参考图清单（唯一图号来源，生图 / 分组 / 提示词三处同源）。 */
+function refManifestOf(panel: LongProjectStoryboardPanel) {
+  return buildPanelRefManifest({ panel: toRaw(panel), assets: assets.value.map(toRaw), sharedBlocks: sharedBlocks.value })
+}
+
+/** 当前分镜参考图分组（按类型，右栏「参考图设置」勾选用）。
+ * 顺序严格等于图号顺序：共用属性（style）→ 人物 → 场景 → 道具；每个视觉状态一张（单选口径）。 */
 const currentRefGroups = computed<TypedRefGroup[]>(() => {
   const panel = currentPanel.value
   if (!panel) return []
-  const groups: TypedRefGroup[] = [
-    { type: 'character', images: [] },
-    { type: 'scene', images: [] },
-    { type: 'prop', images: [] },
-    { type: 'style', images: [] },
-  ]
-  for (const { asset, variant } of resolvePanelBindings(panel, assets.value)) {
-    const group = groups.find((item) => item.type === asset.type)
-    group?.images.push(...variant.referenceImageIds)
-  }
-  const styleGroup = groups.find((item) => item.type === 'style')!
-  styleGroup.images.push(
-    ...(project.value?.imageGenConfig?.sharedBlocks ?? [])
-      .filter((block) => block.enableRefImages)
-      .flatMap((block) => block.referenceImages),
-  )
-  return groups
+  return groupManifestByType(refManifestOf(panel)).map((group) => ({
+    type: group.type,
+    images: group.images,
+    numbers: group.entries.map((entry) => entry.index),
+  }))
 })
 
 // ========== 持久化 ==========
@@ -667,6 +657,83 @@ function updateVariantImages(payload: { assetId: string; variantId: string; imag
   })
 }
 
+/**
+ * 设定本镜使用的参考图（**单选**，见 `resolvePanelRefImage`）。
+ * 传空数组表示回到"未选"状态 —— 即取该视觉状态的第一张，不在绑定里留快照，
+ * 这样资产里的图换序或删掉第一张后本镜能自动跟随。
+ *
+ * 视觉状态本身不在这里改：它由分镜文本自动绑定推导（沿用上一镜 → 章节范围默认）。
+ */
+function setBindingImages(payload: { panelId: string; assetId: string; imageIds: string[] }) {
+  const run = currentRun.value
+  if (!run) return
+  const imageIds = payload.imageIds.slice(0, 1)
+  void props.mutateLongProjectData((data) => {
+    data.storyboardRuns = (data.storyboardRuns ?? []).map((item) => item.id === run.id
+      ? {
+          ...item,
+          panels: item.panels.map((panel) => panel.id === payload.panelId
+            ? {
+                ...panel,
+                assetBindings: panel.assetBindings.map((binding) => binding.assetId === payload.assetId
+                  ? { ...binding, selectedImageIds: imageIds.length ? [...imageIds] : undefined }
+                  : binding),
+              }
+            : panel),
+          updatedAt: Date.now(),
+        }
+      : item)
+  })
+}
+
+/**
+ * 手动切换本镜某资产绑定的视觉状态（绑定卡状态 pill）。
+ * 目标镜页级绑定写为 manual 来源（新状态 id/名/参考图；清空单选快照，回落新状态首图），
+ * 格级「出场资产」声明同步更新状态（防后续序列化回写旧状态）；
+ * 其后各镜的 auto-text 绑定以新状态为起点延续重算（model/manual/chapter-range 不动）。
+ */
+function setBindingVariant(payload: { panelId: string; assetId: string; variantId: string }) {
+  const run = currentRun.value
+  if (!run) return
+  const asset = assets.value.find((item) => item.id === payload.assetId)
+  const variant = asset?.variants.find((item) => item.id === payload.variantId)
+  if (!asset || !variant) return
+  const target = run.panels.find((panel) => panel.id === payload.panelId)
+  if (!target) return
+  const anchorPanels = run.panels.map((panel) => {
+    if (panel.id !== payload.panelId) return panel
+    // 页级绑定：该资产改 manual + 新状态（含参考图刷新；selectedImageIds 清空 = 未选，回落新状态首图）
+    const assetBindings: LongProjectStoryboardAssetBinding[] = panel.assetBindings.map((binding) =>
+      binding.assetId === payload.assetId
+        ? {
+            ...binding,
+            visualVersionId: variant.id,
+            visualVersionName: variant.name,
+            matchSource: 'manual',
+            referenceImageIds: [...variant.referenceImageIds],
+            selectedImageIds: undefined,
+          }
+        : binding)
+    // 格级「出场资产」声明同步新状态（无 assetId 的按资产名兜底匹配），防序列化回写旧状态
+    const cells = panel.cells?.map((cell) => {
+      if (!cell.assetBindings?.length) return cell
+      return {
+        ...cell,
+        assetBindings: cell.assetBindings.map((binding) =>
+          binding.assetId === payload.assetId || (!binding.assetId && binding.assetName.trim() === asset.name)
+            ? { ...binding, visualVersionId: variant.id, visualVersionName: variant.name }
+            : binding),
+      }
+    })
+    return { ...panel, assetBindings, cells }
+  })
+  const nextPanels = reapplyVariantContinuation(anchorPanels, payload.assetId, variant.id, target.order, assets.value)
+  void props.mutateLongProjectData((data) => {
+    data.storyboardRuns = (data.storyboardRuns ?? []).map((item) =>
+      item.id === run.id ? { ...item, panels: nextPanels ?? anchorPanels, updatedAt: Date.now() } : item)
+  })
+}
+
 // ========== 分镜生成（剧本主输入 + 原文分析辅助） ==========
 
 const {
@@ -682,12 +749,14 @@ const {
   getCurrentChapter: () => currentChapter.value,
   getScriptContent: () => scriptDoc.value?.content,
   getAnalysisContent: () => analysisDoc.value?.content,
+  getChapterAssets: () => chapterAssetContexts.value,
+  getAssets: () => assets.value,
   getChapterOrders: () => chapterOrders.value,
   notifyFallback: (message) => toast.info(message),
   notifyError: (message) => toast.error(message),
 })
 
-/** 组装分镜生成的最终发送提示词（分镜模板 + 漫画剧本 + 原文分析 + 章节原文），供顶栏阶段操作栏使用。 */
+/** 组装分镜生成的最终发送提示词（分镜模板 + 漫画剧本 + 本章资产 + 原文分析 + 章节原文），供顶栏阶段操作栏使用。 */
 function buildStoryboardRunPrompt(): string {
   const template = storyboardTemplates.value.find((item) => item.id === storyboardTemplateId.value)
   return buildStoryboardPrompt(
@@ -695,6 +764,7 @@ function buildStoryboardRunPrompt(): string {
     storyboardSourceContent.value,
     analysisDoc.value?.content ?? '',
     currentChapter.value?.content ?? '',
+    chapterAssetContexts.value,
   )
 }
 
@@ -714,7 +784,7 @@ const storyboardImportVisible = ref(false)
 
 /** 分镜导入解析预览：返回标题与每镜摘要（解析失败抛错，由弹窗展示红字）。 */
 function parseStoryboardPreview(content: string): { title: string; items: string[] } {
-  const panels = parseStoryboardResponse(content, [], currentChapter.value?.id ?? '', chapterOrders.value)
+  const panels = parseStoryboardResponse(content, assets.value, currentChapter.value?.id ?? '', chapterOrders.value)
   return {
     title: `解析到 ${panels.length} 个分镜`,
     items: panels.map((panel) => `分镜 ${panel.order}：${panel.content.slice(0, 40)}${panel.content.length > 40 ? '…' : ''}`),
@@ -732,6 +802,35 @@ async function confirmStoryboardImport(content: string) {
   } catch (error) {
     toast.error(error instanceof Error ? error.message : '分镜解析失败')
   }
+}
+
+/** 整章画面描述手动导入（外部 AI 代跑「整章一次生成」后回贴）。 */
+const promptImportVisible = ref(false)
+
+/** 导入预览：按【分镜N】标记对位，标出命中的镜号与方式。 */
+function parsePromptImportPreview(content: string): { title: string; items: string[] } {
+  const parsed = parseChapterPanelPrompts(content, panels.value.map((panel) => ({ id: panel.id, order: panel.order })))
+  if (!parsed.entries.length) throw new Error('没有解析出任何分镜描述，请检查内容是否为空。')
+  const head = parsed.mode === 'marked' ? `按【分镜N】对位到 ${parsed.entries.length} 个分镜` : `未找到【分镜N】标记，按顺序对位到 ${parsed.entries.length} 个分镜（请核对序号）`
+  const items = parsed.entries.map((entry) => `分镜 ${entry.order}：${entry.prompt.slice(0, 40)}${entry.prompt.length > 40 ? '…' : ''}`)
+  if (parsed.missingOrders.length) items.push(`未对上（保持原样）：分镜 ${parsed.missingOrders.join('、')}`)
+  return { title: head, items }
+}
+
+/** 确认导入整章画面描述：命中即覆盖描述，未命中的分镜保持原样。 */
+async function confirmPromptImport(content: string) {
+  const parsed = parseChapterPanelPrompts(content, panels.value.map((panel) => ({ id: panel.id, order: panel.order })))
+  if (!parsed.entries.length) {
+    toast.error('没有解析出任何分镜描述')
+    return
+  }
+  for (const entry of parsed.entries) {
+    await upsertArtwork(entry.panelId, { imagePrompt: entry.prompt, promptSource: 'manual', promptStatus: 'done' })
+  }
+  promptImportVisible.value = false
+  toast[parsed.missingOrders.length ? 'warning' : 'success'](
+    `已导入 ${parsed.entries.length} 个分镜的画面描述${parsed.missingOrders.length ? `，${parsed.missingOrders.length} 个未对上` : ''}`,
+  )
 }
 
 // ========== 分镜结构操作（右键合并/拆分/复制/撤销） ==========
@@ -833,19 +932,37 @@ function savePanelEdit(payload: PanelEditPayload) {
   const target = run.panels.find((panel) => panel.id === payload.panelId)
   if (!target) return
   const summary = summarizeCells(payload.cells)
+  // 格级「出场资产」声明重解析：编辑器解析时未关联项目资产，保存时按声明绑定回项目资产与状态
+  const cells = payload.cells.map((cell) => {
+    if (!cell.assetBindings?.length) return cell
+    return { ...cell, assetBindings: bindingsFromValue(serializeBindings(cell.assetBindings), assets.value, chapter.id, chapterOrders.value) }
+  })
+  // 页级绑定基线：格级声明汇总（文本「出场资产」行增删即声明增删）+ manual（绑定卡手选，同资产优先于文本声明）
+  // + auto-text（保留旧项，交给 autoSyncBindings 按文本重算增删与状态延续）
+  const declaredBindings = summarizeCellBindings(cells)
+  const keyOf = (binding: LongProjectStoryboardAssetBinding) => binding.assetId ?? binding.assetName.trim()
+  const manualBindings = (target.assetBindings ?? []).filter((binding) => binding.matchSource === 'manual')
+  const manualKeys = new Set(manualBindings.map(keyOf))
+  const autoTextBindings = cells.length ? (target.assetBindings ?? []).filter((binding) => binding.matchSource === 'auto-text') : []
+  const mergedBindings = [
+    ...manualBindings,
+    ...declaredBindings.filter((binding) => !manualKeys.has(keyOf(binding))),
+    ...autoTextBindings,
+  ]
   const contentChanged = summary.content !== target.content
   const nextPanels = autoSyncBindings(
     run.panels.map((panel) =>
       panel.id === payload.panelId
         ? {
             ...panel,
-            cells: payload.cells.length ? payload.cells : undefined,
+            cells: cells.length ? cells : undefined,
             // 编辑框不含页头，格数标签按实际格数重算（左栏列表直接显示它，不能留过期值）
-            cellLabel: payload.cells.length ? cellCountLabel(payload.cells.length) : undefined,
+            cellLabel: cells.length ? cellCountLabel(cells.length) : undefined,
             shot: summary.shot,
             content: summary.content,
             dialogue: summary.dialogue,
             narration: summary.narration,
+            assetBindings: mergedBindings,
           }
         : panel,
     ),
@@ -874,18 +991,53 @@ watch(
 /** 章节切换（主页面侧栏选章）：重置分镜选中索引。 */
 watch(chapterId, () => {
   currentIndex.value = 0
-  // 章节切换后资产定位目标失效
-  assetFocus.value = null
 })
 
 // ========== 画面描述推导 ==========
 
-/** 模板解析：空模板 id / 未命中走内置默认模板，返回提示词内容（格式约定已写在内容里）。 */
-function resolveTemplate(templateId?: string): { content: string } {
-  const template = templateId ? panelPromptTemplates.value.find((item) => item.id === templateId) : undefined
-  return {
-    content: template?.content ?? DEFAULT_PANEL_PROMPT_TEMPLATE,
+/**
+ * 模板解析：**本环节没有内置默认模板**（画面描述的拼法由用户自己的模板决定），
+ * 空 id / 未命中一律返回 null，由弹窗与调用方提示「去新建模板」。
+ */
+function resolvePanelTemplate(templateId?: string): PromptTemplate | null {
+  if (!templateId) return null
+  return panelPromptTemplates.value.find((item) => item.id === templateId) ?? null
+}
+
+/** 整章一次生成模式的模板解析（panel-prompt-chapter）。 */
+function resolveChapterTemplate(templateId?: string): PromptTemplate | null {
+  if (!templateId) return null
+  return chapterPanelPromptTemplates.value.find((item) => item.id === templateId) ?? null
+}
+
+/**
+ * 一键新建画面描述模板：内容直接填入该类型的**推荐模板**，用户随后可在
+ * 系统设置 → 提示词模板 里改；这样"模板"永远是用户自己的，而不是藏在代码里的内置文案。
+ */
+async function createPanelPromptTemplate(type: TemplateType): Promise<PromptTemplate | null> {
+  const preset = RECOMMENDED_TEMPLATES[type]
+  if (!preset) return null
+  const now = Date.now()
+  const all = await comicDb.getAllPromptTemplates()
+  const maxOrder = all.length ? Math.max(...all.map((item) => item.sortOrder ?? 0)) : 0
+  const template: PromptTemplate = {
+    id: uuidv4(),
+    name: preset.name,
+    type,
+    description: preset.description,
+    content: preset.content,
+    sortOrder: maxOrder + 1,
+    createdAt: now,
+    updatedAt: now,
   }
+  const result = await comicDb.savePromptTemplate(template)
+  if (!result?.success) {
+    toast.error('模板创建失败')
+    return null
+  }
+  emit('templates-changed')
+  toast.success(`已新建模板「${template.name}」，可在系统设置 → 提示词模板 中编辑`)
+  return template
 }
 
 /** 滑动窗口前文：前 K 镜 + 各自已推导描述（批量推导时随进度动态刷新）。 */
@@ -900,43 +1052,89 @@ function prevEntriesOf(index: number): PrevPanelContextEntry[] {
   return entries
 }
 
-/** 拼装单镜最终提示词（只按模板内容拼，运行时不追加任何协议段）。 */
-function buildPromptForPanel(panel: LongProjectStoryboardPanel, index: number, template: { content: string }): string {
+/**
+ * 拼装单镜最终提示词（只按模板内容拼，运行时不追加任何协议段）；无模板返回空串。
+ * 参考图清单用 `assetsOnly` 口径：只给资产图（图号仍是生图真实序号），
+ * 共用属性正文不给模型——它由 `composeFinalPrompt` 在生图时拼到描述前后。
+ */
+function buildPromptForPanel(panel: LongProjectStoryboardPanel, index: number, template: PromptTemplate | null): string {
+  if (!template) return ''
   return buildPanelPromptPrompt({
     templateContent: template.content,
     panel: toRaw(panel),
     chapterOutline: chapterOutline.value,
     prevEntries: prevEntriesOf(index),
     assets: assets.value.map(toRaw),
-    styleContext: styleContext.value,
+    refManifestText: buildRefManifestText(refManifestOf(panel), { assetsOnly: true }),
     targetImageModel: imageModelName.value,
   })
 }
 
-/** 弹窗回调的模板 → 拼装参数（null = 内置默认模板）。 */
-function toPromptTemplateArg(template: PromptTemplate | null): { content: string } {
-  return template ? { content: template.content } : { content: DEFAULT_PANEL_PROMPT_TEMPLATE }
+/** 拼装「整章一次生成」提示词：全章分镜 + 各镜资产设定 + 各镜资产参考图清单；无模板返回空串。 */
+function buildChapterPromptFor(template: PromptTemplate | null): string {
+  if (!template) return ''
+  const chapterPanels = panels.value.map(toRaw)
+  const refManifestTexts = new Map(
+    chapterPanels.map((panel) => [panel.id, buildRefManifestText(refManifestOf(panel), { assetsOnly: true })]),
+  )
+  return buildChapterPanelPromptPrompt({
+    templateContent: template.content,
+    panels: chapterPanels,
+    assets: assets.value.map(toRaw),
+    refManifestTexts,
+    targetImageModel: imageModelName.value,
+  })
 }
 
 /** 批量弹窗预览：按范围取首个目标分镜拼装示例。 */
 function buildBatchPromptPreview(template: PromptTemplate | null, scope?: 'missing' | 'all'): string {
   const firstIndex = scope === 'all' ? 0 : panels.value.findIndex((panel) => needsInfer(panel))
   if (firstIndex < 0) return ''
-  return buildPromptForPanel(panels.value[firstIndex], firstIndex, toPromptTemplateArg(template))
+  return buildPromptForPanel(panels.value[firstIndex], firstIndex, template)
+}
+
+/** 整章一次生成弹窗预览：全章提示词（不截断，完整展示模型将收到的内容）。 */
+function buildChapterPromptPreview(template: PromptTemplate | null): string {
+  if (!panels.value.length) return ''
+  return buildChapterPromptFor(template)
+}
+
+/**
+ * 逐镜批量复制时附加的输出格式要求 —— **只加在复制文本里，不写进模板**：
+ * 内置调用是逐镜的、本就知道是哪一镜，不需要标记；写进模板反而污染内置输出。
+ */
+const COPY_FORMAT_NOTE = `【输出格式要求】
+为每一镜各输出一段画面描述，逐镜之间用【分镜N】单独一行分段；N 必须与上面的分镜序号一致，按序号递增，不遗漏、不新增、不打乱顺序。`
+
+/** 复制到外部 AI 的文本：整章一次 → 与内置调用完全一致；逐镜依次 → 全章逐镜拼接 + 输出格式要求。 */
+function buildCopyText(template: PromptTemplate | null, source: 'per-panel' | 'chapter'): string {
+  if (!template) return ''
+  if (source === 'chapter') return buildChapterPromptFor(template)
+  const parts = panels.value.map((panel, index) => `【分镜${panel.order}】\n${buildPromptForPanel(panel, index, template)}`)
+  return [COPY_FORMAT_NOTE, ...parts].join('\n\n')
 }
 
 /** 单镜弹窗预览：当前分镜的最终提示词（可在弹窗内编辑）。 */
 function buildSinglePromptPreview(template: PromptTemplate | null): string {
   if (!currentPanel.value) return ''
-  return buildPromptForPanel(currentPanel.value, currentIndex.value, toPromptTemplateArg(template))
+  return buildPromptForPanel(currentPanel.value, currentIndex.value, template)
 }
 
-/** 批量推导：按分镜顺序依次执行，每镜一次 LLM 调用，前文滑动窗口自动关联。 */
-async function runBatchPrompts(options: { modelId: string; templateId: string; scope?: 'missing' | 'all' }) {
+/** 批量推导入口：按生成方式分流到「逐镜依次」或「整章一次」。 */
+async function runBatchPrompts(options: { modelId: string; templateId: string; scope?: 'missing' | 'all'; source?: 'per-panel' | 'chapter' }) {
+  if (options.source === 'chapter') return runChapterPrompts(options)
+  generalRunPrompts(options)
+}
+
+/** 逐镜依次：按分镜顺序依次执行，每镜一次 LLM 调用，前文滑动窗口自动关联。 */
+async function generalRunPrompts(options: { modelId: string; templateId: string; scope?: 'missing' | 'all' }) {
   const model = llmModels.value.find((item) => item.id === options.modelId)
-  if (!model) return
+  const template = resolvePanelTemplate(options.templateId)
+  if (!model || !template) {
+    toast.warning('请先选择一个「分镜画面描述」模板')
+    return
+  }
   const scope = options.scope ?? 'missing'
-  const template = resolveTemplate(options.templateId)
   const targets = panels.value
     .map((panel, index) => ({ panel, index }))
     .filter(({ panel }) => scope === 'all' || needsInfer(panel))
@@ -969,6 +1167,58 @@ async function runBatchPrompts(options: { modelId: string; templateId: string; s
   toast[failed ? 'warning' : 'success'](`推导完成：成功 ${targets.length - failed}，失败 ${failed}`)
 }
 
+/**
+ * 整章一次：一次 LLM 调用产出全章各镜描述，按 `【分镜N】` 分段对位写回。
+ *
+ * 与逐镜的差别：调用 1 次（快、便宜、上下文全局一致），但没有滑动窗口的「已生成描述」做
+ * 连续性锚点，且长章可能被截断 / 模型漏段 —— 因此对位失败会逐条提示，未对上的镜保持原状、
+ * 不覆盖已有描述，用户可直接改用逐镜模式只补这几镜。
+ */
+async function runChapterPrompts(options: { modelId: string; templateId: string }) {
+  const model = llmModels.value.find((item) => item.id === options.modelId)
+  const template = resolveChapterTemplate(options.templateId)
+  if (!model || !template) {
+    toast.warning('请先选择一个「分镜画面描述（整章一次生成）」模板')
+    return
+  }
+  const targets = panels.value.map((panel) => ({ panel }))
+  if (!targets.length) {
+    toast.warning('本章暂无分镜')
+    return
+  }
+  promptModalVisible.value = false
+  batchPromptBusy.value = true
+  config.promptModelId = options.modelId
+  saveConfig()
+  targets.forEach(({ panel }) => promptBusyIds.add(panel.id))
+  try {
+    const prompt = buildChapterPromptFor(template)
+    const raw = await inferPanelPrompt({ model: toRaw(model), prompt })
+    const parsed = parseChapterPanelPrompts(raw, panels.value.map((panel) => ({ id: panel.id, order: panel.order })))
+    for (const entry of parsed.entries) {
+      await upsertArtwork(entry.panelId, { imagePrompt: entry.prompt, promptSource: 'inferred', promptStatus: 'done' })
+    }
+    // 未对上的镜按失败标记（保留已有描述不动）
+    for (const order of parsed.missingOrders) {
+      const panel = panels.value.find((item) => item.order === order)
+      if (panel) await upsertArtwork(panel.id, { promptStatus: 'failed' })
+    }
+    const ok = parsed.entries.length
+    if (parsed.mode === 'sequential' && ok) {
+      toast.info('模型未输出【分镜N】标记，已按顺序对位，请逐镜核对')
+    }
+    toast[parsed.missingOrders.length ? 'warning' : 'success'](
+      `整章推导完成：成功 ${ok}，未对上 ${parsed.missingOrders.length}`,
+    )
+  } catch (error) {
+    console.error('[分镜推导] 整章生成失败:', error)
+    toast.error(error instanceof Error ? error.message : '整章推导失败')
+  } finally {
+    targets.forEach(({ panel }) => promptBusyIds.delete(panel.id))
+    batchPromptBusy.value = false
+  }
+}
+
 /** 单镜推导：弹窗确认后执行（prompt 可在弹窗内编辑）。 */
 async function runSinglePrompt(options: { modelId: string; templateId: string; prompt?: string }) {
   const panel = currentPanel.value
@@ -982,7 +1232,7 @@ async function runSinglePrompt(options: { modelId: string; templateId: string; p
   try {
     await upsertArtwork(panel.id, { promptStatus: 'running' })
     const prompt =
-      options.prompt?.trim() || buildPromptForPanel(panel, currentIndex.value, resolveTemplate(options.templateId))
+      options.prompt?.trim() || buildPromptForPanel(panel, currentIndex.value, resolvePanelTemplate(options.templateId))
     const result = await inferPanelPrompt({ model: toRaw(model), prompt })
     await upsertArtwork(panel.id, { imagePrompt: result, promptSource: 'inferred', promptStatus: 'done' })
     toast.success('画面描述已生成')
@@ -1035,23 +1285,24 @@ function syncCurrentPanelBindings(prompt?: string) {
 
 // ========== 生图 ==========
 
-/** 生图参考图：绑定资产视觉状态的参考图 + 共用块启用的参考图，截断至上限。 */
+/**
+ * 生图参考图：直接取参考图清单（唯一图号来源）。
+ * 顺序 = 共用属性图（插入最前）→ 人物 → 场景 → 道具；不做截断，全部发送。
+ */
 function panelRefImages(panel: LongProjectStoryboardPanel): string[] {
-  const assetRefs = resolvePanelBindings(panel, assets.value).flatMap(({ variant }) => variant.referenceImageIds)
-  const sharedRefs = (project.value?.imageGenConfig?.sharedBlocks ?? [])
-    .filter((block) => block.enableRefImages)
-    .flatMap((block) => block.referenceImages)
-  return [...assetRefs, ...sharedRefs].slice(0, MAX_REF_IMAGES)
+  return refManifestOf(panel).images
 }
 
-/** 单镜生图：描述 + 资产参考图 → 候选图暂存区（首次成功自动采纳）。refImages 可覆盖默认参考图。 */
+/** 单镜生图：三层拼接提示词（前置共用属性 + 画面描述 + 后置共用属性）+ 清单参考图。refImages 可覆盖默认参考图。 */
 async function generatePanelImage(panel: LongProjectStoryboardPanel, refImages?: string[]): Promise<boolean> {
   const artwork = artworkMap.value.get(panel.id)
-  const prompt = artwork?.imagePrompt?.trim()
-  if (!prompt) {
+  const description = artwork?.imagePrompt?.trim()
+  if (!description) {
     toast.warning('请先推导或编辑画面描述')
     return false
   }
+  // 共用属性不进 imagePrompt 字段：改画风 / 换共用属性图不必重跑 LLM，下次生图自动生效
+  const prompt = composeFinalPrompt(description, sharedBlocks.value)
   const model = imageModels.value.find((item) => item.id === config.imageModelId)
   if (!model) {
     toast.error('请先在顶部绘图配置中选择生图模型')
@@ -1129,7 +1380,7 @@ async function runSingleGenerate(prompt: string, refConfig: PanelRefConfig) {
     ...(refConfig.useGeneratedImage ? [currentArtwork.value?.selectedImageId ?? currentArtwork.value?.generatedImageIds?.at(-1)].filter(Boolean) as string[] : []),
     ...refConfig.customImages,
   ]
-  await generatePanelImage(panel, refs.slice(0, MAX_REF_IMAGES))
+  await generatePanelImage(panel, refs)
 }
 
 /** 导出发布：按分镜顺序下载本章所有已采纳成图到本地。 */
@@ -1279,7 +1530,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* 撤销条淡入淡出 + 资产抽屉全屏面板自左侧滑入滑出 */
+/* 撤销条淡入淡出 */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.3s ease;
@@ -1287,13 +1538,5 @@ onMounted(() => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
-}
-.slide-left-enter-active,
-.slide-left-leave-active {
-  transition: transform 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-}
-.slide-left-enter-from,
-.slide-left-leave-to {
-  transform: translateX(-100%);
 }
 </style>

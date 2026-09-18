@@ -82,7 +82,7 @@ export interface ParsedCandidateFields {
 export function parseCandidateContent(content: string): ParsedCandidateFields {
   let currentState: LongProjectExtractedState | undefined
   /** 状态字段出现在 ### 视觉状态 标题之前时先缓冲，待标题创建状态后回填 */
-  let pendingStateFields: { description?: string; imagePrompt?: string; tags?: string[] } = {}
+  let pendingStateFields: { description?: string; imagePrompt?: string; tags?: string[]; anchor?: string } = {}
   const result: ParsedCandidateFields = { aliases: [], description: '', evidence: [], attributes: {}, states: [] }
   /**
    * 按名称取视觉状态，不存在时新建。
@@ -101,6 +101,7 @@ export function parseCandidateContent(content: string): ParsedCandidateFields {
     if (pendingStateFields.description && !state.description) state.description = pendingStateFields.description
     if (pendingStateFields.imagePrompt && !state.imagePrompt) state.imagePrompt = pendingStateFields.imagePrompt
     if (pendingStateFields.tags?.length && !state.tags) state.tags = pendingStateFields.tags
+    if (pendingStateFields.anchor && !state.anchor) state.anchor = pendingStateFields.anchor
     pendingStateFields = {}
   }
   for (const rawLine of content.replace(/\r/g, '').split('\n')) {
@@ -127,6 +128,10 @@ export function parseCandidateContent(content: string): ParsedCandidateFields {
       // 字段可能出现在状态标题之前（资产字段位置），缓冲待回填，避免丢失
       if (currentState) currentState.description = value
       else pendingStateFields.description = value
+    } else if (key === '剧情锚点') {
+      // 状态何时/因何切换生效（新管线要求逐状态输出），与视觉描述同样支持块外缓冲
+      if (currentState) currentState.anchor = value
+      else pendingStateFields.anchor = value
     } else if (key === '绘画提示词') {
       // 向后兼容：提取阶段已不再要求输出绘画提示词（改由「资产绘画提示词」环节基于视觉描述生成），
       // 但旧协议结果与手动导入的 Markdown 仍可能带此字段，照旧解析，避免已有数据丢失。
@@ -138,7 +143,7 @@ export function parseCandidateContent(content: string): ParsedCandidateFields {
     } else if (value) result.attributes = { ...result.attributes, [key]: value }
   }
   // 前导字段未被任何标题消费：落到默认状态，避免数据丢失
-  if (pendingStateFields.description || pendingStateFields.imagePrompt || pendingStateFields.tags?.length) {
+  if (pendingStateFields.description || pendingStateFields.imagePrompt || pendingStateFields.tags?.length || pendingStateFields.anchor) {
     applyPendingFields(getOrCreateState('默认状态'))
   }
   return result
@@ -158,6 +163,7 @@ export function serializeCandidateContent(candidate: LongProjectAssetExtractionC
   for (const state of getCandidateStates(candidate)) {
     lines.push('', `### 视觉状态：${state.name.trim()}`)
     if (state.description) lines.push(`- 视觉描述：${state.description}`)
+    if (state.anchor) lines.push(`- 剧情锚点：${state.anchor}`)
     if (state.tags?.length) lines.push(`- 状态标签：${state.tags.join('、')}`)
     if (state.imagePrompt) lines.push(`- 绘画提示词：${state.imagePrompt}`)
   }
@@ -280,14 +286,12 @@ export function parseAssetExtractionResponse(content: string, existingAssets: Lo
   })
 }
 
-/** 资产提取提示词的管线上下文：新管线下汇总原文分析、剧本与分镜概要。 */
+/** 资产提取提示词的管线上下文：新管线下汇总原文分析、剧本与已有资产。 */
 export interface AssetExtractionContext {
   /** 原文分析文档内容（管线第一环节产物） */
   analysis?: string
   /** 漫画剧本文档内容（管线第二环节产物） */
   script?: string
-  /** 分镜概要（每镜一行剧情提要） */
-  panelsOutline?: string
   /** 项目已有资产，用于状态名沿用与归属建议 */
   existingAssets?: LongProjectAsset[]
 }
@@ -319,31 +323,21 @@ export function panelCastNames(panel: LongProjectStoryboardPanel): string[] {
 }
 
 /**
- * 分镜概要（资产提取用）：每镜一行，只给「画面 + 出场人物」。
- * 画面 = 页级画面汇总（多格页含每格画面）；人物 = 各格「人物」去重。
- * 只取这两项——它们回答"谁出现、画面里有什么"；台词/音效/光效/备注属绘制指令，不是资产特征。
- * 无分镜 / 全为空白时返回 undefined（模板没插 {{分镜概要}} 或值为空即不出现）。
- */
-export function buildPanelsOutline(panels: LongProjectStoryboardPanel[]): string | undefined {
-  if (!panels.length) return undefined
-  const text = panels.map((panel) => {
-    const cast = panelCastNames(panel)
-    const head = `分镜${panel.order}：${(panel.content ?? '').trim()}`
-    return cast.length ? `${head}｜人物：${cast.join('、')}` : head
-  }).join('\n').trim()
-  return text || undefined
-}
-
-/**
- * 组装"资产提取"提示词：章节底稿（原文，无原文时剧本兜底）+ 原文分析 + 漫画剧本 + 分镜概要 + 已有资产。
- * 变量：{{章节原文}} / {{原文分析}} / {{漫画剧本}} / {{分镜概要}} / {{已有资产}}；
- * 是否进入提示词完全由模板决定——模板没写的变量不会出现（无自动追加兜底）。
+ * 组装"资产提取"提示词：章节底稿（原文，无原文时剧本兜底）+ 原文分析 + 漫画剧本 + 已有资产。
+ * 变量：{{章节原文}} / {{原文分析}} / {{漫画剧本}} / {{已有资产}}；
+ * 新管线（2026-09-18）资产提取先于分镜生成，不再提供 {{分镜概要}} 变量（模板侧注册同步移除）。
  */
 export function buildAssetExtractionPrompt(templateContent: string, chapterContent: string, context: AssetExtractionContext = {}): string {
   const existingAssets = context.existingAssets ?? []
   const existingAssetsText = existingAssets.length
     ? existingAssets.map((asset) => {
-        const states = asset.variants.map((variant) => variant.name).join('、') || '无'
+        const states = asset.variants.length
+          ? asset.variants.map((variant) => {
+              const oneLiner = variant.anchor || variant.description || ''
+              const brief = oneLiner.length > 30 ? `${oneLiner.slice(0, 30)}…` : oneLiner
+              return brief ? `${variant.name}（${brief}）` : variant.name
+            }).join('、')
+          : '无'
         return `- ${asset.name}（${asset.type === 'character' ? '人物' : asset.type === 'scene' ? '场景' : '道具'}；已有视觉状态：${states}）`
       }).join('\n')
     : undefined
@@ -354,23 +348,24 @@ export function buildAssetExtractionPrompt(templateContent: string, chapterConte
       章节原文: chapterContent,
       原文分析: context.analysis,
       漫画剧本: context.script,
-      分镜概要: context.panelsOutline,
       已有资产: existingAssetsText,
     },
   })
 }
 
 /**
- * 批量统计候选资产在分镜中的出现数（确定性计算，不依赖模型）：
- * 对每个分镜的扫描文本（画面+对白+旁白+提示词+各格出场人物）做长名优先、命中区间消费的名称匹配，
- * 按分镜计数（出现在 N 个分镜中），返回 候选 id → 分镜数。
+ * 批量统计候选资产的出现数（确定性计算，不依赖模型）：
+ * 有分镜时对每个分镜的扫描文本（画面+对白+旁白+提示词+各格出场人物）做长名优先、命中区间消费的名称匹配，
+ * 按分镜计数（出现在 N 个分镜中）；
+ * 新管线资产提取先于分镜，无分镜时对剧本文本逐行做同样扫描（每行命中计 1 次）。
+ * 返回 候选 id → 出现数。
  */
 export function countCandidatesAppearances(
   candidates: Array<Pick<LongProjectAssetExtractionCandidate, 'id' | 'name' | 'aliases'>>,
   panels: LongProjectStoryboardPanel[],
+  scriptText?: string,
 ): Record<string, number> {
   const counts: Record<string, number> = {}
-  if (!panels.length) return counts
   // 名称索引：候选名 + 全部别名（≥2 字），长名优先
   const entries = candidates
     .flatMap((candidate) => [candidate.name, ...(candidate.aliases ?? [])]
@@ -379,9 +374,9 @@ export function countCandidatesAppearances(
       .map((name) => ({ name, candidateId: candidate.id })))
     .sort((a, b) => b.name.length - a.name.length)
   if (!entries.length) return counts
-  for (const panel of panels) {
-    const text = [panel.content, panel.dialogue, panel.narration, panel.imagePrompt, panelCastNames(panel).join(' ')].filter(Boolean).join('\n')
-    if (!text) continue
+  /** 对一段文本做长名优先、命中区间消费的扫描；命中的候选各计 1 次。 */
+  const countInText = (text: string) => {
+    if (!text) return
     const spans: Array<{ start: number; end: number; candidateId: string }> = []
     for (const entry of entries) {
       let searchFrom = 0
@@ -395,6 +390,16 @@ export function countCandidatesAppearances(
       }
     }
     for (const { candidateId } of spans) counts[candidateId] = (counts[candidateId] ?? 0) + 1
+  }
+  if (panels.length) {
+    for (const panel of panels) {
+      countInText([panel.content, panel.dialogue, panel.narration, panel.imagePrompt, panelCastNames(panel).join(' ')].filter(Boolean).join('\n'))
+    }
+    return counts
+  }
+  // 无分镜（新管线常态）：按剧本文本逐行扫描，每行命中计 1 次
+  if (scriptText?.trim()) {
+    for (const line of scriptText.split('\n')) countInText(line.trim())
   }
   return counts
 }
@@ -442,16 +447,13 @@ export async function extractChapterAssets(options: {
   const prompt = options.prompt ?? buildAssetExtractionPrompt(options.template.content, options.chapterContent, {
     analysis: options.analysis,
     script: options.script,
-    panelsOutline: buildPanelsOutline(options.panels ?? []),
     existingAssets: options.existingAssets,
   })
   const result = await llmService.call({ modelConfig: options.model, userMessage: prompt })
   if (!result.success || !result.content) throw new Error(result.error || '模型没有返回内容')
   const candidates = parseAssetExtractionResponse(result.content, options.existingAssets)
-  // 确定性统计每个候选在本章分镜文本中的出现数，供审核页参考重要性
-  if (options.panels?.length) {
-    const counts = countCandidatesAppearances(candidates, options.panels)
-    for (const candidate of candidates) candidate.panelAppearances = counts[candidate.id] ?? 0
-  }
+  // 确定性统计每个候选在本章文本中的出现数（有分镜按分镜、无分镜按剧本行），供审核页参考重要性
+  const counts = countCandidatesAppearances(candidates, options.panels ?? [], options.script)
+  for (const candidate of candidates) candidate.panelAppearances = counts[candidate.id] ?? 0
   return { rawResponse: result.content, candidates }
 }

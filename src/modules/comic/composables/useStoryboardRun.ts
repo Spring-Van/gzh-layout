@@ -1,9 +1,9 @@
 import { ref, type Ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
-import { generateStoryboard, parseStoryboardResponse } from '@comic/services/storyboardService'
+import { generateStoryboard, parseStoryboardResponse, type ChapterAssetContext } from '@comic/services/storyboardService'
 import { migratePanelArtworks } from '@comic/services/panelPromptService'
 import { LONG_CHAPTER_STAGE_ORDER } from '@comic/types'
-import type { ComicProject, LongProjectNode, LongProjectStoryboardRun, ModelConfig, PromptTemplate } from '@comic/types'
+import type { ComicProject, LongProjectAsset, LongProjectNode, LongProjectStoryboardRun, ModelConfig, PromptTemplate } from '@comic/types'
 
 /** 分镜完成后章节阶段只升不降（避免重跑分镜把已到资产/生图阶段的章节打回）。 */
 function advanceStoryboardStage(node: LongProjectNode): LongProjectNode {
@@ -26,6 +26,10 @@ export function useStoryboardRun(options: {
   getScriptContent: () => string | undefined
   /** 获取本章原文分析内容。 */
   getAnalysisContent: () => string | undefined
+  /** 获取本章资产上下文（资产 + 可用状态），注入分镜提示词的 {{本章资产}} 变量。 */
+  getChapterAssets: () => ChapterAssetContext[]
+  /** 获取项目资产库（解析格级/页级「出场资产」声明的绑定回填；手动导入路径使用）。 */
+  getAssets?: () => LongProjectAsset[]
   /** 章节顺序表（章节 ID → 序号）。 */
   getChapterOrders: () => Record<string, number>
   /** 无剧本兜底时的提示回调（通常为 toast.info）。 */
@@ -75,6 +79,8 @@ export function useStoryboardRun(options: {
         scriptContent: scriptContent || chapterContent,
         chapterContent,
         analysis: options.getAnalysisContent(),
+        assets: options.getAssets?.() ?? [],
+        chapterAssets: options.getChapterAssets(),
         chapterId: chapter.id,
         chapterOrders: options.getChapterOrders(),
         prompt: params.prompt,
@@ -117,7 +123,7 @@ export function useStoryboardRun(options: {
     if (!chapter) return
     const now = Date.now()
     const previousPanels = latestCompletedRun(chapter.id)?.panels ?? []
-    const panels = parseStoryboardResponse(content, [], chapter.id, options.getChapterOrders())
+    const panels = parseStoryboardResponse(content, options.getAssets?.() ?? [], chapter.id, options.getChapterOrders())
     const run: LongProjectStoryboardRun = {
       id: uuidv4(), chapterId: chapter.id, sourceContent: chapter.content ?? '',
       modelId: '', templateId: '', prompt: '',

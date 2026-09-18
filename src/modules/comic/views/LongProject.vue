@@ -57,7 +57,7 @@
           <div class="mb-10 text-center">
             <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-lg border border-border-subtle bg-surface text-cyan-400 shadow-card"><Workflow :size="24" /></div>
             <h1 class="text-xl font-semibold text-text-primary">小说转漫画创作流程</h1>
-            <p class="mt-2 text-sm text-text-secondary">原文 → 分析 → 剧本 → 分镜 → 资产 → 生图</p>
+            <p class="mt-2 text-sm text-text-secondary">原文 → 分析 → 剧本 → 资产 → 分镜 → 生图</p>
           </div>
 
           <div class="grid grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr_auto_1fr] items-center">
@@ -193,7 +193,20 @@
           @import-script="openManualImport('script')"
         />
 
-        <!-- 分镜 tab：首次进入时挂载，之后常驻（批量推导/生图切页签不中断；资产抽屉在其内部） -->
+        <!-- 资产 tab：先于分镜确认本章资产（提取/审核/生图工作台），首次进入挂载后常驻（提取任务切页签不中断） -->
+        <LongProjectAssetTab
+          v-if="assetsOpened"
+          v-show="activeTab === 'assets'"
+          :project-id="projectId"
+          :chapter-id="selectedChapterId ?? ''"
+          :project="project"
+          :models="models"
+          :templates="promptTemplates"
+          :focus-target="assetFocusTarget"
+          :mutate-long-project-data="mutateLongProjectData"
+        />
+
+        <!-- 分镜 tab：首次进入时挂载，之后常驻（批量推导/生图切页签不中断） -->
         <LongProjectStoryboardTab
           v-if="storyboardOpened"
           v-show="activeTab === 'storyboard'"
@@ -205,6 +218,8 @@
           :templates="promptTemplates"
           :mutate-long-project-data="mutateLongProjectData"
           @image-config-saved="loadProject"
+          @templates-changed="reloadTemplates"
+          @go-assets="goAssets"
         />
       </section>
     </main>
@@ -270,11 +285,13 @@ import LongProjectAssetLibraryTree, { type AssetLibraryCategory } from "@comic/c
 import LongProjectAssetLibrary from "@comic/components/LongProjectAssetLibrary.vue";
 import LongProjectSourceTab from "@comic/components/LongProjectSourceTab.vue";
 import LongProjectScriptTab from "@comic/components/LongProjectScriptTab.vue";
+import LongProjectAssetTab from "@comic/components/LongProjectAssetTab.vue";
 import LongProjectStoryboardTab from "@comic/components/LongProjectStoryboardTab.vue";
 import { useToast } from "@comic/composables/useToast";
 import { useLongProjectPersistence } from "@comic/composables/useLongProjectPersistence";
 import { useChapterDocRun } from "@comic/composables/useChapterDocRun";
 import { buildAnalysisPrompt, buildScriptPrompt } from "@comic/services/chapterDocService";
+import { stageAfterSourceEdit } from "@comic/utils/chapterStage";
 import type { LongChapterStartMode, LongProjectNode, LongProjectNodeType, ModelConfig, PromptTemplate } from "@comic/types";
 
 const route = useRoute();
@@ -340,11 +357,15 @@ const expandedFolders = ref(new Set<string>());
 const selectedChapterId = ref<string | null>(null);
 const selectedAssetCategory = ref<AssetLibraryCategory | null>(null);
 const draftContent = ref("");
-/** 章节创作阶段页签 key。 */
-type ChapterTabKey = "source" | "script" | "storyboard";
+/** 章节创作阶段页签 key（资产在分镜之前：原文 → 剧本 → 资产 → 分镜）。 */
+type ChapterTabKey = "source" | "script" | "assets" | "storyboard";
 const activeTab = ref<ChapterTabKey>("source");
-/** 分镜 tab 首次进入时才挂载（挂载后常驻，批量任务切页签不中断；资产以抽屉形式内嵌）。 */
+/** 分镜 tab 首次进入时才挂载（挂载后常驻，批量任务切页签不中断）。 */
 const storyboardOpened = ref(false);
+/** 资产 tab 首次进入时才挂载（挂载后常驻，提取/批量生图任务切页签不中断）。 */
+const assetsOpened = ref(false);
+/** 资产接力定位目标（分镜 tab「无参考图」等入口跳转资产 tab 时携带，直达工作台具体资产/视觉状态）。 */
+const assetFocusTarget = ref<{ assetId: string; variantId?: string } | null>(null);
 /**
  * 分镜 tab 内的「内容阶段」：分镜（剧本 → 分镜）| 绘图（分镜 → 画面描述、生图）。
  * 由页签行的「分镜」下拉持有，通过 v-model:stage 注入 LongProjectStoryboardTab；
@@ -397,21 +418,30 @@ const workflowSteps = [
   { title: "分镜", description: "拆解每格画面", icon: ListTree },
   { title: "资产与生图", description: "固定视觉并绘制", icon: FileImage },
 ];
-/** 章节创作阶段页签：「从剧本开始」的章节隐藏原文页签（资产收在分镜页抽屉内）。 */
+/** 章节创作阶段页签：资产先于分镜（新管线：资产提取 → 分镜生成注入本章资产清单）；「从剧本开始」的章节隐藏原文页签。 */
 const chapterTabs = computed(() => {
   const tabs = [
     { key: "source" as const, label: "原文", icon: FileText },
     { key: "script" as const, label: "剧本", icon: ScrollText },
+    { key: "assets" as const, label: "资产", icon: Boxes },
     { key: "storyboard" as const, label: "分镜", icon: Clapperboard },
   ];
   return selectedChapter.value?.startMode === "script" ? tabs.filter((tab) => tab.key !== "source") : tabs;
 });
 
-/** 切换创作阶段页签（分镜页签首次进入时挂载其组件）。 */
+/** 切换创作阶段页签（分镜/资产页签首次进入时挂载其组件）。 */
 const setActiveTab = (key: ChapterTabKey) => {
   activeTab.value = key;
   if (key === "storyboard") storyboardOpened.value = true;
+  if (key === "assets") assetsOpened.value = true;
 };
+
+/** 跳转资产 tab（分镜 tab 引导条 /「无参考图」等入口）：可携带定位目标直达生图工作台。payload 每次为新对象，确保重复点击同一目标也能触发 watch。 */
+function goAssets(payload?: { assetId: string; variantId?: string }) {
+  assetFocusTarget.value = payload ? { ...payload } : null;
+  assetsOpened.value = true;
+  activeTab.value = "assets";
+}
 
 /** 页签样式（选中 = 青色高亮）；分镜页签的按钮半与下拉半共用同一套。 */
 const tabClass = (key: ChapterTabKey) => activeTab.value === key ? "bg-cyan-500/15 text-cyan-400" : "text-text-muted hover:bg-app-bg hover:text-text-secondary";
@@ -558,8 +588,8 @@ const selectChapter = async (chapter: LongProjectNode) => {
   selectedChapterId.value = chapter.id;
   draftContent.value = chapter.content ?? "";
   persistLastSelection({ chapterId: chapter.id, assetCategory: null });
-  // 分镜页签内切换章节时保持页签；其余回到本章首个可用页签（剧本起稿章节无原文页签）
-  if (activeTab.value !== "storyboard") {
+  // 分镜/资产页签内切换章节时保持页签（资产工作台与分镜常驻挂载，切章不中断）；其余回到本章首个可用页签（剧本起稿章节无原文页签）
+  if (activeTab.value !== "storyboard" && activeTab.value !== "assets") {
     activeTab.value = chapter.startMode === "script" ? "script" : "source";
   }
 };
@@ -593,7 +623,7 @@ const handleNodeDialogSubmit = async ({ name, content, startMode }: { name: stri
   };
   if (nodeDialogType.value === "chapter") {
     newNode.content = content;
-    newNode.stage = content ? "source-ready" : "empty";
+    newNode.stage = stageAfterSourceEdit(undefined, Boolean(content.trim()));
     // 「从剧本开始」的章节：记录起笔模式（隐藏原文页签，提取/生成分镜时以剧本为主输入）
     if (startMode === "script") newNode.startMode = "script";
   }
@@ -620,13 +650,13 @@ const confirmDelete = async () => {
   await persistNodes(nodes.value.filter((node) => !ids.has(node.id))); deletingNode.value = null;
 };
 
-/** 自动保存当前章节正文（含 stage 维护）。 */
+/** 自动保存当前章节正文（stage 只升不降，见 utils/chapterStage）。 */
 const saveCurrentChapter = async (notify: boolean) => {
   if (!selectedChapter.value || !isDirty.value || saving.value) return;
   saving.value = true;
   try {
     const content = draftContent.value;
-    await persistNodes(nodes.value.map((node) => node.id === selectedChapterId.value ? { ...node, content, stage: content.trim() ? "source-ready" as const : "empty" as const, updatedAt: Date.now() } : node));
+    await persistNodes(nodes.value.map((node) => node.id === selectedChapterId.value ? { ...node, content, stage: stageAfterSourceEdit(node.stage, Boolean(content.trim())), updatedAt: Date.now() } : node));
     if (notify) toast.success("章节已保存");
   } catch (error) { console.error("保存章节失败", error); toast.error("章节保存失败，请重试"); }
   finally { saving.value = false; }
@@ -655,8 +685,8 @@ function restoreLastSelection() {
     selectedChapterId.value = savedChapterId;
     selectedAssetCategory.value = null;
     draftContent.value = selectedChapter.value?.content ?? "";
-    // 页签落到该章节的首个可用页签（「从剧本开始」的章节没有原文页签）
-    if (activeTab.value !== "storyboard") {
+    // 页签落到该章节的首个可用页签（「从剧本开始」的章节没有原文页签）；资产/分镜页签挂载后保持
+    if (activeTab.value !== "storyboard" && activeTab.value !== "assets") {
       activeTab.value = selectedChapter.value?.startMode === "script" ? "script" : "source";
     }
     return;
@@ -665,6 +695,11 @@ function restoreLastSelection() {
     selectedChapterId.value = null;
     selectedAssetCategory.value = saved.assetCategory;
   }
+}
+
+/** 重载提示词模板列表（子页签直接写库后回调，如分镜页一键新建画面描述模板）。 */
+async function reloadTemplates() {
+  promptTemplates.value = await comicDb.getAllPromptTemplates();
 }
 
 onMounted(async () => {

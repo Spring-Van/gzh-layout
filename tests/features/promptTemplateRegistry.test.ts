@@ -164,9 +164,9 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
     expect(spec).toContain('「字段名」：内容');
   });
 
-  it('分镜格式说明：列出 13 个字段，台词类字段四选一且带说话人', () => {
+  it('分镜格式说明：列出 14 个字段（含出场资产），台词类字段四选一且带说话人', () => {
     const spec = outputFormatSpec('storyboard');
-    expect(spec).toContain('景别 / 镜头 / 画面 / 人物 / 动作 / 表情 / 台词 / 心声 / 画外 / 旁白 / 音效 / 光效 / 备注');
+    expect(spec).toContain('景别 / 镜头 / 画面 / 人物 / 出场资产 / 动作 / 表情 / 台词 / 心声 / 画外 / 旁白 / 音效 / 光效 / 备注');
     expect(spec).toContain('说话人：“台词”');
     expect(spec).toContain('「旁白」不带说话人');
     // 【】不再用于台词包装（旧 v3 协议已废弃）

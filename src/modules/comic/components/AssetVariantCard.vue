@@ -4,6 +4,14 @@
     <div class="flex flex-wrap items-center justify-between gap-2">
       <div class="flex min-w-0 items-center gap-2">
         <span class="truncate text-sm font-medium text-text-primary">{{ variant.name }}</span>
+        <span
+          v-if="usageText"
+          class="shrink-0 rounded border px-1.5 py-0.5 text-[11px]"
+          :class="usageWarn
+            ? 'border-amber-400/40 bg-amber-400/10 text-amber-700 dark:text-amber-300'
+            : 'border-border-subtle text-text-muted'"
+          :title="usageTitle"
+        >{{ usageText }}</span>
       </div>
       <div class="flex shrink-0 items-center gap-1.5">
         <button
@@ -72,11 +80,18 @@
         <div
           v-for="(image, index) in variant.referenceImageIds"
           :key="image"
-          class="group relative h-20 w-20 cursor-pointer overflow-hidden rounded-lg border border-border-subtle bg-elevated"
+          class="group relative h-20 w-20 cursor-pointer overflow-hidden rounded-lg border bg-elevated"
+          :class="imageUsageCount(image) ? 'border-cyan-500/50' : 'border-border-subtle'"
           title="点击预览大图"
           @click="$emit('preview', { images: variant.referenceImageIds, index, source: 'reference' })"
         >
           <img :src="image" class="h-full w-full object-cover" :alt="`${variant.name} 参考图${index + 1}`" />
+          <!-- 在用标记：这张图正被 N 个分镜当参考图取用（口径与分镜页参考图设置一致） -->
+          <span
+            v-if="imageUsageCount(image)"
+            class="absolute bottom-1 left-1 rounded-sm bg-black/70 px-1 text-[10px] leading-4 text-cyan-200"
+            :title="`这张参考图正被 ${imageUsageCount(image)} 个分镜取用`"
+          >{{ imageUsageCount(image) }} 镜</span>
           <button
             class="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-400"
             title="删除"
@@ -183,11 +198,13 @@
  * 资产视觉状态卡片：提示词编辑 + 参考图区（本地上传 / 云端 / 资产库选图，生图参数）+ 生成预览区（AI 结果，瀑布流）。
  * 参考图在上方：上传或从资产库选择后作为参数随提示词一起发给生图模型；
  * 生成预览在下方：模型返回的图片按原始比例瀑布流展示。
+ * 引用展示：状态头显示「被 N 章 · M 镜引用」，参考图角标显示「N 镜」——即哪张图正被哪些分镜取用。
  * 数据回写与持久化由父组件（工作台）统一处理，本组件只发事件。
  */
 import { computed, reactive, ref, watch } from 'vue'
 import { ImagePlus, Images, LoaderCircle, Sparkles, Upload, X } from 'lucide-vue-next'
 import type { LongProjectAssetVariant } from '@comic/types'
+import type { AssetVariantUsage } from '@comic/services/assetUsageService'
 import { processImage, type ImageStorageMode } from '@comic/services/uploadService'
 
 /** 图片所属区域：AI 生成预览 / 用户上传参考图。 */
@@ -199,6 +216,8 @@ interface Props {
   promptBusy?: boolean
   /** 图片是否正在生成 */
   genBusy?: boolean
+  /** 该视觉状态的引用情况（哪些章节引用、多少分镜绑定、每张参考图被多少分镜取用）。 */
+  usage?: AssetVariantUsage
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -240,18 +259,42 @@ const storageOptions: Array<{ value: ImageStorageMode; label: string }> = [
 /** 生成预览区图片（AI 生成结果）。 */
 const generatedImages = computed(() => props.variant.generatedImageIds ?? [])
 
-watch(() => props.variant.imagePrompt, (value) => {
-  if (value !== undefined && value !== model.prompt) {
-    // 外部（AI 生成/重写）回填：取消未触发的本地防抖保存，避免旧输入覆盖新结果
-    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
-    model.prompt = value
-    model.promptDirty = false
-    model.savedAt = true
-    setTimeout(() => { model.savedAt = false }, 1500)
-  }
-})
+// ========== 引用状态（章节级 + 图片级） ==========
 
-let saveTimer: ReturnType<typeof setTimeout> | null = null
+const chapterCount = computed(() => props.usage?.chapterNames.length ?? 0)
+const panelCount = computed(() => props.usage?.panelCount ?? 0)
+/** 状态头引用标签：被 N 章 · M 镜引用；只有章节引用没有分镜绑定时改文案并转琥珀提示。 */
+const usageText = computed(() => {
+  if (!chapterCount.value && !panelCount.value) return ''
+  if (!panelCount.value) return `被 ${chapterCount.value} 章引用 · 暂无分镜绑定`
+  return `被 ${chapterCount.value} 章 · ${panelCount.value} 镜引用`
+})
+const usageTitle = computed(() => {
+  const names = props.usage?.chapterNames ?? []
+  const lines = [names.length ? `引用章节：${names.join('、')}` : '', panelCount.value ? `绑定分镜：${panelCount.value} 个` : '尚未有分镜绑定该视觉状态']
+  return lines.filter(Boolean).join('\n')
+})
+/** 有章节在用、却没有分镜绑定：多半是分镜还没生成/绑定，用琥珀色提醒而不是灰色。 */
+const usageWarn = computed(() => Boolean(props.usage) && chapterCount.value > 0 && panelCount.value === 0)
+
+/** 该参考图被多少个分镜取用（0 = 目前没有任何分镜会取到这张图）。 */
+function imageUsageCount(image: string): number {
+  return props.usage?.imagePanelCount[image] ?? 0
+}
+
+/**
+ * 外部回填（AI 生成 / 重写 / 提取确认写入）时同步本地草稿。
+ * ⚠️ 这里**不能**点亮「已保存」——用户没保存过任何东西，那只是数据被外部改写；
+ * 原来在这里置 `savedAt` 会在确认资产后让整列状态集体闪一下「已保存」，纯噪音。
+ * 另外切换视觉状态 tab 时卡片实例是复用的，若外部值变成空也要跟着清空，否则会残留上一个状态的提示词。
+ */
+watch(() => props.variant.imagePrompt, (value) => {
+  if (value === undefined) return
+  if (value === model.prompt) return
+  model.prompt = value
+  model.promptDirty = false
+  model.savedAt = false
+})
 
 /** 提示词输入：仅更新本地草稿，弹窗「保存」时统一上抛。 */
 function handlePromptInput(event: Event) {
@@ -274,9 +317,8 @@ function closeEditModal() {
   editModalVisible.value = false
 }
 
-/** 保存并关闭弹窗：上抛最新提示词。 */
+/** 保存并关闭弹窗：上抛最新提示词。**只有这里才点亮「已保存」**——这是唯一由用户主动触发的写入。 */
 function saveAndCloseEditModal() {
-  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
   if (model.promptDirty) {
     model.promptDirty = false
     model.savedAt = true

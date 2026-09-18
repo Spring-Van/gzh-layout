@@ -241,10 +241,9 @@
             <template v-if="activeTab === 'blocks'">
               <div class="flex items-center justify-between shrink-0">
                 <p class="text-[11px] text-text-secondary">
-                  共用 {{ sharedImageCount }} 张参考图 · 上限
-                  {{ MAX_REF_IMAGES }}
+                  共用 {{ sharedImageCount }} 张参考图
                   <span class="mx-1.5 text-text-muted">|</span>
-                  左：页面字段前 · 右：页面字段后
+                  左：页面字段前 · 右：页面字段后（不支持参考图）
                 </p>
               </div>
 
@@ -315,7 +314,6 @@
                       @upload="triggerUpload(block.id)"
                       @remove-image="(i) => removeBlockImage(block.id, i)"
                       @preview-image="(i) => previewBlockImage(block.id, i)"
-                      @refresh-desc="refreshBlockDesc(block.id)"
                       @style-template-change="
                         (tid) => handleStyleTemplateChange(block.id, tid)
                       "
@@ -379,7 +377,6 @@
                       @upload="triggerUpload(block.id)"
                       @remove-image="(i) => removeBlockImage(block.id, i)"
                       @preview-image="(i) => previewBlockImage(block.id, i)"
-                      @refresh-desc="refreshBlockDesc(block.id)"
                       @style-template-change="
                         (tid) => handleStyleTemplateChange(block.id, tid)
                       "
@@ -570,13 +567,11 @@ import {
   getBlocksByPosition,
   getSharedRefImages,
   computeBlockImageNumbers,
-  refreshBlockDescriptionWithNumbers,
   reindexBlockSortOrders,
   normalizeImageGenConfig,
 } from "@comic/utils/sharedBlocks";
 
 const toast = useToast();
-const MAX_REF_IMAGES = 14;
 
 const props = defineProps<{
   modelValue: boolean;
@@ -812,19 +807,9 @@ const handleStyleTemplateChange = (blockId: string, templateId: string) => {
 };
 
 /**
- * 按当前图号刷新 description
+ * 触发上传（仅「插入最前」的属性支持参考图）
  * @param blockId - 属性 id
  */
-const refreshBlockDesc = (blockId: string) => {
-  const block = (config.value.sharedBlocks || []).find((b) => b.id === blockId);
-  if (!block) return;
-  const nums = imageNumberMap.value.get(blockId) || [];
-  const desc = refreshBlockDescriptionWithNumbers(block, nums);
-  updateBlock(blockId, { description: desc });
-  toast.success("已按当前图号刷新描述");
-};
-
-/** 触发上传 */
 const triggerUpload = (blockId: string) => {
   if (uploadingBlockId.value) return;
   pendingUploadBlockId.value = blockId;
@@ -847,18 +832,11 @@ const handleFileUpload = async (e: Event) => {
     input.value = "";
     return;
   }
-
-  const currentShared = getSharedRefImages(config.value.sharedBlocks).length;
-  const remaining = MAX_REF_IMAGES - currentShared;
-  if (remaining <= 0) {
-    toast.warning(`参考图总数不能超过${MAX_REF_IMAGES}张`);
+  // 插入最后的属性不参与取图与图号（图号从前往后编，后置图会与画面描述中的图号错位）
+  if (block.insertPosition !== "front") {
+    toast.warning("「插入最后」的属性不支持参考图");
     input.value = "";
     return;
-  }
-
-  const filesToUpload = Array.from(files).slice(0, remaining);
-  if (filesToUpload.length < files.length) {
-    toast.warning(`最多还能上传${remaining}张参考图，已自动截取`);
   }
 
   uploadingBlockId.value = blockId;
@@ -866,7 +844,7 @@ const handleFileUpload = async (e: Event) => {
   const images = [...(block.referenceImages || [])];
 
   const results = await Promise.all(
-    filesToUpload.map(async (file) => {
+    Array.from(files).map(async (file) => {
       const result = await processImage(file, mode);
       return result.success && result.url
         ? { ok: true as const, url: result.url }
@@ -885,17 +863,8 @@ const handleFileUpload = async (e: Event) => {
     }
   }
 
+  // 只写图片数据：图号行由拼装阶段实时生成（见 buildBlockText），不回写 description
   updateBlock(blockId, { referenceImages: images, enableRefImages: true });
-  // 自动刷新该 block 描述中的图号
-  const updated = (config.value.sharedBlocks || []).find(
-    (b) => b.id === blockId,
-  );
-  if (updated) {
-    const nums =
-      computeBlockImageNumbers(config.value.sharedBlocks).get(blockId) || [];
-    const desc = refreshBlockDescriptionWithNumbers(updated, nums);
-    updateBlock(blockId, { description: desc });
-  }
 
   uploadingBlockId.value = null;
   input.value = "";
@@ -921,17 +890,8 @@ const removeBlockImage = async (blockId: string, idx: number) => {
   if (!block) return;
   const images = [...(block.referenceImages || [])];
   images.splice(idx, 1);
+  // 只改图片数据，不动 description
   updateBlock(blockId, { referenceImages: images });
-  const updated = (config.value.sharedBlocks || []).find(
-    (b) => b.id === blockId,
-  );
-  if (updated && images.length > 0) {
-    const nums =
-      computeBlockImageNumbers(config.value.sharedBlocks).get(blockId) || [];
-    updateBlock(blockId, {
-      description: refreshBlockDescriptionWithNumbers(updated, nums),
-    });
-  }
   await autoSaveConfig();
 };
 
@@ -1022,11 +982,6 @@ const save = () => {
     toast.warning("属性名不能为空");
     return;
   }
-  if (getSharedRefImages(list).length > MAX_REF_IMAGES) {
-    toast.warning(`参考图总数不能超过${MAX_REF_IMAGES}张`);
-    return;
-  }
-
   const finalConfig = normalizeImageGenConfig(config.value);
   emit("save", finalConfig);
   close();

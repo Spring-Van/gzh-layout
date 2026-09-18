@@ -220,6 +220,7 @@ const TEMPLATE_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'storyboard', label: '分镜模板' },
   { value: 'asset-prompt', label: '资产绘画提示词模板' },
   { value: 'panel-prompt', label: '分镜画面描述模板' },
+  { value: 'panel-prompt-chapter', label: '分镜画面描述模板（整章一次生成）' },
 ];
 const templateFilterOptions = computed(() => {
   if (activeTab.value !== 'template') return undefined;

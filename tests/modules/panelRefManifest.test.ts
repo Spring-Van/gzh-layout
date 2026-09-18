@@ -1,0 +1,350 @@
+import { describe, expect, it } from 'vitest';
+import {
+  ASSET_REF_ORDER,
+  buildPanelRefManifest,
+  buildRefManifestText,
+  groupManifestByType,
+} from '../../src/modules/comic/services/panelRefManifest';
+import {
+  buildChapterPanelPromptPrompt,
+  buildPanelPromptPrompt,
+  composeFinalPrompt,
+  parseChapterPanelPrompts,
+} from '../../src/modules/comic/services/panelPromptService';
+import { buildBlockText, computeBlockImageNumbers, getSharedRefImages } from '../../src/modules/comic/utils/sharedBlocks';
+import { findUnknownVariables, getTemplateVariables } from '../../src/modules/comic/services/promptTemplateRegistry';
+import type { LongProjectAsset, LongProjectStoryboardAssetBinding, LongProjectStoryboardPanel, SharedPromptBlock } from '../../src/modules/comic/types';
+
+/**
+ * 参考图清单（唯一图号来源）与共用属性拼装的核心口径单测：
+ * 编号顺序、back 组排除、不截断、实时性、三层拼接、整章解析。
+ */
+
+const character = {
+  id: 'a1',
+  name: '萧薰儿',
+  type: 'character',
+  aliases: [],
+  fixedTraits: [],
+  variants: [
+    { id: 'v1', name: '便装', description: '日常便装', referenceImageIds: ['casual-1'] },
+    { id: 'v2', name: '战斗服', description: '战斗装备', referenceImageIds: ['battle-1', 'battle-2'] },
+  ],
+} as unknown as LongProjectAsset;
+
+const scene = {
+  id: 'a2',
+  name: '萧家测试广场',
+  type: 'scene',
+  aliases: [],
+  fixedTraits: [],
+  variants: [{ id: 'v3', name: '白天', description: '广场', referenceImageIds: ['plaza-1'] }],
+} as unknown as LongProjectAsset;
+
+const prop = {
+  id: 'a3',
+  name: '测验魔石碑',
+  type: 'prop',
+  aliases: [],
+  fixedTraits: [],
+  variants: [{ id: 'v4', name: '常态', description: '石碑', referenceImageIds: ['stone-1'] }],
+} as unknown as LongProjectAsset;
+
+const assets = [character, scene, prop];
+
+function binding(assetId: string, variantId: string, selectedImageIds?: string[]): LongProjectStoryboardAssetBinding {
+  return { assetId, assetName: '', matchSource: 'model', visualVersionId: variantId, selectedImageIds } as LongProjectStoryboardAssetBinding;
+}
+
+/** 一页两格：第 1 格便装、第 2 格战斗服（换装页）。 */
+const panel = {
+  id: 'p1',
+  order: 1,
+  content: '萧薰儿走向测验魔石碑',
+  assetBindings: [binding('a1', 'v2'), binding('a2', 'v3'), binding('a3', 'v4')],
+  cells: [
+    { assetBindings: [binding('a1', 'v1'), binding('a2', 'v3')] },
+    { assetBindings: [binding('a1', 'v2'), binding('a3', 'v4')] },
+  ],
+} as unknown as LongProjectStoryboardPanel;
+
+/** 共用属性：两个 front（第二个带 2 张图）+ 一个 back（带 2 张图，应被完全忽略）。 */
+const blocks: SharedPromptBlock[] = [
+  { id: 'b1', name: '前置条件', description: '保持画面干净', enableRefImages: false, referenceImages: [], insertPosition: 'front', sortOrder: 0 },
+  { id: 'b2', name: '绘画风格参考图', description: '综合参考图像的画风', enableRefImages: true, referenceImages: ['style-1', 'style-2'], insertPosition: 'front', sortOrder: 1 },
+  { id: 'b3', name: '后置条件', description: '不要出现水印', enableRefImages: true, referenceImages: ['back-1', 'back-2'], insertPosition: 'back', sortOrder: 0 },
+] as unknown as SharedPromptBlock[];
+
+describe('buildPanelRefManifest — 图号顺序', () => {
+  it('共用属性图（插入最前）→ 人物 → 场景 → 道具', () => {
+    const manifest = buildPanelRefManifest({ panel, assets, sharedBlocks: blocks });
+    expect(manifest.images).toEqual([
+      'style-1', // 图1 front 共用属性
+      'style-2', // 图2
+      'casual-1', // 图3 人物（第1格便装）
+      'battle-1', // 图4 人物（第2格战斗服）
+      'plaza-1', // 图5 场景
+      'stone-1', // 图6 道具
+    ]);
+    expect(manifest.entries.map((entry) => entry.index)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it('不变式：images[i] 就是「图 i+1」', () => {
+    const manifest = buildPanelRefManifest({ panel, assets, sharedBlocks: blocks });
+    manifest.entries.forEach((entry, i) => {
+      expect(entry.index).toBe(i + 1);
+      expect(manifest.images[i]).toBe(entry.image);
+    });
+  });
+
+  it('「插入最后」的块完全不参与取图与编号', () => {
+    const manifest = buildPanelRefManifest({ panel, assets, sharedBlocks: blocks });
+    expect(manifest.images).not.toContain('back-1');
+    expect(manifest.images).not.toContain('back-2');
+    expect(getSharedRefImages(blocks)).toEqual(['style-1', 'style-2']);
+    // back 块的图号恒为空
+    expect(computeBlockImageNumbers(blocks).get('b3')).toEqual([]);
+  });
+
+  it('不做截断：超过 14 张也全部返回', () => {
+    const many = {
+      id: 'b9',
+      name: '多图属性',
+      description: '',
+      enableRefImages: true,
+      referenceImages: Array.from({ length: 20 }, (_, i) => `img-${i + 1}`),
+      insertPosition: 'front',
+      sortOrder: 0,
+    } as unknown as SharedPromptBlock;
+    const manifest = buildPanelRefManifest({ panel, assets, sharedBlocks: [many] });
+    expect(manifest.images).toHaveLength(20 + 4); // 20 张共用属性 + 4 张资产
+    expect(manifest.images).not.toContain('back-1');
+  });
+
+  it('实时性：改资产视觉状态的图顺序后，图号立刻变化（无缓存）', () => {
+    const before = buildPanelRefManifest({ panel, assets, sharedBlocks: blocks });
+    const swapped = [
+      { ...character, variants: [{ ...character.variants[0], referenceImageIds: ['casual-new'] }, character.variants[1]] },
+      scene,
+      prop,
+    ] as unknown as LongProjectAsset[];
+    const after = buildPanelRefManifest({ panel, assets: swapped, sharedBlocks: blocks });
+    expect(before.images[2]).toBe('casual-1');
+    expect(after.images[2]).toBe('casual-new');
+    expect(after.images[0]).toBe('style-1'); // 其他图号不受影响
+  });
+
+  it('分镜手选图优先（单选口径），未选则取该状态第一张', () => {
+    const picked = {
+      ...panel,
+      assetBindings: [binding('a1', 'v2', ['battle-2']), binding('a2', 'v3'), binding('a3', 'v4')],
+    } as unknown as LongProjectStoryboardPanel;
+    const manifest = buildPanelRefManifest({ panel: picked, assets, sharedBlocks: blocks });
+    expect(manifest.images).toContain('battle-2'); // 手选过 → 用它
+    expect(manifest.images).not.toContain('battle-1');
+    // 第1格的便装无页级 binding → 取状态第一张
+    expect(manifest.images).toContain('casual-1');
+  });
+});
+
+describe('buildRefManifestText — 清单文本', () => {
+  it('逐图声明「图N = 谁 / 用于什么」，并标出出现格', () => {
+    const manifest = buildPanelRefManifest({ panel, assets, sharedBlocks: blocks });
+    const text = buildRefManifestText(manifest);
+    expect(text).toContain('图1 = 绘画风格参考图（共用属性');
+    expect(text).toContain('图3 = 萧薰儿 · 便装（人物，第1格；');
+    expect(text).toContain('图4 = 萧薰儿 · 战斗服（人物，第2格；');
+    expect(text).toContain('图5 = 萧家测试广场 · 白天（场景，第1格；');
+  });
+
+  it('无参考图时返回空串', () => {
+    expect(buildRefManifestText({ images: [], entries: [] })).toBe('');
+  });
+});
+
+describe('groupManifestByType — 分组', () => {
+  it('共用属性归入 style 组，其余按资产类型分组且顺序与图号一致', () => {
+    const groups = groupManifestByType(buildPanelRefManifest({ panel, assets, sharedBlocks: blocks }));
+    const byType = Object.fromEntries(groups.map((group) => [group.type, group.images]));
+    expect(byType.style).toEqual(['style-1', 'style-2']);
+    expect(byType.character).toEqual(['casual-1', 'battle-1']);
+    expect(byType.scene).toEqual(['plaza-1']);
+    expect(byType.prop).toEqual(['stone-1']);
+    expect(ASSET_REF_ORDER).toEqual(['character', 'scene', 'prop']);
+  });
+});
+
+describe('composeFinalPrompt — 三层拼接', () => {
+  it('前置共用属性 + 画面描述 + 后置共用属性，且只有前置带图号行', () => {
+    const result = composeFinalPrompt('第1格：她缓缓走向石碑。', blocks);
+    expect(result).toContain('前置条件');
+    expect(result).toContain('图1、图2：绘画风格参考图。');
+    expect(result).toContain('第1格：她缓缓走向石碑。');
+    expect(result).toContain('后置条件');
+    expect(result).toContain('不要出现水印');
+    // 顺序：前置 → 描述 → 后置
+    expect(result.indexOf('前置条件')).toBeLessThan(result.indexOf('第1格：她缓缓走向石碑。'));
+    expect(result.indexOf('第1格：她缓缓走向石碑。')).toBeLessThan(result.indexOf('后置条件'));
+    // 后置块不得出现图号行
+    const backSection = result.slice(result.indexOf('后置条件'));
+    expect(backSection).not.toMatch(/图\d/);
+  });
+
+  it('画面描述保持纯净：函数不改写 imagePrompt，只在其前后拼接', () => {
+    const description = '原始描述，一个字都不该被改。';
+    const result = composeFinalPrompt(description, blocks);
+    expect(result).toContain(description);
+    expect(result.indexOf('前置条件')).toBeLessThan(result.indexOf(description));
+    expect(result.indexOf(description)).toBeLessThan(result.indexOf('后置条件'));
+  });
+});
+
+describe('buildBlockText', () => {
+  it('三段式：属性名 / 图号行 / 描述正文，互不覆盖', () => {
+    const block = blocks[1];
+    expect(buildBlockText(block, [1, 2], 'front')).toBe('绘画风格参考图\n图1、图2：绘画风格参考图。\n综合参考图像的画风');
+  });
+
+  it('back 组不产生图号行', () => {
+    expect(buildBlockText(blocks[2], [], 'back')).toBe('后置条件\n不要出现水印');
+  });
+
+  it('无图无描述时整块跳过', () => {
+    const empty = { id: 'x', name: '', description: '', enableRefImages: false, referenceImages: [], insertPosition: 'front', sortOrder: 0 } as unknown as SharedPromptBlock;
+    expect(buildBlockText(empty, [], 'front')).toBe('');
+  });
+});
+
+describe('parseChapterPanelPrompts — 整章输出对位', () => {
+  const panels = [{ id: 'p1', order: 1 }, { id: 'p2', order: 2 }, { id: 'p3', order: 3 }];
+
+  it('按【分镜N】标记对位（不依赖顺序）', () => {
+    const text = '【分镜2】\n第二镜描述。\n\n【分镜1】\n第一镜描述。\n\n【分镜3】\n第三镜描述。';
+    const parsed = parseChapterPanelPrompts(text, panels);
+    expect(parsed.mode).toBe('marked');
+    expect(parsed.missingOrders).toEqual([]);
+    expect(parsed.entries).toEqual([
+      { panelId: 'p1', order: 1, prompt: '第一镜描述。' },
+      { panelId: 'p2', order: 2, prompt: '第二镜描述。' },
+      { panelId: 'p3', order: 3, prompt: '第三镜描述。' },
+    ]);
+  });
+
+  it('兼容「第N镜」与 Markdown 标题形态', () => {
+    const text = '## 分镜1\n甲。\n\n### 第2镜\n乙。\n\n分镜3：丙。';
+    const parsed = parseChapterPanelPrompts(text, panels);
+    expect(parsed.entries.map((entry) => entry.prompt)).toEqual(['甲。', '乙。', '丙。']);
+  });
+
+  it('漏段时记录 missingOrders，不误配到别的镜', () => {
+    const parsed = parseChapterPanelPrompts('【分镜1】\n甲。\n\n【分镜3】\n丙。', panels);
+    expect(parsed.entries.map((entry) => entry.order)).toEqual([1, 3]);
+    expect(parsed.missingOrders).toEqual([2]);
+  });
+
+  it('完全没有标记时按顺序兜底并标记 mode=sequential', () => {
+    const parsed = parseChapterPanelPrompts('甲。\n\n乙。\n\n丙。', panels);
+    expect(parsed.mode).toBe('sequential');
+    expect(parsed.entries.map((entry) => entry.prompt)).toEqual(['甲。', '乙。', '丙。']);
+    expect(parsed.missingOrders).toEqual([]);
+  });
+
+  it('段落少于分镜数时，多出的镜进 missingOrders', () => {
+    const parsed = parseChapterPanelPrompts('甲。\n\n乙。', panels);
+    expect(parsed.entries.map((entry) => entry.order)).toEqual([1, 2]);
+    expect(parsed.missingOrders).toEqual([3]);
+  });
+});
+
+describe('buildRefManifestText — 只列资产图（推导提示词口径）', () => {
+  it('assetsOnly：不含共用属性条目，但资产图号保持生图真实序号，并说明被占用的号', () => {
+    const manifest = buildPanelRefManifest({ panel, assets, sharedBlocks: blocks });
+    const text = buildRefManifestText(manifest, { assetsOnly: true });
+    expect(text).not.toContain('共用属性，仅用于');
+    expect(text).toContain('图1、图2 为前置共用属性参考图');
+    // 资产图号仍是生图真实序号（共用属性图占了 1、2）
+    expect(text).toContain('图3 = 萧薰儿 · 便装（人物，第1格；');
+    expect(text).toContain('图6 = 测验魔石碑 · 常态（道具，');
+  });
+
+  it('没有共用属性图时不加占用说明', () => {
+    const manifest = buildPanelRefManifest({ panel, assets, sharedBlocks: [] });
+    const text = buildRefManifestText(manifest, { assetsOnly: true });
+    expect(text).not.toContain('前置共用属性参考图');
+    expect(text.startsWith('图1 = 萧薰儿 · 便装')).toBe(true);
+  });
+
+  it('完整口径仍保留共用属性条目（人工核对用）', () => {
+    const manifest = buildPanelRefManifest({ panel, assets, sharedBlocks: blocks });
+    expect(buildRefManifestText(manifest)).toContain('图1 = 绘画风格参考图（共用属性，');
+  });
+});
+
+describe('画面描述推导 — 共用属性不进模型输入', () => {
+  it('逐镜推导只给分镜/资产/图号，前置与后置共用属性都不出现', () => {
+    const template = ['{{当前分镜}}', '{{镜头}}', '{{前文分镜}}', '{{绑定资产}}', '{{参考图清单}}'].join('\n');
+    const result = buildPanelPromptPrompt({
+      templateContent: template,
+      panel,
+      chapterOutline: '分镜1：概要',
+      prevEntries: [],
+      assets,
+      refManifestText: buildRefManifestText(buildPanelRefManifest({ panel, assets, sharedBlocks: blocks }), { assetsOnly: true }),
+      targetImageModel: '即梦',
+    });
+    expect(result).toContain('分镜序号：1');
+    expect(result).toContain('图3 = 萧薰儿 · 便装');
+    // 共用属性正文只在生图时拼接（composeFinalPrompt），不得出现在推导提示词里
+    expect(result).not.toContain('保持画面干净');
+    expect(result).not.toContain('综合参考图像的画风');
+    expect(result).not.toContain('不要出现水印');
+    expect(result).not.toContain('{{');
+  });
+
+  it('变量注册表里已没有共用属性变量', () => {
+    const names = getTemplateVariables('panel-prompt').map((spec) => spec.name);
+    expect(names).not.toContain('前置共用属性');
+    expect(names).not.toContain('后置共用属性');
+    expect(findUnknownVariables('{{前置共用属性}}', 'panel-prompt')).toEqual(['前置共用属性']);
+  });
+});
+
+describe('逐镜与全章模板的变量差异', () => {
+  it('逐镜模板含当前分镜/镜头/前文分镜/绑定资产/参考图清单，不含全章变量', () => {
+    const template = ['{{当前分镜}}', '{{镜头}}', '{{前文分镜}}', '{{绑定资产}}', '{{参考图清单}}'].join('\n');
+    const result = buildPanelPromptPrompt({
+      templateContent: template,
+      panel,
+      chapterOutline: '分镜1：概要',
+      prevEntries: [],
+      assets,
+      refManifestText: buildRefManifestText(buildPanelRefManifest({ panel, assets, sharedBlocks: blocks }), { assetsOnly: true }),
+      targetImageModel: '即梦',
+    });
+    expect(result).toContain('图3 = 萧薰儿 · 便装');
+    expect(result).toContain('分镜序号：1');
+    expect(result).not.toContain('{{');
+  });
+
+  it('全章模板输出全章分镜 + 逐镜资产设定 + 逐镜清单，且去掉逐镜专属变量', () => {
+    const panel2 = { ...panel, id: 'p2', order: 2 } as unknown as LongProjectStoryboardPanel;
+    const template = ['{{全章分镜}}', '{{全章资产设定}}', '{{全章参考图清单}}'].join('\n');
+    const result = buildChapterPanelPromptPrompt({
+      templateContent: template,
+      panels: [panel, panel2],
+      assets,
+      refManifestTexts: new Map([
+        ['p1', buildRefManifestText(buildPanelRefManifest({ panel, assets, sharedBlocks: blocks }), { assetsOnly: true })],
+        ['p2', buildRefManifestText(buildPanelRefManifest({ panel: panel2, assets, sharedBlocks: blocks }), { assetsOnly: true })],
+      ]),
+      targetImageModel: '即梦',
+    });
+    expect(result).toContain('分镜序号：1');
+    expect(result).toContain('分镜序号：2');
+    expect(result).toContain('【分镜2】');
+    // 每镜清单各自成段，共用属性只在生图时拼接
+    expect(result.match(/为前置共用属性参考图/g)?.length).toBe(2);
+    expect(result).not.toContain('综合参考图像的画风');
+    expect(result).not.toContain('{{');
+  });
+});

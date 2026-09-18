@@ -20,41 +20,46 @@
       </select>
     </div>
 
-    <div class="flex items-center justify-between">
-      <label class="text-[11px] text-text-secondary">需要参考图</label>
-      <button class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors" :class="block.enableRefImages ? 'bg-cyan-500' : 'bg-elevated'" @click="update({ enableRefImages: !block.enableRefImages })">
-        <span class="inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform" :class="block.enableRefImages ? 'translate-x-4' : 'translate-x-0.5'" />
-      </button>
-    </div>
-
-    <div v-if="block.enableRefImages" class="space-y-2">
+    <template v-if="supportsRefImages">
       <div class="flex items-center justify-between">
-        <span class="text-[11px] text-text-secondary">参考图</span>
-        <div class="flex items-center rounded-lg bg-surface p-0.5 border border-border-subtle">
-          <button v-for="option in storageOptions" :key="option.value" class="px-2 py-0.5 rounded text-[10px]" :class="(block.storageMode || 'local') === option.value ? 'bg-elevated text-text-primary' : 'text-text-secondary'" @click="update({ storageMode: option.value })">{{ option.label }}</button>
-        </div>
-      </div>
-      <div class="flex flex-wrap gap-2">
-        <div v-for="(url, index) in block.referenceImages || []" :key="`${url}-${index}`" class="relative w-16 h-16 rounded-lg border border-border-subtle overflow-hidden group">
-          <img :src="url" alt="属性参考图" class="w-full h-full object-cover" />
-          <span v-if="imageNumbers[index]" class="absolute bottom-0 inset-x-0 text-center text-[9px] bg-black/70 text-cyan-300 py-0.5">图{{ imageNumbers[index] }}</span>
-          <div class="absolute inset-0 bg-black/50 flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button class="image-button" title="预览" @click="$emit('previewImage', index)"><Eye class="w-3 h-3" /></button>
-            <button class="image-button hover:bg-red-500/50" title="删除" @click="$emit('removeImage', index)"><X class="w-3 h-3" /></button>
-          </div>
-        </div>
-        <button class="w-16 h-16 rounded-lg border border-dashed border-border-default flex flex-col items-center justify-center hover:border-cyan-500/40 hover:bg-cyan-500/5 disabled:opacity-50" :disabled="isUploading" @click="$emit('upload')">
-          <LoaderCircle v-if="isUploading" class="w-4 h-4 animate-spin text-text-secondary" />
-          <template v-else><Plus class="w-4 h-4 text-text-secondary" /><span class="text-[10px] text-text-secondary">上传</span></template>
+        <label class="text-[11px] text-text-secondary">需要参考图</label>
+        <button class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors" :class="block.enableRefImages ? 'bg-cyan-500' : 'bg-elevated'" @click="update({ enableRefImages: !block.enableRefImages })">
+          <span class="inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform" :class="block.enableRefImages ? 'translate-x-4' : 'translate-x-0.5'" />
         </button>
       </div>
-    </div>
+
+      <div v-if="block.enableRefImages" class="space-y-2">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] text-text-secondary">参考图</span>
+          <div class="flex items-center rounded-lg bg-surface p-0.5 border border-border-subtle">
+            <button v-for="option in storageOptions" :key="option.value" class="px-2 py-0.5 rounded text-[10px]" :class="(block.storageMode || 'local') === option.value ? 'bg-elevated text-text-primary' : 'text-text-secondary'" @click="update({ storageMode: option.value })">{{ option.label }}</button>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <div v-for="(url, index) in block.referenceImages || []" :key="`${url}-${index}`" class="relative w-16 h-16 rounded-lg border border-border-subtle overflow-hidden group">
+            <img :src="url" alt="属性参考图" class="w-full h-full object-cover" />
+            <span v-if="imageNumbers[index]" class="absolute bottom-0 inset-x-0 text-center text-[9px] bg-black/70 text-cyan-300 py-0.5">图{{ imageNumbers[index] }}</span>
+            <div class="absolute inset-0 bg-black/50 flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button class="image-button" title="预览" @click="$emit('previewImage', index)"><Eye class="w-3 h-3" /></button>
+              <button class="image-button hover:bg-red-500/50" title="删除" @click="$emit('removeImage', index)"><X class="w-3 h-3" /></button>
+            </div>
+          </div>
+          <button class="w-16 h-16 rounded-lg border border-dashed border-border-default flex flex-col items-center justify-center hover:border-cyan-500/40 hover:bg-cyan-500/5 disabled:opacity-50" :disabled="isUploading" @click="$emit('upload')">
+            <LoaderCircle v-if="isUploading" class="w-4 h-4 animate-spin text-text-secondary" />
+            <template v-else><Plus class="w-4 h-4 text-text-secondary" /><span class="text-[10px] text-text-secondary">上传</span></template>
+          </button>
+        </div>
+      </div>
+    </template>
+
+    <!-- 插入最后的属性不参与取图与图号 -->
+    <p v-else class="rounded-md border border-border-subtle bg-surface px-2 py-1.5 text-[10px] leading-4 text-text-muted">
+      插入最后的属性不支持参考图（图号从前往后编号，后置图会与画面描述中的图号错位）。
+      <template v-if="block.referenceImages?.length">已存的 {{ block.referenceImages.length }} 张图当前不参与生图，改回「插入最前」即恢复。</template>
+    </p>
 
     <div class="space-y-1">
-      <div class="flex items-center justify-between">
-        <label class="text-[11px] text-text-secondary">描述</label>
-        <button v-if="block.enableRefImages && imageNumbers.length" class="text-[10px] text-cyan-400 hover:text-cyan-300" @click="$emit('refreshDesc')">按图号刷新描述</button>
-      </div>
+      <label class="text-[11px] text-text-secondary">描述</label>
       <textarea :value="block.description" class="field-control resize-none" rows="4" placeholder="属性描述（写入 Prompt 的值）" @input="update({ description: inputValue($event) })" />
     </div>
   </div>
@@ -84,10 +89,11 @@ const emit = defineEmits<{
   upload: [];
   removeImage: [index: number];
   previewImage: [index: number];
-  refreshDesc: [];
   styleTemplateChange: [templateId: string];
 }>();
 const storageOptions: Array<{ value: ImageStorageMode; label: string }> = [{ value: 'cloud', label: '云端' }, { value: 'local', label: '本地' }];
+/** 只有「插入最前」的属性支持参考图：图号从前往后编，后置图会与画面描述中的图号错位。 */
+const supportsRefImages = computed(() => props.block.insertPosition === 'front');
 const isStyleTemplate = computed(() => props.block.contentSource === 'style_template');
 const isCustomStyle = ref(false);
 

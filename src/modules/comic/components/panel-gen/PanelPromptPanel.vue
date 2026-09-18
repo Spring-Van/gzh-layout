@@ -2,26 +2,42 @@
   <div class="flex h-full flex-col overflow-hidden">
     <!-- 内容区 -->
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
-      <!-- 提示词输入框：叠加高亮层（textarea 文字透明，背后渲染资产名高亮，点击资产名查看参考图） -->
+      <!-- 提示词输入框：叠加高亮层（textarea 文字透明，背后渲染资产名高亮，悬停资产名出资产卡） -->
       <div class="relative min-h-0 flex-1 rounded-xl border border-border-subtle bg-surface p-4 shadow-sm shadow-black/10">
-        <div ref="highlightLayerEl" class="pointer-events-none absolute inset-4 overflow-hidden whitespace-pre-wrap break-all text-xs leading-relaxed" aria-hidden="true">
-          <template v-for="(segment, index) in highlightSegments" :key="index">
-            <span v-if="segment.text" :class="segment.asset ? highlightClass(segment.asset) : ''" :title="segment.asset ? `${segment.asset.name} · 点击查看资产图` : ''">{{ segment.text }}</span>
+        <div ref="layerEl" class="pointer-events-none absolute inset-4 overflow-hidden whitespace-pre-wrap break-all text-xs leading-relaxed" aria-hidden="true">
+          <template v-for="(segment, index) in segments" :key="index">
+            <span
+              v-if="segment.text"
+              :class="segment.asset ? 'asset-highlight' : ''"
+              :style="segment.asset ? assetHighlightStyle(segment.asset.type) : undefined"
+              :title="segment.asset ? `${segment.asset.name} · 点击查看资产图` : ''"
+              :data-asset-id="segment.asset?.id"
+            >{{ segment.text }}</span>
           </template>
         </div>
         <textarea
           v-model="promptText"
           class="relative h-full w-full resize-none bg-transparent text-xs leading-relaxed text-transparent caret-cyan-400 placeholder:text-text-muted focus:outline-none"
           placeholder="在此输入本分镜的画面描述（生图提示词），可点击底部「AI 推导」由 LLM 生成后再修改..."
-          @scroll="syncHighlightScroll"
-          @click="handlePromptClick"
+          @scroll="syncScroll"
+          @click="handleClick"
+          @mousemove="handleMove"
+          @mouseleave="handleLeave"
         />
       </div>
-      <!-- 检测提示：提示词中识别到的资产 -->
+      <!-- 检测提示：提示词中识别到的资产（悬停即出资产卡看参考图） -->
       <div v-if="detectedAssetChips.length" class="mt-1.5 shrink-0">
         <div class="flex flex-wrap items-center gap-1.5">
           <span class="text-[10px] text-text-muted">识别资产</span>
-          <AssetBindingTag v-for="asset in detectedAssetChips" :key="asset.id" :binding="asset.tagBinding" :assets="assets" @inspect="openAssetPreview" />
+          <span
+            v-for="asset in detectedAssetChips"
+            :key="asset.id"
+            class="inline-flex"
+            @mouseenter="showCardAt(asset.id, $event)"
+            @mouseleave="handleLeave"
+          >
+            <AssetBindingTag :binding="asset.tagBinding" :assets="assets" @inspect="openAssetPreview" />
+          </span>
         </div>
       </div>
 
@@ -56,6 +72,9 @@
                 <span v-if="opt.count > 0" class="text-text-muted">({{ opt.count }})</span>
               </label>
             </div>
+
+            <!-- 图号速览：与生图实际发送顺序一致（共用属性 → 人物 → 场景 → 道具） -->
+            <p v-if="numberSummary" class="text-[10px] leading-4 text-text-muted">{{ numberSummary }}</p>
 
             <!-- 自定义上传参考图 -->
             <div class="flex items-center justify-between gap-2">
@@ -119,6 +138,16 @@
         <div class="flex items-center justify-between gap-2">
           <p class="min-w-0 truncate text-[10px] text-text-muted">分镜 {{ panel.order }} · {{ promptText.length.toLocaleString() }} 字符</p>
           <div class="flex items-center gap-1.5">
+            <!-- 复制完整提示词（含共用属性）：粘到外部 AI 生成后再用「导入描述」回贴 -->
+            <button
+              class="flex items-center gap-1.5 rounded-lg border border-border-subtle px-2.5 py-1.5 text-[11px] text-text-secondary transition-colors hover:border-border-default hover:text-text-primary"
+              title="复制完整提示词（前置共用属性 + 画面描述 + 后置共用属性），可粘贴到外部 AI 生成"
+              @click="copyFinalPrompt"
+            >
+              <Check v-if="copied" :size="13" class="text-emerald-400" />
+              <Copy v-else :size="13" />
+              {{ copied ? '已复制' : '复制' }}
+            </button>
             <!-- AI 推导按钮 -->
             <button
               class="flex items-center gap-1.5 rounded-lg border border-purple-500/30 px-3 py-1.5 text-[11px] text-purple-400 transition-colors hover:bg-purple-500/10 disabled:cursor-not-allowed disabled:opacity-40"
@@ -150,6 +179,18 @@
 
     <!-- 图片预览弹窗 -->
     <ImagePreviewModal v-model="showPreview" :images="previewImages" :image-index="previewIndex" alt="自定义参考图" />
+
+    <!-- 资产悬停卡：输入框内高亮文字 / 底部「识别资产」上悬停即出，纯展示该资产当前视觉状态与参考图 -->
+    <AssetHoverCard
+      v-if="hoveredAsset"
+      :asset="hoveredAsset"
+      :panel="panel"
+      :assets="assets"
+      :card-style="hoverCardStyle"
+      @enter="cancelHoverClose"
+      @leave="handleLeave"
+      @preview="openHoverPreview"
+    />
   </div>
 </template>
 
@@ -160,13 +201,16 @@
  * 提示词防抖自动保存；单独生成携带勾选的参考图配置。
  */
 import { computed, reactive, ref, watch } from 'vue'
-import { ChevronRight, Eye, LoaderCircle, Plus, Sparkles, X } from 'lucide-vue-next'
-import type { LongProjectAsset, LongProjectPanelArtwork, LongProjectStoryboardAssetBinding, LongProjectStoryboardPanel } from '@comic/types'
+import { ChevronRight, Check, Copy, Eye, LoaderCircle, Plus, Sparkles, X } from 'lucide-vue-next'
+import type { LongProjectAsset, LongProjectPanelArtwork, LongProjectStoryboardAssetBinding, LongProjectStoryboardPanel, SharedPromptBlock } from '@comic/types'
 import ImagePreviewModal from '@comic/components/ImagePreviewModal.vue'
 import AssetBindingTag from '@comic/components/AssetBindingTag.vue'
+import AssetHoverCard from '@comic/components/AssetHoverCard.vue'
 import { processImage, uploadImage, type ImageStorageMode } from '@comic/services/uploadService'
-import { buildAssetNameIndex, detectAssetSpans } from '@comic/services/promptAssetService'
+import { composeFinalPrompt } from '@comic/services/panelPromptService'
+import { useAssetHighlight } from '@comic/composables/useAssetHighlight'
 import { useToast } from '@comic/composables/useToast'
+import { assetHighlightStyle } from '@comic/utils/assetTypeTheme'
 
 const toast = useToast()
 
@@ -184,6 +228,8 @@ export interface PanelRefConfig {
 export interface TypedRefGroup {
   type: 'character' | 'scene' | 'prop' | 'style'
   images: string[]
+  /** 每张图对应的全局图号（与生图实际发送顺序一致，来自参考图清单）。 */
+  numbers?: number[]
 }
 
 const props = defineProps<{
@@ -198,6 +244,8 @@ const props = defineProps<{
   generatedImage?: string | null
   /** 项目资产库：用于提示词内资产名识别、高亮与查看资产图。 */
   assets?: LongProjectAsset[]
+  /** 绘图配置的共用属性：用于拼出「最终送生图」的完整提示词（前置 + 描述 + 后置）。 */
+  sharedBlocks?: SharedPromptBlock[]
 }>()
 
 const emit = defineEmits<{
@@ -210,69 +258,40 @@ const promptText = ref(props.artwork?.imagePrompt ?? '')
 const showRefConfig = ref(true)
 
 // ===== 提示词资产识别与高亮 =====
-const highlightLayerEl = ref<HTMLElement | null>(null)
-/** 名称索引：资产名+别名按长度降序（长名优先匹配，仅依赖资产库，本地缓存）。 */
-const assetNameIndex = computed(() => buildAssetNameIndex(props.assets ?? []))
-
-/** 提示词中的资产命中区间（长名优先、区间消费防误报）。 */
-const assetSpans = computed(() => detectAssetSpans(promptText.value, assetNameIndex.value))
-
-/** 高亮分片：普通文本与资产名文本交替（backdrop 层渲染）。 */
-const highlightSegments = computed<Array<{ text: string; asset?: LongProjectAsset }>>(() => {
-  const text = promptText.value
-  const segments: Array<{ text: string; asset?: LongProjectAsset }> = []
-  let cursor = 0
-  for (const span of assetSpans.value) {
-    if (span.start > cursor) segments.push({ text: text.slice(cursor, span.start) })
-    segments.push({ text: text.slice(span.start, span.end), asset: span.asset })
-    cursor = span.end
-  }
-  if (cursor < text.length) segments.push({ text: text.slice(cursor) })
-  return segments
+// 高亮渲染、滚动同步、光标命中与悬停卡状态机都在 useAssetHighlight 里，与「分镜内容」框共用同一套。
+const {
+  layerEl,
+  segments,
+  syncScroll,
+  handleClick,
+  handleMove,
+  handleLeave,
+  hoveredAsset,
+  hoverCardStyle,
+  showCardAt,
+  cancelHoverClose,
+} = useAssetHighlight({
+  text: () => promptText.value,
+  assets: () => props.assets ?? [],
+  onPick: openAssetPreview,
 })
-
-/** 资产类型对应的高亮样式（与 AssetBindingTag 配色一致）。 */
-function highlightClass(asset: LongProjectAsset): string {
-  if (asset.type === 'character') return 'rounded bg-violet-400/20 text-violet-200'
-  if (asset.type === 'scene') return 'rounded bg-sky-400/20 text-sky-200'
-  if (asset.type === 'prop') return 'rounded bg-emerald-400/20 text-emerald-200'
-  return 'rounded bg-app-bg'
-}
 
 /** 底部识别资产 chips：优先用分镜已有绑定快照（含视觉状态），未绑定时临时构造。 */
 const detectedAssetChips = computed<Array<{ id: string; tagBinding: LongProjectStoryboardAssetBinding }>>(() => {
   const seen = new Set<string>()
   const result: Array<{ id: string; tagBinding: LongProjectStoryboardAssetBinding }> = []
-  for (const span of assetSpans.value) {
-    if (seen.has(span.asset.id)) continue
-    seen.add(span.asset.id)
-    const binding = props.panel.assetBindings.find((item) => item.assetId === span.asset.id)
+  for (const segment of segments.value) {
+    const asset = segment.asset
+    if (!asset || seen.has(asset.id)) continue
+    seen.add(asset.id)
+    const binding = props.panel.assetBindings.find((item) => item.assetId === asset.id)
     result.push({
-      id: span.asset.id,
-      tagBinding: binding ?? { assetId: span.asset.id, assetName: span.asset.name, matchSource: 'auto-text' as const },
+      id: asset.id,
+      tagBinding: binding ?? { assetId: asset.id, assetName: asset.name, matchSource: 'auto-text' as const },
     })
   }
   return result
 })
-
-/** 同步 backdrop 高亮层滚动（与 textarea 滚动一致）。 */
-function syncHighlightScroll(event: Event) {
-  if (!highlightLayerEl.value) return
-  const textarea = event.target as HTMLTextAreaElement
-  highlightLayerEl.value.scrollTop = textarea.scrollTop
-  highlightLayerEl.value.scrollLeft = textarea.scrollLeft
-}
-
-/**
- * 点击提示词：若点击位置（光标处）落在资产名高亮区间内，打开该资产的视觉状态参考图。
- * 利用 textarea 原生单击定位行为（selectionStart 即点击字符位置）。
- */
-function handlePromptClick(event: MouseEvent) {
-  const textarea = event.target as HTMLTextAreaElement
-  const pos = textarea.selectionStart
-  const span = assetSpans.value.find((item) => pos >= item.start && pos < item.end)
-  if (span) openAssetPreview(span.asset)
-}
 
 /** 查看资产视觉状态参考图。 */
 function openAssetPreview(asset: LongProjectAsset | null) {
@@ -289,6 +308,13 @@ function openAssetPreview(asset: LongProjectAsset | null) {
   }
   previewImages.value = [...images]
   previewIndex.value = 0
+  showPreview.value = true
+}
+
+/** 悬停卡里点参考图：打开大图预览。 */
+function openHoverPreview(payload: { images: string[]; index: number }) {
+  previewImages.value = [...payload.images]
+  previewIndex.value = payload.index
   showPreview.value = true
 }
 
@@ -328,6 +354,40 @@ watch(promptText, () => {
 
 /** 各类型参考图数量 */
 const groupCount = (type: TypedRefGroup['type']) => props.refGroups.find((group) => group.type === type)?.images.length ?? 0
+
+const GROUP_LABEL: Record<TypedRefGroup['type'], string> = { style: '共用属性', character: '人物', scene: '场景', prop: '道具' }
+
+/** 图号速览：把「图1 = 谁」按类型归并成一行，与生图实际发送顺序完全一致。 */
+const numberSummary = computed(() =>
+  props.refGroups
+    .filter((group) => group.images.length && group.numbers?.length)
+    .map((group) => `${GROUP_LABEL[group.type]} ${(group.numbers ?? []).map((n) => `图${n}`).join('、')}`)
+    .join(' · '),
+)
+
+/** 最终送生图的完整提示词（三层拼接：前置共用属性 + 画面描述 + 后置共用属性），与生图实际发送内容一致。 */
+const finalPrompt = computed(() => composeFinalPrompt(promptText.value.trim(), props.sharedBlocks ?? []))
+
+const copied = ref(false)
+let copiedTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 复制完整提示词到剪贴板（用于在外部 AI 里生成，再粘回导入）。 */
+async function copyFinalPrompt() {
+  const text = finalPrompt.value.trim()
+  if (!text) {
+    toast.warning('提示词为空，请先输入画面描述')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(text)
+    copied.value = true
+    if (copiedTimer) clearTimeout(copiedTimer)
+    copiedTimer = setTimeout(() => { copied.value = false }, 1600)
+    toast.success('已复制完整提示词（含前置/后置共用属性）')
+  } catch {
+    toast.error('复制失败，请手动选择文本复制')
+  }
+}
 
 /** 参考图勾选项配置 */
 const refOptions = computed(() => [

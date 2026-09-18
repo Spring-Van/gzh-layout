@@ -26,10 +26,10 @@
 
     <!-- 信息 tab：提取结果独立成页（主体：审核 / 提取中 / 失败 / 空态） -->
     <div v-if="view === 'info'" class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <!-- 无分镜提示：提取上下文将缺少分镜概要与出现次数统计 -->
-      <div v-if="!panels.length" class="flex shrink-0 items-start gap-2 border-b border-amber-400/25 bg-amber-400/10 px-4 py-2 text-xs text-amber-300">
+      <!-- 无分镜提示（新管线下资产先于分镜提取，属正常路径）：出现次数按剧本文本统计 -->
+      <div v-if="!panels.length" class="flex shrink-0 items-start gap-2 border-b border-cyan-400/25 bg-cyan-400/10 px-4 py-2 text-xs text-cyan-300">
         <Info :size="14" class="mt-0.5 shrink-0" />
-        <p>本章尚未生成分镜：资产提取将基于原文（或剧本兜底）、分析与剧本上下文，不含分镜概要与出场次数统计；生成分镜后可重新提取补全。</p>
+        <p>资产在分镜之前提取（新管线正常顺序）：基于原文（或剧本兜底）、分析与剧本上下文提取；候选出现次数按剧本文本统计，生成资产参考图后进入分镜。</p>
       </div>
 
       <LongProjectAssetExtractionReview
@@ -97,8 +97,11 @@
       :asset-gen-config="assetGenConfig"
       :painting-style="paintingStyle"
       :shared-blocks="sharedBlocks"
+      :orphan-count="orphanCount"
+      :usage="assetUsage"
       @update:asset="updateAssetVariant"
       @update:gen-config="updateAssetGenConfig"
+      @clear-orphans="clearOrphans"
     />
   </div>
 </template>
@@ -112,10 +115,11 @@
  * - 生图工作台：资产视觉状态的提示词/参考图生产，批量操作按钮经 #actions 插槽注入子 tab 行右侧。
  * 工作台进度（提示词/生成图）以小字收纳在「生图工作台」tab 标签上。
  * 提取底稿 = 章节原文（无原文时以漫画剧本兜底，页面顶栏提示）；
- * 提取上下文 = 原文分析 + 漫画剧本 + 分镜概要（本章有已完成分镜时）+ 已有资产；
+ * 提取上下文 = 原文分析 + 漫画剧本 + 已有资产（分镜仅用于候选出现次数统计）；
  * 确认后写回资产与章节引用，并按文本自动回填本章分镜绑定。
- * 确认支持两种应用方式（ExtractionApplyMode）：merge 已有值优先 / override 本次结果优先；
- * override 删除旧视觉状态后会额外修复分镜上指向已删状态的悬空绑定。
+ * 确认只有唯一行为：本次结果为准 —— 同名视觉状态复用原 id（保住已生成的参考图/生成图与分镜绑定），
+ * 本次未出现的旧状态删除；删除后额外修复分镜上指向已删状态的悬空绑定（全项目范围）。
+ * 生图工作台额外显示引用情况（状态级「被 N 章 · M 镜引用」+ 图片级「N 镜」在用标记），数据由 buildAssetUsageIndex 统一算出。
  */
 import { computed, ref } from "vue";
 import { FileText, ClipboardPaste, Images, Info, LoaderCircle, MapPin, Package, Palette, ScanText, UserRound } from "lucide-vue-next";
@@ -124,18 +128,19 @@ import LongProjectChapterAssets from "@comic/components/LongProjectChapterAssets
 import LongProjectAssetWorkbench from "@comic/components/LongProjectAssetWorkbench.vue";
 import { useToast } from "@comic/composables/useToast";
 import { countCandidatesAppearances, sortAssetsByExtractionOrder } from "@comic/services/assetExtractionService";
-import { backfillPanelAutoBindings, buildExtractionConfirmResult, repairDanglingBindings } from "@comic/services/assetExtractionConfirm";
+import { backfillPanelAutoBindings, buildExtractionConfirmResult, findOrphanEntries, pruneOrphanEntries, repairDanglingBindings } from "@comic/services/assetExtractionConfirm";
+import { buildAssetUsageIndex } from "@comic/services/assetUsageService";
 import { LONG_CHAPTER_STAGE_ORDER } from "@comic/types";
 import type {
   AssetGenConfig,
   ComicProject,
-  ExtractionApplyMode,
   LongProjectAsset,
   LongProjectAssetExtractionRun,
   LongProjectAssetVariant,
   LongProjectChapterAsset,
   LongProjectNode,
   LongProjectStoryboardPanel,
+  LongProjectStoryboardRun,
   ModelConfig,
   PromptTemplate,
   SharedPromptBlock,
@@ -157,6 +162,10 @@ const props = defineProps<{
   assets: LongProjectAsset[];
   chapterAssets: LongProjectChapterAsset[];
   assetExtractionRuns: LongProjectAssetExtractionRun[];
+  /** 项目全部章节分镜（引用统计用：哪个视觉状态的哪张图被哪些分镜在用）。 */
+  storyboardRuns?: LongProjectStoryboardRun[];
+  /** 章节 id → 章节名（引用文案展示用）。 */
+  chapterNames?: Record<string, string>;
   assetGenConfig?: AssetGenConfig;
   paintingStyle?: string;
   sharedBlocks?: SharedPromptBlock[];
@@ -220,14 +229,59 @@ const totalVariants = computed(() => workbenchAssets.value.reduce((count, asset)
 const promptProgress = computed(() => `${workbenchAssets.value.reduce((count, asset) => count + asset.variants.filter((v) => v.imagePrompt?.trim()).length, 0)}/${totalVariants.value}`);
 const imageProgress = computed(() => `${workbenchAssets.value.reduce((count, asset) => count + asset.variants.filter((v) => (v.generatedImageIds ?? []).length).length, 0)}/${totalVariants.value}`);
 
+/**
+ * 资产引用索引（variantId → 被哪些章节引用 / 被多少个分镜用 / 每张参考图被多少个分镜取到）。
+ * 生图工作台用它显示「被 N 章 · M 镜引用」与每张图的在用标记，避免用户凭感觉猜哪张图正在被分镜使用。
+ */
+const assetUsage = computed(() => buildAssetUsageIndex({
+  assets: props.assets,
+  chapterAssets: props.chapterAssets,
+  storyboardRuns: props.storyboardRuns ?? [],
+  chapterNameOf: (id) => props.chapterNames?.[id] ?? id,
+}));
+
 // ========== 审核与确认 ==========
 
-/** 本次候选中「并入已有资产 / 新建」的数量，供确认按钮下拉展示影响面。 */
-const applySummary = computed(() => {
-  const candidates = (latestRun.value?.candidates ?? []).filter((candidate) => candidate.decision !== "ignore" && candidate.decision !== "pending");
-  const merged = candidates.filter((candidate) => Boolean(candidate.suggestedAssetId)).length;
-  return { merged, created: candidates.length - merged };
-});
+/** 项目范围孤儿数据：没有任何章节引用（且资产仍在用）的视觉状态、以及无引用的章节范围资产。 */
+const orphanScan = computed(() => findOrphanEntries(props.assets, props.chapterAssets));
+const orphanCount = computed(() => orphanScan.value.variants.length + orphanScan.value.assets.length);
+
+/** 统一计算章节顺序表：分镜绑定的默认视觉状态按章节先后取值。 */
+function chapterOrderMap(data: NonNullable<ComicProject["longProjectData"]>): Record<string, number> {
+  return Object.fromEntries(
+    (data.nodes ?? []).filter((node) => node.type === "chapter")
+      .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt)
+      .map((node, index) => [node.id, index]),
+  );
+}
+
+/** 清理孤儿数据：删除无人引用的视觉状态与章节资产，随后全项目范围修复悬空绑定。 */
+async function clearOrphans() {
+  const scan = orphanScan.value;
+  if (!scan.variants.length && !scan.assets.length) {
+    toast.success("没有需要清理的孤儿数据");
+    return;
+  }
+  const withImages = scan.variants.filter((item) => item.hasImages).length;
+  const lines = [
+    scan.variants.length ? `· 删除 ${scan.variants.length} 个没有任何章节引用的视觉状态${withImages ? `（其中 ${withImages} 个已有参考图/生成图）` : ""}` : "",
+    scan.assets.length ? `· 删除 ${scan.assets.length} 条没有任何章节引用的章节资产` : "",
+  ].filter(Boolean);
+  if (!window.confirm(`即将清理孤儿数据：\n${lines.join("\n")}\n此操作不可撤销，是否继续？`)) return;
+  const removedVariants = scan.variants.length;
+  const removedAssets = scan.assets.length;
+  await props.mutateLongProjectData((data) => {
+    // 以队列内的最新数据重算，避免用弹窗打开前的快照误删
+    const latest = findOrphanEntries(data.assets ?? [], data.chapterAssets ?? []);
+    data.assets = pruneOrphanEntries(data.assets ?? [], latest);
+    const chapterOrders = chapterOrderMap(data);
+    data.storyboardRuns = (data.storyboardRuns ?? []).map((item) => {
+      const repaired = repairDanglingBindings(item.panels, data.assets ?? [], item.chapterId, chapterOrders);
+      return repaired === item.panels ? item : { ...item, panels: repaired, updatedAt: Date.now() };
+    });
+  });
+  toast.success(`已清理 ${removedVariants} 个孤儿状态、${removedAssets} 条孤儿资产`);
+}
 
 /** 持久化更新提取 run 的部分字段。 */
 function updateRun(runId: string, changes: Partial<LongProjectAssetExtractionRun>) {
@@ -236,29 +290,29 @@ function updateRun(runId: string, changes: Partial<LongProjectAssetExtractionRun
   });
 }
 
-/** 审核页编辑候选：名称/别名变化时重算分镜出现次数。 */
+/** 审核页编辑候选：名称/别名变化时重算出现次数（有分镜按分镜、无分镜按剧本行）。 */
 function updateExtractionCandidate(candidate: LongProjectAssetExtractionRun["candidates"][number]) {
   const run = latestRun.value;
   if (!run) return;
   const candidates = run.candidates.map((item) => item.id === candidate.id ? candidate : item);
-  const counts = countCandidatesAppearances(candidates, props.panels);
+  const counts = countCandidatesAppearances(candidates, props.panels, props.scriptContent);
   void updateRun(run.id, {
     candidates: candidates.map((item) => ({ ...item, panelAppearances: counts[item.id] ?? 0 })),
   });
 }
 
 /** 确认提取结果：写回资产/章节引用，回填分镜绑定，推进章节阶段（由页面顶栏触发）。
- * mode：merge = 已有值优先（默认）；override = 本次结果优先（旧视觉状态删除，随后修复悬空绑定）。 */
-async function confirmExtraction(mode: ExtractionApplyMode = "merge") {
+ * 唯一行为：本次结果为准 —— 同名状态复用原 id（保住已生成的图），本次未出现的旧状态删除，随后全项目修复悬空绑定。 */
+async function confirmExtraction() {
   const run = latestRun.value;
   if (!run) return;
   if (run.candidates.some((candidate) => candidate.decision === "merge" && !candidate.suggestedAssetId)) {
-    toast.error("请为所有“合并已有资产”的候选项选择目标资产");
+    toast.error("请为所有标记“沿用已有资产”的候选项指定目标资产");
     return;
   }
   const chapterId = props.chapter.id;
   await props.mutateLongProjectData((data) => {
-    const result = buildExtractionConfirmResult(run, chapterId, data.assets ?? [], data.chapterAssets ?? [], mode);
+    const result = buildExtractionConfirmResult(run, chapterId, data.assets ?? [], data.chapterAssets ?? []);
     data.assets = result.assets;
     data.chapterAssets = result.chapterAssets;
     data.assetExtractionRuns = (data.assetExtractionRuns ?? []).map((item) => item.id === run.id ? { ...item, status: "confirmed" as const, updatedAt: Date.now() } : item);
@@ -270,22 +324,18 @@ async function confirmExtraction(mode: ExtractionApplyMode = "merge") {
         ? { ...node, stage: "assets-ready" as const, updatedAt: Date.now() }
         : { ...node, updatedAt: Date.now() };
     });
-    const chapterOrders = Object.fromEntries(
-      (data.nodes ?? []).filter((node) => node.type === "chapter")
-        .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt)
-        .map((node, index) => [node.id, index]),
-    );
+    const chapterOrders = chapterOrderMap(data);
     data.storyboardRuns = (data.storyboardRuns ?? []).map((item) => {
       // 本章已完成分镜：按文本重算 auto-text 绑定
       const panels = item.chapterId === chapterId && item.status === "completed"
         ? backfillPanelAutoBindings(item.panels, result.assets, chapterId, chapterOrders)
         : item.panels;
       // 覆盖会删除视觉状态，分镜上指向已删状态的绑定会悬空 → 全项目范围兜底修复
-      const repaired = mode === "override" ? repairDanglingBindings(panels, result.assets, item.chapterId, chapterOrders) : panels;
+      const repaired = repairDanglingBindings(panels, result.assets, item.chapterId, chapterOrders);
       return repaired === item.panels ? item : { ...item, panels: repaired, updatedAt: Date.now() };
     });
   });
-  toast.success(mode === "override" ? "已按「覆盖」确认本章资产，分镜绑定已重算" : "已确认本章资产，分镜绑定已自动回填");
+  toast.success("已确认本章资产，分镜绑定已重算");
 }
 
 // ========== 生图工作台回写 ==========
@@ -317,10 +367,8 @@ function updateAssetGenConfig(config: AssetGenConfig) {
 defineExpose({
   /** 信息 tab：是否存在待确认的提取结果（最近一次 run 已完成未确认）。 */
   canConfirmReview: computed(() => latestRun.value?.status === "completed"),
-  /** 信息 tab：本次候选的影响面（并入 N 项 / 新建 M 项）。 */
-  applySummary,
-  /** 信息 tab：确认本章资产（mode 缺省为 merge）。 */
-  confirmReview: (mode?: ExtractionApplyMode) => { void confirmExtraction(mode); },
+  /** 信息 tab：确认本章资产（本次结果为准，唯一行为；调用方 await 后即可认为已写回）。 */
+  confirmReview: () => confirmExtraction(),
   /** 生图工作台 tab：工作台实例（批量操作按钮转发；非工作台 tab 时为 null）。 */
   workbench: computed(() => (props.view === "workbench" ? workbenchRef.value : null)),
 });

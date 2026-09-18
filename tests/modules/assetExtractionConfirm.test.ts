@@ -9,9 +9,11 @@ import type {
 } from '../../src/modules/comic/types';
 import {
   buildExtractionConfirmResult,
-  mergeCandidateIntoAsset,
+  findOrphanEntries,
   overrideAssetWithCandidate,
+  pruneOrphanEntries,
   repairDanglingBindings,
+  selectDroppedVariants,
 } from '../../src/modules/comic/services/assetExtractionConfirm';
 
 const CHAPTER = 'chapter-1';
@@ -84,48 +86,6 @@ function makeRun(candidates: LongProjectAssetExtractionCandidate[]): LongProject
   };
 }
 
-describe('mergeCandidateIntoAsset（已有值优先）', () => {
-  it('资产级字段不被候选覆盖，只补空缺', () => {
-    const merged = mergeCandidateIntoAsset(makeAsset(), makeCandidate(), CHAPTER);
-
-    expect(merged.content).toBe('# 李渔\n已有正文');
-    expect(merged.description).toBe('已有描述');
-    expect(merged.attributes).toEqual({ 职业: '画师', 门派: '旧门派', 身份: '谜团' });
-    // 别名是身份标识，始终求并集
-    expect(merged.aliases).toEqual(['小鱼', '阿渔']);
-  });
-
-  it('已有视觉状态只补空缺字段，不覆盖已有描述与提示词', () => {
-    const candidate = makeCandidate({
-      states: [{ id: 's1', name: '少年期', description: '候选的新描述', imagePrompt: '候选的新提示词', matchSource: 'model', suggestedVariantId: 'variant-a' }],
-    });
-
-    const merged = mergeCandidateIntoAsset(makeAsset(), candidate, CHAPTER);
-    const variant = merged.variants.find((item) => item.id === 'variant-a');
-
-    expect(variant?.description).toBe('已有状态描述');
-    expect(variant?.imagePrompt).toBe('已有的状态提示词');
-    expect(merged.variants).toHaveLength(2);
-  });
-
-  it('已有字段为空时用候选补齐（资产级与状态级都生效）', () => {
-    const asset = makeAsset({
-      content: undefined,
-      description: undefined,
-      variants: [makeVariant({ id: 'variant-a', name: '少年期', description: '' })],
-    });
-    const candidate = makeCandidate({
-      states: [{ id: 's1', name: '少年期', description: '补齐的描述', matchSource: 'model', suggestedVariantId: 'variant-a' }],
-    });
-
-    const merged = mergeCandidateIntoAsset(asset, candidate, CHAPTER);
-
-    expect(merged.content).toBe('# 李渔\n新提取正文');
-    expect(merged.description).toBe('新提取描述');
-    expect(merged.variants.find((item) => item.id === 'variant-a')?.description).toBe('补齐的描述');
-  });
-});
-
 describe('overrideAssetWithCandidate（本次结果优先）', () => {
   it('资产信息被候选重写，本次未出现的视觉状态被删除', () => {
     const candidate = makeCandidate({
@@ -169,8 +129,52 @@ describe('overrideAssetWithCandidate（本次结果优先）', () => {
   });
 });
 
+describe('selectDroppedVariants（审核页提示与影响面统计的共用口径）', () => {
+  it('只有建议 id 命中的状态保留，其余旧状态算将被删除', () => {
+    const candidate = makeCandidate({
+      states: [{ id: 's1', name: '少年期', matchSource: 'model', suggestedVariantId: 'variant-a' }],
+    });
+
+    expect(selectDroppedVariants(makeAsset(), candidate).map((item) => item.id)).toEqual(['variant-b']);
+  });
+
+  it('没有建议 id 但状态同名时同样算保留（与 override 的兜底一致）', () => {
+    const candidate = makeCandidate({ states: [{ id: 's1', name: '成年期', matchSource: 'new' }] });
+
+    expect(selectDroppedVariants(makeAsset(), candidate).map((item) => item.id)).toEqual(['variant-a']);
+  });
+
+  it('旧状态全被接住时返回空数组', () => {
+    const candidate = makeCandidate({
+      states: [
+        { id: 's1', name: '少年期', matchSource: 'model', suggestedVariantId: 'variant-a' },
+        { id: 's2', name: '成年期', matchSource: 'model', suggestedVariantId: 'variant-b' },
+      ],
+    });
+
+    expect(selectDroppedVariants(makeAsset(), candidate)).toEqual([]);
+  });
+
+  it('口径与实际覆盖结果一致：提示会删几个，就真有几个旧状态没被保留', () => {
+    const candidate = makeCandidate({
+      states: [
+        { id: 's1', name: '少年期', matchSource: 'model', suggestedVariantId: 'variant-a' },
+        { id: 's2', name: '结局期', matchSource: 'new' },
+      ],
+    });
+    const asset = makeAsset();
+
+    const dropped = selectDroppedVariants(asset, candidate);
+    const overridden = overrideAssetWithCandidate(asset, candidate, CHAPTER);
+    const keptOld = overridden.variants.filter((item) => asset.variants.some((old) => old.id === item.id));
+
+    expect(keptOld).toHaveLength(asset.variants.length - dropped.length);
+    expect(keptOld.map((item) => item.id)).toEqual(['variant-a']);
+  });
+});
+
 describe('buildExtractionConfirmResult', () => {
-  it('merge 模式：旧状态保留，本次新增状态追加', () => {
+  it('旧状态删除，本章引用重建（唯一行为，无模式选择）', () => {
     const candidate = makeCandidate({
       states: [
         { id: 's1', name: '少年期', description: 'x', matchSource: 'model', suggestedVariantId: 'variant-a' },
@@ -178,18 +182,6 @@ describe('buildExtractionConfirmResult', () => {
       ],
     });
     const result = buildExtractionConfirmResult(makeRun([candidate]), CHAPTER, [makeAsset()], []);
-
-    expect(result.assets[0].variants.map((item) => item.name)).toEqual(['少年期', '成年期', '结局期']);
-  });
-
-  it('override 模式：旧状态删除，本章引用重建', () => {
-    const candidate = makeCandidate({
-      states: [
-        { id: 's1', name: '少年期', description: 'x', matchSource: 'model', suggestedVariantId: 'variant-a' },
-        { id: 's2', name: '结局期', description: 'y', matchSource: 'new' },
-      ],
-    });
-    const result = buildExtractionConfirmResult(makeRun([candidate]), CHAPTER, [makeAsset()], [], 'override');
 
     const names = result.assets[0].variants.map((item) => item.name);
     expect(names).toEqual(['少年期', '结局期']);
@@ -246,6 +238,65 @@ describe('buildExtractionConfirmResult', () => {
   });
 });
 
+describe('buildExtractionConfirmResult · 状态去重（回归：确认后状态不被覆盖反而新增）', () => {
+  it('两个候选状态命中同一条已有状态时只保留一条，不产生重复视觉状态', () => {
+    const candidate = makeCandidate({
+      states: [
+        { id: 's1', name: '少年期', matchSource: 'model', suggestedVariantId: 'variant-a' },
+        // 模糊匹配的第 ④ 档：包含匹配会把「少年」也指到「少年期」上
+        { id: 's2', name: '少年', matchSource: 'model', suggestedVariantId: 'variant-a' },
+      ],
+    });
+    const result = buildExtractionConfirmResult(makeRun([candidate]), CHAPTER, [makeAsset()], []);
+
+    expect(result.assets[0].variants.map((item) => item.id)).toEqual(['variant-a']);
+    // 保序：先出现的状态名胜出，不会把已有状态改名成后一条的名字
+    expect(result.assets[0].variants[0].name).toBe('少年期');
+    expect(result.chapterAssets.map((entry) => entry.variantId)).toEqual(['variant-a']);
+  });
+
+  it('两个都没有命中、但同名的状态只新建一条', () => {
+    const candidate = makeCandidate({
+      states: [
+        { id: 's1', name: '常服', matchSource: 'new' },
+        { id: 's2', name: '常服', matchSource: 'new' },
+      ],
+    });
+    const result = buildExtractionConfirmResult(makeRun([candidate]), CHAPTER, [makeAsset()], []);
+
+    expect(result.assets[0].variants.map((item) => item.name).filter((name) => name === '常服')).toHaveLength(1);
+    expect(new Set(result.assets[0].variants.map((item) => item.id)).size).toBe(result.assets[0].variants.length);
+  });
+
+  it('同一次提取里重复的同名候选合并到同一条资产，不造第二条资产', () => {
+    const first = makeCandidate({ id: 'c1', decision: 'create', suggestedAssetId: undefined, states: [{ id: 's1', name: '常服', matchSource: 'new' }] });
+    const second = makeCandidate({ id: 'c2', decision: 'create', suggestedAssetId: undefined, states: [{ id: 's2', name: '受伤', matchSource: 'new' }] });
+    const result = buildExtractionConfirmResult(makeRun([first, second]), CHAPTER, [], []);
+
+    expect(result.assets).toHaveLength(1);
+    // 两个候选的状态合并重建，互不冲掉
+    expect(result.assets[0].variants.map((item) => item.name)).toEqual(['常服', '受伤']);
+  });
+
+  it('同资产多候选合并重建，状态不互相覆盖丢失', () => {
+    const first = makeCandidate({ id: 'c1', states: [{ id: 's1', name: '少年期', matchSource: 'model', suggestedVariantId: 'variant-a' }] });
+    const second = makeCandidate({ id: 'c2', states: [{ id: 's2', name: '成年期', matchSource: 'model', suggestedVariantId: 'variant-b' }] });
+    const result = buildExtractionConfirmResult(makeRun([first, second]), CHAPTER, [makeAsset()], []);
+
+    expect(result.assets[0].variants.map((item) => item.id)).toEqual(['variant-a', 'variant-b']);
+    expect(result.chapterAssets.map((entry) => entry.variantId)).toEqual(['variant-a', 'variant-b']);
+  });
+
+  it('状态名只有空格/大小写差异时同样视为同一条（不新增重复）', () => {
+    const candidate = makeCandidate({ states: [{ id: 's1', name: ' 少年 期 ', matchSource: 'new' }] });
+    const result = buildExtractionConfirmResult(makeRun([candidate]), CHAPTER, [makeAsset()], []);
+
+    expect(result.assets[0].variants.map((item) => item.id)).toEqual(['variant-a']);
+    // 复用已有状态时用本次状态名回写（保留用户的命名意图）
+    expect(result.assets[0].variants[0].name).toBe('少年 期');
+  });
+});
+
 describe('repairDanglingBindings（覆盖后的悬空绑定兜底）', () => {
   function makePanel(bindings: LongProjectStoryboardPanel['assetBindings']): LongProjectStoryboardPanel {
     return { id: 'panel-1', order: 1, content: '画面', assetBindings: bindings };
@@ -297,5 +348,80 @@ describe('repairDanglingBindings（覆盖后的悬空绑定兜底）', () => {
     const result = repairDanglingBindings(panels, [asset], CHAPTER, { [CHAPTER]: 0 });
 
     expect(result[0]).toBe(panels[0]);
+  });
+});
+
+describe('findOrphanEntries（孤儿数据扫描）', () => {
+  function entry(partial: Partial<LongProjectChapterAsset> & { assetId: string }): LongProjectChapterAsset {
+    return { id: `entry-${partial.assetId}-${partial.variantId ?? 'whole'}`, chapterId: CHAPTER, appearance: 'reused', evidence: [], createdAt: 1, updatedAt: 1, ...partial };
+  }
+
+  it('被引用的视觉状态不算孤儿，没有被引用的才算', () => {
+    const scan = findOrphanEntries([makeAsset()], [entry({ assetId: 'asset-1', variantId: 'variant-a' })]);
+
+    expect(scan.variants.map((item) => item.variantId)).toEqual(['variant-b']);
+    expect(scan.variants[0]).toMatchObject({ assetId: 'asset-1', assetName: '李渔', variantName: '成年期' });
+    expect(scan.assets).toEqual([]);
+  });
+
+  it('被其他章节引用的状态同样不算孤儿', () => {
+    const scan = findOrphanEntries(
+      [makeAsset()],
+      [entry({ assetId: 'asset-1', variantId: 'variant-a' }), entry({ assetId: 'asset-1', variantId: 'variant-b', chapterId: 'chapter-2' })],
+    );
+
+    expect(scan.variants).toEqual([]);
+  });
+
+  it('存在「整资产引用」时该资产的全部状态豁免（旧数据语义为引用全部状态）', () => {
+    const scan = findOrphanEntries([makeAsset()], [entry({ assetId: 'asset-1' })]);
+
+    expect(scan.variants).toEqual([]);
+    expect(scan.assets).toEqual([]);
+  });
+
+  it('没有任何章节引用的 chapter 资产整条算孤儿，project 资产受保护', () => {
+    const scan = findOrphanEntries(
+      [makeAsset({ id: 'asset-orphan', name: '孤儿角色' }), makeAsset({ id: 'asset-project', name: '项目素材', scope: 'project' })],
+      [],
+    );
+
+    expect(scan.assets).toEqual([{ assetId: 'asset-orphan', assetName: '孤儿角色', variantCount: 2 }]);
+    expect(scan.variants).toEqual([]);
+  });
+
+  it('标记孤儿状态是否已有参考图/生成图，供清理前提示', () => {
+    const asset = makeAsset({
+      variants: [
+        makeVariant({ id: 'variant-a', name: '少年期' }),
+        makeVariant({ id: 'variant-b', name: '成年期', generatedImageIds: ['img-1'] }),
+      ],
+    });
+    const scan = findOrphanEntries([asset], [entry({ assetId: 'asset-1', variantId: 'variant-a' })]);
+
+    expect(scan.variants.map((item) => item.variantId)).toEqual(['variant-b']);
+    expect(scan.variants[0].hasImages).toBe(true);
+  });
+});
+
+describe('pruneOrphanEntries（按扫描结果剔除）', () => {
+  function entry(partial: Partial<LongProjectChapterAsset> & { assetId: string }): LongProjectChapterAsset {
+    return { id: `entry-${partial.assetId}-${partial.variantId ?? 'whole'}`, chapterId: CHAPTER, appearance: 'reused', evidence: [], createdAt: 1, updatedAt: 1, ...partial };
+  }
+
+  it('删除孤儿状态与孤儿资产，其余保持不变', () => {
+    const assets = [makeAsset(), makeAsset({ id: 'asset-orphan', name: '孤儿角色', scope: 'chapter' })];
+    const scan = findOrphanEntries(assets, [entry({ assetId: 'asset-1', variantId: 'variant-a' })]);
+    const pruned = pruneOrphanEntries(assets, scan);
+
+    expect(pruned.map((item) => item.id)).toEqual(['asset-1']);
+    expect(pruned[0].variants.map((item) => item.id)).toEqual(['variant-a']);
+  });
+
+  it('没有孤儿数据时返回原引用，避免无谓持久化', () => {
+    const assets = [makeAsset()];
+    const pruned = pruneOrphanEntries(assets, { variants: [], assets: [] });
+
+    expect(pruned).toBe(assets);
   });
 });

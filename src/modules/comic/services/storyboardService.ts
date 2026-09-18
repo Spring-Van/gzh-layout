@@ -1,15 +1,49 @@
 import { v4 as uuidv4 } from 'uuid'
-import type { LongProjectAsset, LongProjectStoryboardAssetBinding, LongProjectStoryboardCell, LongProjectStoryboardPanel, ModelConfig, PromptTemplate } from '@comic/types'
+import type { LongProjectAsset, LongProjectAssetVariant, LongProjectStoryboardAssetBinding, LongProjectStoryboardCell, LongProjectStoryboardPanel, ModelConfig, PromptTemplate } from '@comic/types'
 import { llmService } from './llmService'
 import { defaultTemplateContent, outputFormatSpec, renderPromptTemplate } from './promptTemplateRegistry'
 
 /**
- * 组装"分镜生成"提示词：漫画剧本（主输入）+ 原文分析 / 章节原文（辅助核对）。
- * 变量：{{漫画剧本}} / {{原文分析}} / {{章节原文}}；无剧本时调用方已用章节原文兜底填入剧本槽位。
- * 未选/未配模板时用内置默认模板（与推荐模板同源，自带全部变量）。
- * 新管线下分镜不再依赖资产库绑定；资产绑定在资产提取确认后按文本自动回填。
+ * 本章资产上下文（分镜生成的注入单位）：资产 + 本章可用的视觉状态列表。
+ * 由调用方从章节资产引用（chapterAssets entries）按资产归组得出；
+ * 无具体状态引用时传资产全部状态（首提章节常态）。
  */
-export function buildStoryboardPrompt(templateContent: string, scriptContent: string, analysis?: string, chapterContent?: string): string {
+export interface ChapterAssetContext {
+  asset: LongProjectAsset
+  variants: LongProjectAssetVariant[]
+}
+
+/**
+ * 本章资产清单 → 提示词文本：每行 `- 资产名（人物/场景/道具）：状态A（锚点一句话）｜状态B（…）`。
+ * 状态一句话 = 剧情锚点优先，否则视觉描述截断（约 30 字）；无状态时标「无视觉状态」。
+ * 供分镜模型逐格声明「出场资产」时对号入座（资产名 + 状态名必须与这里一字不差）。
+ */
+export function renderChapterAssetsText(chapterAssets: ChapterAssetContext[]): string | undefined {
+  if (!chapterAssets.length) return undefined
+  const briefOf = (variant: LongProjectAssetVariant): string => {
+    const oneLiner = variant.anchor || variant.description || ''
+    return oneLiner.length > 30 ? `${oneLiner.slice(0, 30)}…` : oneLiner
+  }
+  return chapterAssets.map(({ asset, variants }) => {
+    const typeLabel = asset.type === 'character' ? '人物' : asset.type === 'scene' ? '场景' : '道具'
+    const stateText = variants.length
+      ? variants.map((variant) => {
+          const brief = briefOf(variant)
+          return brief ? `${variant.name}（${brief}）` : variant.name
+        }).join('｜')
+      : '无视觉状态'
+    return `- ${asset.name}（${typeLabel}）：${stateText}`
+  }).join('\n')
+}
+
+/**
+ * 组装"分镜生成"提示词：漫画剧本（主输入）+ 本章资产（视觉状态绑定依据）+ 原文分析 / 章节原文（辅助核对）。
+ * 变量：{{漫画剧本}} / {{本章资产}} / {{原文分析}} / {{章节原文}}；无剧本时调用方已用章节原文兜底填入剧本槽位。
+ * 新管线（2026-09-18）资产提取先于分镜：本章资产清单注入提示词，模型逐格声明「出场资产」实现状态级绑定；
+ * 存量模板没写 {{本章资产}} 时自动退化（不注入，绑定回退 auto-text 通道）。
+ * 未选/未配模板时用内置默认模板（与推荐模板同源，自带全部变量）。
+ */
+export function buildStoryboardPrompt(templateContent: string, scriptContent: string, analysis?: string, chapterContent?: string, chapterAssets?: ChapterAssetContext[]): string {
   const script = (scriptContent ?? '').trim()
   const chapter = (chapterContent ?? '').trim()
   return renderPromptTemplate({
@@ -20,6 +54,7 @@ export function buildStoryboardPrompt(templateContent: string, scriptContent: st
       原文分析: analysis,
       // 剧本缺失时调用方以章节原文兜底填入「漫画剧本」，同一份原文不再重复渲染一遍
       章节原文: script && chapter !== script ? chapterContent : '',
+      本章资产: renderChapterAssetsText(chapterAssets ?? []),
     },
   })
 }
@@ -36,15 +71,65 @@ export function defaultVariant(asset: LongProjectAsset | undefined, chapterId: s
     ?? asset.variants[0]
 }
 
-function bindingsFromValue(value: string, assets: LongProjectAsset[], chapterId: string, chapterOrders: Record<string, number>): LongProjectStoryboardAssetBinding[] {
+/**
+ * 「出场资产」字段值（`资产名（状态名）、…`）→ 绑定数组：解析 / 编辑保存共用。
+ * 状态三级匹配（精确 → 双向包含模糊 → 章节范围默认）；资产未命中时 assetId 为空、matchSource 'unmatched'。
+ */
+export function bindingsFromValue(value: string, assets: LongProjectAsset[], chapterId: string, chapterOrders: Record<string, number>): LongProjectStoryboardAssetBinding[] {
   return value.split(/[、,，]/).map((part) => part.trim()).filter(Boolean).map((part) => {
     const match = part.match(/^(.+?)(?:[（(](.+?)[)）])?$/)
     const assetName = match?.[1]?.trim() || part
     const visualVersionName = match?.[2]?.trim()
     const asset = findAsset(assetName, assets)
-    const variant = asset?.variants.find((item) => item.name === visualVersionName) ?? defaultVariant(asset, chapterId, chapterOrders)
+    // 状态三级匹配：精确名 → 双向包含模糊（模型微调措辞，如「少年」↔「少年期」）→ 章节范围默认
+    const variants = asset?.variants ?? []
+    const variant = (visualVersionName ? variants.find((item) => item.name === visualVersionName) : undefined)
+      ?? (visualVersionName ? variants.find((item) => item.name.includes(visualVersionName) || visualVersionName.includes(item.name)) : undefined)
+      ?? defaultVariant(asset, chapterId, chapterOrders)
     return { assetId: asset?.id, assetName, visualVersionId: variant?.id, visualVersionName: visualVersionName || variant?.name, matchSource: asset ? (visualVersionName ? 'model' : 'chapter-range') : 'unmatched', referenceImageIds: variant?.referenceImageIds ?? [] }
   })
+}
+
+/**
+ * 合并格级出场资产：同资产（assetId 优先，否则名称归一）只保留首个声明。
+ * 解析器逐格写入与编辑器同步共用，避免同一资产在一格内出现两条绑定。
+ */
+export function mergeCellBindings(existing: LongProjectStoryboardAssetBinding[] | undefined, incoming: LongProjectStoryboardAssetBinding[]): LongProjectStoryboardAssetBinding[] {
+  const result = [...(existing ?? [])]
+  const keyOf = (binding: LongProjectStoryboardAssetBinding) => binding.assetId ?? binding.assetName.trim()
+  for (const binding of incoming) {
+    if (result.some((item) => keyOf(item) === keyOf(binding))) continue
+    result.push(binding)
+  }
+  return result
+}
+
+/**
+ * 格级出场资产 → 页级绑定汇总：同资产多格声明时取**最后一格**（镜末状态 = 页级主状态与延续链起点），顺序 = 首次出现顺序。
+ * 解析 flush 与编辑保存（savePanelEdit）共用同一口径：格级声明为准，auto-text 页级绑定在其后合流。
+ */
+export function summarizeCellBindings(cells: LongProjectStoryboardCell[]): LongProjectStoryboardAssetBinding[] {
+  const keyOf = (binding: LongProjectStoryboardAssetBinding) => binding.assetId ?? binding.assetName.trim()
+  const byKey = new Map<string, LongProjectStoryboardAssetBinding>()
+  for (const cell of cells) {
+    for (const binding of cell.assetBindings ?? []) {
+      // 同资产多格声明时取最后一格（镜末状态 = 页级主状态与延续链起点）；Map 保持首次出现顺序
+      byKey.set(keyOf(binding), { ...binding })
+    }
+  }
+  return [...byKey.values()]
+}
+
+/** 绑定列表 → 「出场资产」字段值：`资产名（状态名）` 全角括号、`、` 分隔；无状态名时只写资产名。 */
+export function serializeBindings(bindings: LongProjectStoryboardAssetBinding[]): string {
+  return bindings
+    .map((binding) => {
+      const name = binding.assetName.trim()
+      const state = binding.visualVersionName?.trim()
+      return state ? `${name}（${state}）` : name
+    })
+    .filter(Boolean)
+    .join('、')
 }
 
 /** 页头：`## 分镜 1` / `## 分镜 2 · 双格` / `## 第 3 页 · 单格` */
@@ -171,6 +256,9 @@ export function parseStoryboardResponse(content: string, assets: LongProjectAsse
       if (summary.shot) current.shot = summary.shot
       if (summary.dialogue) current.dialogue = summary.dialogue
       if (summary.narration) current.narration = summary.narration
+      // 格级出场资产 → 页级绑定（同资产取首个格的声明）；格级有声明时优先于旧字段行的页级赋值
+      const cellBindings = summarizeCellBindings(cells)
+      if (cellBindings.length) current.assetBindings = cellBindings
     } else if (pendingLabel?.trim()) {
       current.cellLabel = pendingLabel.trim()
     }
@@ -216,6 +304,15 @@ export function parseStoryboardResponse(content: string, assets: LongProjectAsse
   const pushSpeech = (delivery: '心声' | '画外' | undefined, value: string) => {
     const [speaker, body] = splitSpeech(value)
     pushDialogue(speaker, delivery, body)
+  }
+
+  /** 写入格级出场资产（v4「出场资产」字段，值 `资产名（状态名）、…`）：同资产去重取首个声明；无格结构退化为页级合并。 */
+  const pushCellAssets = (value: string) => {
+    const bindings = bindingsFromValue(value, assets, chapterId, chapterOrders)
+    const cell = lastCell()
+    if (cell) { cell.assetBindings = mergeCellBindings(cell.assetBindings, bindings); lastCellKey = null }
+    else if (current) current.assetBindings = mergeCellBindings(current.assetBindings, bindings)
+    lastField = null
   }
 
   /** 写入无人称旁白；正文首尾【】在此剥掉。 */
@@ -303,6 +400,7 @@ export function parseStoryboardResponse(content: string, assets: LongProjectAsse
       const value = labeled[2].trim()
       if (label === '旁白') { pushNarration(value); continue }
       if (label in SPEECH_LABELS) { pushSpeech(SPEECH_LABELS[label], value); continue }
+      if (label === '出场资产') { pushCellAssets(value); continue }
       const key = CELL_FIELD_KEYS[label]
       if (key) { pushCellField(key, value); continue }
       // 协议外的自定义字段：并入本格画面（保留字段名，避免丢信息）
@@ -493,6 +591,7 @@ export function serializePanelBlock(panel: LongProjectStoryboardPanel): string {
     push('镜头', cell.camera)
     push('画面', cell.content)
     push('人物', cell.cast)
+    if (cell.assetBindings?.length) push('出场资产', serializeBindings(cell.assetBindings))
     push('动作', cell.action)
     push('表情', cell.expression)
     if (cell.dialogue?.trim()) push(speechLabel(cell.delivery), speechValue(cell))
@@ -509,7 +608,7 @@ function cellHasContent(cell: LongProjectStoryboardCell): boolean {
   return [
     cell.shot, cell.camera, cell.content, cell.cast, cell.action,
     cell.expression, cell.dialogue, cell.narration, cell.sfx, cell.lighting, cell.note,
-  ].some((value) => Boolean(value?.trim()))
+  ].some((value) => Boolean(value?.trim())) || (cell.assetBindings?.length ?? 0) > 0
 }
 
 /**
@@ -527,6 +626,8 @@ export function formatCellsForPrompt(cells: LongProjectStoryboardCell[]): string
     push('镜头', cell.camera)
     push('画面', cell.content)
     push('人物', cell.cast)
+    // 各格出场资产（含状态）：画面描述模型据此区分同资产在不同格的视觉状态
+    push('出场资产', serializeBindings(cell.assetBindings ?? []))
     push('动作', cell.action)
     push('表情', cell.expression)
     push('音效', cell.sfx)
@@ -552,12 +653,12 @@ export function parsePanelBlock(text: string): LongProjectStoryboardCell[] {
 }
 
 /**
- * 生成分镜：剧本为主输入，原文分析与章节原文为辅。
- * prompt 为 PromptRunBar 组装好的最终提示词（优先）；未提供时用 template + 输入现场组装。
- * assets 仅用于解析旧模板仍输出"出场资产"行时的绑定回填（新管线传空数组即可）。
+ * 生成分镜：剧本为主输入，本章资产（状态级绑定依据）+ 原文分析与章节原文为辅。
+ * prompt 为 PromptRunBar 组装好的最终提示词（优先）；未提供时用 template + 输入现场组装（注入本章资产清单）。
+ * chapterAssets 注入 {{本章资产}} 变量（模板没写该变量时自动退化）；assets 用于解析格级/页级「出场资产」声明的绑定回填。
  */
-export async function generateStoryboard(options: { model: ModelConfig; template?: PromptTemplate; scriptContent: string; analysis?: string; chapterContent?: string; assets?: LongProjectAsset[]; chapterId: string; chapterOrders: Record<string, number>; prompt?: string }) {
-  const prompt = options.prompt ?? buildStoryboardPrompt(options.template?.content ?? '', options.scriptContent, options.analysis, options.chapterContent)
+export async function generateStoryboard(options: { model: ModelConfig; template?: PromptTemplate; scriptContent: string; analysis?: string; chapterContent?: string; assets?: LongProjectAsset[]; chapterAssets?: ChapterAssetContext[]; chapterId: string; chapterOrders: Record<string, number>; prompt?: string }) {
+  const prompt = options.prompt ?? buildStoryboardPrompt(options.template?.content ?? '', options.scriptContent, options.analysis, options.chapterContent, options.chapterAssets)
   const result = await llmService.call({ modelConfig: options.model, userMessage: prompt })
   if (!result.success || !result.content) throw new Error(result.error || '模型没有返回内容')
   return { rawResponse: result.content, panels: parseStoryboardResponse(result.content, options.assets ?? [], options.chapterId, options.chapterOrders) }

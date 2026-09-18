@@ -45,7 +45,13 @@
             <p v-if="mergedDialogue" class="mt-2 text-xs leading-5 text-text-primary">对白：{{ mergedDialogue }}</p>
             <p v-if="mergedNarration" class="mt-1 text-xs leading-5 text-text-muted">旁白：{{ mergedNarration }}</p>
             <div v-if="mergedBindings.length" class="mt-2 flex flex-wrap gap-1.5">
-              <span v-for="binding in mergedBindings" :key="`${binding.assetName}-${binding.visualVersionName}`" class="rounded border px-1.5 py-0.5 text-[10px]" :class="binding.assetId ? 'border-violet-400/25 bg-violet-400/10 text-violet-200' : 'border-amber-400/25 bg-amber-400/10 text-amber-200'">{{ binding.assetName }}<template v-if="binding.visualVersionName"> · {{ binding.visualVersionName }}</template></span>
+              <AssetBindingTag
+                v-for="binding in mergedBindings"
+                :key="`${binding.assetName}-${binding.visualVersionName}`"
+                :binding="binding"
+                :assets="assets"
+                :interactive="false"
+              />
             </div>
           </div>
 
@@ -68,7 +74,8 @@
  */
 import { computed, ref, watch } from 'vue'
 import { X } from 'lucide-vue-next'
-import type { LongProjectPanelArtwork, LongProjectStoryboardAssetBinding, LongProjectStoryboardPanel } from '@comic/types'
+import type { LongProjectAsset, LongProjectPanelArtwork, LongProjectStoryboardAssetBinding, LongProjectStoryboardPanel } from '@comic/types'
+import AssetBindingTag from '@comic/components/AssetBindingTag.vue'
 
 const props = defineProps<{
   modelValue: boolean
@@ -76,6 +83,8 @@ const props = defineProps<{
   panels: LongProjectStoryboardPanel[]
   /** 分镜 ID → 生图工件映射，用于成图归属选择展示 */
   artworkMap: Map<string, LongProjectPanelArtwork>
+  /** 项目资产库：用于给合并结果里的绑定 tag 按类型着色。 */
+  assets?: LongProjectAsset[]
 }>()
 
 const emit = defineEmits<{

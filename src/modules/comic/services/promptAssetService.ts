@@ -125,3 +125,51 @@ export function syncPanelsAutoBindings(
     return nextBindings ? { ...panel, assetBindings: nextBindings } : panel
   })
 }
+
+/**
+ * 手动锚点后的状态延续重算（纯函数，不修改入参）。
+ * 某资产在 fromPanelOrder 镜被手动固定为 anchorVariantId 后，重算其后各镜该资产的绑定：
+ * - auto-text 绑定跟随延续状态（初始 = 锚点状态；含 visualVersionName 同步更新）；
+ * - model/manual/chapter-range 绑定不动，并以其为新延续起点；
+ * - 延续状态悬空（资产已删该状态）时跳过。
+ * @param panels 本章全部分镜（按 order 升序）
+ * @param assetId 手动锚定的资产 ID
+ * @param anchorVariantId 锚定的视觉状态 ID
+ * @param fromPanelOrder 锚点所在分镜的 order（含，其后各镜参与重算）
+ * @param assets 项目资产库（查找锚定资产与其状态）
+ * @returns 变更后的分镜数组；无任何变化返回 null（避免无谓持久化）
+ */
+export function reapplyVariantContinuation(
+  panels: LongProjectStoryboardPanel[],
+  assetId: string,
+  anchorVariantId: string,
+  fromPanelOrder: number,
+  assets: LongProjectAsset[],
+): LongProjectStoryboardPanel[] | null {
+  const asset = assets.find((item) => item.id === assetId)
+  if (!asset) return null
+  let lastVariantId = anchorVariantId
+  let changed = false
+  const next = panels.map((panel) => {
+    if (panel.order <= fromPanelOrder) return panel
+    const binding = panel.assetBindings.find((item) => item.assetId === assetId)
+    if (!binding) return panel
+    if (binding.matchSource === 'auto-text') {
+      if (binding.visualVersionId === lastVariantId) return panel
+      const variant = asset.variants.find((item) => item.id === lastVariantId)
+      if (!variant) return panel // 延续状态悬空（资产已删该状态）→ 跳过
+      changed = true
+      return {
+        ...panel,
+        assetBindings: panel.assetBindings.map((item) =>
+          item === binding
+            ? { ...item, visualVersionId: variant.id, visualVersionName: variant.name, referenceImageIds: variant.referenceImageIds ?? [] }
+            : item),
+      }
+    }
+    // model/manual/chapter-range 绑定不动，并以其为新延续起点
+    if (binding.visualVersionId) lastVariantId = binding.visualVersionId
+    return panel
+  })
+  return changed ? next : null
+}

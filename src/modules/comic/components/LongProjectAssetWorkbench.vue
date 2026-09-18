@@ -10,6 +10,16 @@
             缺图
           </label>
         </div>
+        <button
+          v-if="orphanCount"
+          class="mx-1 mb-1.5 flex w-[calc(100%-0.5rem)] items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-700 transition-colors hover:bg-amber-500/20 dark:text-amber-300"
+          title="项目范围内没有任何章节引用（也没有分镜绑定）的视觉状态与章节资产，多为反复提取累积下来的死数据；点击查看并清理"
+          @click="emit('clear-orphans')"
+        >
+          <Eraser :size="12" class="shrink-0" />
+          <span class="min-w-0 flex-1 truncate">清理孤儿数据</span>
+          <span class="shrink-0 font-medium">{{ orphanCount }}</span>
+        </button>
         <template v-for="(group, groupIndex) in visibleGroups" :key="group.type">
           <p
             v-if="group.items.length"
@@ -65,9 +75,12 @@
 
         <!-- 当前视觉状态卡片（单卡片展示，随 tab 切换） -->
         <div class="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-4">
+          <!-- key 绑视觉状态 id：切 tab 时重建卡片，避免上一个状态的提示词草稿/编辑弹窗状态渗到下一个状态 -->
           <AssetVariantCard
             v-if="selectedVariant"
+            :key="selectedVariant.id"
             :variant="selectedVariant"
+            :usage="usage?.variants.get(selectedVariant.id)"
             :prompt-busy="promptBusyIds.has(selectedVariant.id)"
             :gen-busy="genBusyIds.has(selectedVariant.id)"
             @update:prompt="(value) => updatePrompt(selectedItem!.asset, selectedVariant!, value)"
@@ -158,7 +171,7 @@
  * 右侧视觉状态多状态时以 tab 切换展示，单卡片不再上下滚动。
  */
 import { computed, nextTick, reactive, ref, toRaw, watch } from 'vue'
-import { Boxes, LoaderCircle, MapPin, Package, UserRound } from 'lucide-vue-next'
+import { Boxes, Eraser, LoaderCircle, MapPin, Package, UserRound } from 'lucide-vue-next'
 import AssetVariantCard from './AssetVariantCard.vue'
 import AssetPromptGenerateModal, { type AssetPromptRetryPayload, type AssetPromptRunItem, type AssetPromptRunResult } from './AssetPromptGenerateModal.vue'
 import AssetImageGenDrawer from './AssetImageGenDrawer.vue'
@@ -168,6 +181,7 @@ import { useToast } from '@comic/composables/useToast'
 import { imageGenerationService } from '@comic/services/imageGenerationService'
 import { buildAssetPromptPrompt, buildSingleAssetPrompt, buildStyleContext, generateAssetPrompts, rewriteAssetPrompt, type AssetPromptTarget } from '@comic/services/assetPromptService'
 import { AssetPromptParseError, type AssetPromptParseDiagnostics } from '@comic/services/assetPromptParser'
+import type { AssetUsageIndex } from '@comic/services/assetUsageService'
 import type { AssetGenConfig, LongProjectAsset, LongProjectAssetVariant, ModelConfig, PromptTemplate, SharedPromptBlock } from '@comic/types'
 
 interface Props {
@@ -183,6 +197,10 @@ interface Props {
   sharedBlocks?: SharedPromptBlock[]
   /** 接力定位目标（从分镜页跳转时携带，选中具体资产/视觉状态）。 */
   focusTarget?: { assetId: string; variantId?: string } | null
+  /** 项目范围孤儿数据条数（没有任何章节引用的视觉状态 + 章节资产），> 0 时左列表顶部显示清理入口。 */
+  orphanCount?: number
+  /** 资产引用索引（章节引用 + 分镜绑定 + 图片级在用情况），用于显示「被谁引用」。 */
+  usage?: AssetUsageIndex
 }
 
 const props = defineProps<Props>()
@@ -191,6 +209,8 @@ const emit = defineEmits<{
   (e: 'update:asset', payload: { assetId: string; variantId: string; patch: Partial<LongProjectAssetVariant> }): void
   (e: 'update:gen-config', config: AssetGenConfig): void
   (e: 'prompt-completed'): void
+  /** 清理孤儿数据：由容器执行（需要项目级资产与章节引用，工作台只有本章视图）。 */
+  (e: 'clear-orphans'): void
 }>()
 
 const toast = useToast()

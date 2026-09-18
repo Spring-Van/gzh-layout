@@ -132,7 +132,8 @@ const typeOptions: Array<{ value: TemplateType; label: string; hint: string }> =
   { value: 'story', label: '故事模板', hint: '用于短篇故事的创作与改编。' },
   { value: 'storyboard', label: '分镜模板', hint: '将章节拆分为可绘制的分镜序列。' },
   { value: 'asset-prompt', label: '资产绘画提示词模板', hint: '为资产视觉状态批量生成可直接生图的绘画提示词。' },
-  { value: 'panel-prompt', label: '分镜画面描述模板', hint: '逐镜生成可直接生图的画面描述。' },
+  { value: 'panel-prompt', label: '分镜画面描述模板', hint: '逐镜生成可直接生图的画面描述（一次只写一镜）。' },
+  { value: 'panel-prompt-chapter', label: '分镜画面描述模板（整章一次生成）', hint: '一次把本章全部分镜交给模型，按【分镜N】分段输出各镜画面描述。' },
 ];
 
 const typeHint = computed(() => typeOptions.find(option => option.value === form.value.type)?.hint ?? '');
@@ -204,6 +205,7 @@ const PARSE_HINTS: Partial<Record<TemplateType, string>> = {
   storyboard: '本环节结果按 Markdown 解析，请保留上面的输出结构。',
   extract: '本环节结果按 Markdown 解析，请保留上面的输出结构。',
   'asset-prompt': '本环节结果按 Markdown 解析，请保留上面的输出结构。',
+  'panel-prompt-chapter': '本环节结果按「【分镜N】」分段解析，请保留上面的分段格式。',
   story: '本环节结果按 JSON 解析，请保留上面的 JSON 结构。',
 };
 

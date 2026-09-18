@@ -109,20 +109,30 @@ export function getBlocksByPosition(
 }
 
 /**
- * 扁平化所有启用参考图的共用图（顺序决定全局图号）
+ * 扁平化「插入最前」组内启用参考图的共用图（顺序决定全局图号）
+ *
+ * **只算 front 组**：图号是「从前往后」编的，而后置属性的文字出现在画面描述之后。
+ * 后置属性若也带图，图号顺序与文字出现顺序必然错位，模型会混淆 —— 因此后置属性
+ * 不参与取图与编号（数据保留，切回 front 即恢复）。
+ *
  * @param blocks - 共用属性列表
  * @returns 参考图 URL 数组
  */
 export function getSharedRefImages(
   blocks: SharedPromptBlock[] | undefined | null,
 ): string[] {
-  return sortSharedBlocks(blocks)
+  return getBlocksByPosition(blocks, "front")
     .filter((b) => b.enableRefImages)
     .flatMap((b) => b.referenceImages || []);
 }
 
 /**
  * 计算每个 block 内每张图的全局 1-based 图号
+ *
+ * **只算 front 组**（原因见 `getSharedRefImages`）；back 组的 block 一律返回空数组。
+ * 注意：这里得到的是「**仅共用属性内部**」的图号（从 1 开始）；
+ * 含资产图的完整全局图号请用 `buildPanelRefManifest`（`services/panelRefManifest.ts`）。
+ *
  * @param blocks - 共用属性列表
  * @returns Map<blockId, number[]> 每个 block 对应图号列表
  */
@@ -132,17 +142,48 @@ export function computeBlockImageNumbers(
   const map = new Map<string, number[]>();
   let next = 1;
   for (const block of sortSharedBlocks(blocks)) {
-    if (!block.enableRefImages) {
+    // back 组恒为空数组（显式落进 map，便于消费方读取时口径一致）
+    if (block.insertPosition !== "front") {
       map.set(block.id, []);
       continue;
     }
     const nums: number[] = [];
-    for (let i = 0; i < (block.referenceImages || []).length; i++) {
-      nums.push(next++);
+    if (block.enableRefImages) {
+      for (let i = 0; i < (block.referenceImages || []).length; i++) {
+        nums.push(next++);
+      }
     }
     map.set(block.id, nums);
   }
   return map;
+}
+
+/**
+ * 共用属性的中文拼装文本：`属性名` → `图N、图M：属性名。` → 用户填写的描述正文。
+ *
+ * 三段各自独立、互不覆盖：图号行由代码实时算（不落库），描述正文永远是用户手填内容。
+ *
+ * @param block - 属性块
+ * @param imageNumbers - 该块的全局图号（back 组传空数组）
+ * @param position - 该块所属位置（图号行只出现在 front 组）
+ * @returns 拼装后的多行文本；无任何内容时返回空串
+ */
+export function buildBlockText(
+  block: SharedPromptBlock,
+  imageNumbers: number[],
+  position: PromptInsertPosition,
+): string {
+  const lines: string[] = [];
+  const name = block.name?.trim() || "";
+  const description = block.description?.trim() || "";
+  // 无属性名且无描述、也无图 → 整块跳过
+  if (!name && !description) return "";
+  if (name) lines.push(name);
+  if (position === "front" && imageNumbers.length > 0) {
+    lines.push(`${imageNumbers.map((n) => `图${n}`).join("、")}：${name}。`);
+  }
+  if (description) lines.push(description);
+  return lines.join("\n");
 }
 
 /**
@@ -163,20 +204,11 @@ export function buildBlockRefDescription(
 }
 
 /**
- * 按当前图号刷新某 block 的 description（有参考图时）
- * @param block - 属性块
- * @param imageNumbers - 该 block 的全局图号
- * @returns 新的 description
+ * 说明（避免回退）：**不要再新增「按图号回写 description」的函数**。
+ * `description` 是用户手填的正文，历史实现会在上传 / 删除参考图时把整段正文重写成
+ * 「XX参考上传的图1，图2」话术，静默冲掉用户内容。图号行现在由 `buildBlockText`
+ * 在**拼装时实时生成、不落库**，因此永远不需要回写。
  */
-export function refreshBlockDescriptionWithNumbers(
-  block: SharedPromptBlock,
-  imageNumbers: number[],
-): string {
-  if (!block.enableRefImages || imageNumbers.length === 0) {
-    return block.description || "";
-  }
-  return buildBlockRefDescription(block.name, imageNumbers);
-}
 
 /**
  * 是否为旧版字段配置（尚无 sharedBlocks）
