@@ -5,7 +5,6 @@ import {
 } from '../../src/modules/comic/services/assetExtractionConfirm';
 import { buildAssetUsageIndex } from '../../src/modules/comic/services/assetUsageService';
 import {
-  buildPanelAssetsContext,
   resolvePanelAssetStates,
   resolvePanelRefImage,
 } from '../../src/modules/comic/services/panelPromptService';
@@ -16,7 +15,7 @@ import type { LongProjectAsset, LongProjectStoryboardPanel, LongProjectStoryboar
  * 分镜视觉状态绑定全链路回归：模型逐格声明 → 解析 → 各消费端口径一致。
  *
  * 锁死的口径是**「页级 ∪ 格级」**：`resolvePanelAssetStates` 是唯一展开实现，
- * 生图取图、画面描述、工作台引用统计三处都必须按它消费；覆盖删除状态后的悬空修复
+ * 生图取图与工作台引用统计都必须按它消费；覆盖删除状态后的悬空修复
  * 也必须同时覆盖页级与格级，否则会出现「界面显示已删状态、生图按回落状态取图」的分裂。
  */
 
@@ -115,13 +114,6 @@ describe('分镜视觉状态绑定全链路', () => {
     ]);
     expect(states.map((state) => resolvePanelRefImage(state.variant, state.binding ?? {})))
       .toEqual(['casual-1', 'battle-1', 'field-1']);
-  });
-
-  it('画面描述：分格详情带出场资产行，绑定变量按格标注状态', () => {
-    const [first] = parse();
-    const context = buildPanelAssetsContext(first, assets);
-    expect(context).toContain('便装（第1格）');
-    expect(context).toContain('战斗服（第2格）');
   });
 
   it('工作台引用统计：格级独有的状态同样计入（不显示「0 镜引用」）', () => {

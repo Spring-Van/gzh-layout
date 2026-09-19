@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildPanelAssetsContext,
   resolveCellBindings,
   resolvePanelAssetStates,
 } from '../../src/modules/comic/services/panelPromptService';
@@ -9,7 +8,7 @@ import type { LongProjectAsset, LongProjectStoryboardAssetBinding, LongProjectSt
 
 /**
  * 格级资产状态绑定 —— 镜内多状态展开（页级 ∪ 格级）核心口径单测：
- * 生图参考图（currentRefGroups / panelRefImages）与画面描述（buildPanelAssetsContext）
+ * 生图参考图（currentRefGroups / panelRefImages）与工作台引用统计
  * 都按 resolvePanelAssetStates 的结果消费，此处锁死展开语义。
  */
 
@@ -143,10 +142,10 @@ describe('summarizeCellBindings（格级 → 页级汇总）', () => {
 describe('formatCellsForPrompt（画面描述的分格详情）', () => {
   it('每格带出场资产行（含状态名），供画面描述模型区分各格状态', () => {
     const text = formatCellsForPrompt(multiStatePanel.cells!);
-    expect(text).toContain('【第1格】');
-    expect(text).toContain('出场资产：林小雨（便装）');
-    expect(text).toContain('【第2格】');
-    expect(text).toContain('出场资产：林小雨（战斗服）');
+    expect(text).toContain('### 第1格');
+    expect(text).toContain('- 出场资产：林小雨（便装）');
+    expect(text).toContain('### 第2格');
+    expect(text).toContain('- 出场资产：林小雨（战斗服）');
   });
 
   it('无出场资产的格不输出该行', () => {
@@ -155,18 +154,9 @@ describe('formatCellsForPrompt（画面描述的分格详情）', () => {
   });
 });
 
-describe('buildPanelAssetsContext（画面描述的绑定资产变量）', () => {
-  it('单状态资产保持单行格式', () => {
-    const text = buildPanelAssetsContext(legacyPanel, assets);
-    expect(text).toBe('- 训练场（场景）｜视觉状态：全章默认；视觉描述：露天训练场');
-  });
-
-  it('镜内多状态：各格状态分行标注', () => {
-    const text = buildPanelAssetsContext(multiStatePanel, assets);
-    expect(text).toContain('- 林小雨（人物）');
-    expect(text).toContain('便装（第1格）');
-    expect(text).toContain('战斗服（第2格）');
-    expect(text).toContain('视觉描述：日常便装');
-    expect(text).toContain('固定特征：银发');
+describe('buildPanelAssetsContext（已随绑定资产变量下线）', () => {
+  it('resolvePanelAssetStates 仍按格序展开多状态（供生图清单与引用统计）', () => {
+    const states = resolvePanelAssetStates(multiStatePanel, assets);
+    expect(states.map((state) => state.variant.name)).toEqual(['便装', '战斗服']);
   });
 });

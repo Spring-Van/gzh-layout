@@ -42,4 +42,23 @@ describe('resolvePanelRefImage（本镜参考图单选口径）', () => {
     expect(resolvePanelRefImage(single, {})).toBe('only');
     expect(resolvePanelRefImage(single, { selectedImageIds: ['only'] })).toBe('only');
   });
+
+  it('无采纳图但有工作台生成图（generatedImageIds）→ 回落生成图第一张（生成的图就是参考图）', () => {
+    expect(resolvePanelRefImage({ referenceImageIds: [], generatedImageIds: ['gen-1', 'gen-2'] }, {})).toBe('gen-1');
+    expect(resolvePanelRefImage({ referenceImageIds: undefined, generatedImageIds: ['gen-1'] }, {})).toBe('gen-1');
+  });
+
+  it('手动选的图在生成图里 → 同样生效（单选口径覆盖有效参考图全集）', () => {
+    expect(resolvePanelRefImage({ referenceImageIds: [], generatedImageIds: ['gen-1', 'gen-2'] }, { selectedImageIds: ['gen-2'] })).toBe('gen-2');
+  });
+
+  it('采纳图优先于生成图：两者都有时只用采纳图', () => {
+    expect(resolvePanelRefImage({ referenceImageIds: ['img-1'], generatedImageIds: ['gen-1'] }, {})).toBe('img-1');
+    expect(resolvePanelRefImage({ referenceImageIds: ['img-1'], generatedImageIds: ['gen-1'] }, { selectedImageIds: ['gen-1'] })).toBe('img-1');
+  });
+
+  it('采纳图与生成图都没有 → undefined', () => {
+    expect(resolvePanelRefImage({ referenceImageIds: [], generatedImageIds: [] }, {})).toBe(undefined);
+    expect(resolvePanelRefImage({ referenceImageIds: [], generatedImageIds: undefined }, {})).toBe(undefined);
+  });
 });

@@ -569,7 +569,7 @@ export class AssetPromptParseError extends Error {
 export function describeParseFailure(diagnostics: AssetPromptParseDiagnostics): string {
   const { parsed, expected } = diagnostics
   if (!parsed) {
-    return '模型返回无法解析回填：没识别到「【资产名｜状态名】+ 提示词」的 Markdown 逐条结构，按条数顺序兜底也没对上。可在弹窗内查看模型原始返回后重试；若模板的「内容要求」里要求了 JSON 或其它格式，请删掉——返回格式统一为 Markdown。'
+    return '模型返回无法解析回填：没识别到「## 资产名｜状态名」标题 + 提示词正文的 Markdown 逐条结构，按条数顺序兜底也没对上。可在弹窗内查看模型原始返回后重试；若模板的「内容要求」里要求了 JSON 或其它格式，请删掉——返回格式统一为 Markdown。'
   }
   return `模型返回只解析出 ${parsed}/${expected} 条，其余状态未返回。可在弹窗内查看原始返回后重发。`
 }

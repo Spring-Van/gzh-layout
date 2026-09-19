@@ -24,7 +24,6 @@
         :focus-target="focusTarget"
         :mutate-long-project-data="mutateLongProjectData"
         @retry-extraction="retryExtraction"
-        @import-extraction="extractImportVisible = true"
       >
         <!-- 信息视图：资产提取操作区 + 确认本章资产 -->
         <template v-if="assetView === 'info'" #actions>
@@ -40,6 +39,7 @@
               confirm-storage-key="comic-long-extract-confirm"
               :build-prompt="buildExtractPrompt"
               @run="runExtraction"
+              @import="extractImportVisible = true"
             />
           </div>
           <span
@@ -47,11 +47,6 @@
             class="shrink-0 rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-1 text-[11px] text-amber-300"
             title="本章无原文（从剧本开始创作），提取将以漫画剧本作为底稿"
           >剧本兜底</span>
-          <button
-            class="secondary-button h-9 shrink-0 px-2.5 text-xs"
-            title="粘贴外部 AI 生成的资产提取结果，解析后进入审核确认"
-            @click="extractImportVisible = true"
-          ><ClipboardPaste :size="14" />手动导入</button>
 
           <!-- 确认本章资产：唯一行为（本次结果为准），跨章影响在确认弹窗里列明细 -->
           <button
@@ -96,12 +91,12 @@
       <div v-else class="flex h-full items-center justify-center text-sm text-text-secondary">请先选择章节</div>
     </div>
 
-    <!-- 手动导入资产（外部 AI 代跑）：粘贴 → 解析预览 → 确认后进入审核链路 -->
+    <!-- 手动导入资产（外部 AI 代跑）：粘贴 → 解析预览 → 确认后进入审核链路；z-[140] 压过「确认发送内容」弹窗（z-[130]） -->
     <ManualResultImportDialog
       :visible="extractImportVisible"
       title="手动导入资产"
       placeholder="粘贴外部 AI 生成的资产提取结果…"
-      z-index-class="z-[130]"
+      z-index-class="z-[140]"
       :parse="parseExtractionPreview"
       @confirm="confirmExtractionImport"
       @close="extractImportVisible = false"
@@ -128,7 +123,7 @@
  */
 import { computed, ref, watch, type Ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
-import { CheckCircle2, ClipboardPaste, LoaderCircle, Settings2, Sparkles } from 'lucide-vue-next'
+import { CheckCircle2, LoaderCircle, Settings2, Sparkles } from 'lucide-vue-next'
 import { useToast } from '@comic/composables/useToast'
 import PromptRunBar from '@comic/components/common/PromptRunBar.vue'
 import ManualResultImportDialog from '@comic/components/common/ManualResultImportDialog.vue'

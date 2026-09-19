@@ -136,7 +136,9 @@ export function serializeBindings(bindings: LongProjectStoryboardAssetBinding[])
 const PAGE_HEADER_RE = /^#{1,6}\s*(?:分镜\s*\d*|第\s*\d+\s*页)/
 /** 页头右侧的格数标签：`## 分镜 2 · 双格` → 「双格」 */
 const PAGE_LABEL_RE = /[·・]\s*([^·・]+?)\s*$/
-/** v4 格标题行：`【第1格】`（允许同行续写内容） */
+/** v5 Markdown 格标题行：`### 第1格`（主格式，允许同行续写内容） */
+const MD_CELL_TITLE_RE = /^#{1,6}\s*第\s*([0-9一二三四五六七八九十]+)\s*格\s*[:：]?\s*(.*)$/
+/** v4 格标题行：`【第1格】`（历史兼容，允许同行续写内容） */
 const CELL_TITLE_RE = /^【\s*第\s*([0-9一二三四五六七八九十]+)\s*格\s*】\s*(.*)$/
 /** v4 字段行：`「景别」：内容`（引号兼容 「」『』【】[]） */
 const LABEL_FIELD_RE = /^[「『【\[]\s*([^」』】\]]+?)\s*[」』】\]]\s*[：:]\s*([\s\S]*)$/
@@ -159,7 +161,7 @@ const FIELD_RE = /^[-*]\s*([^：:]+)[：:]\s*(.*)$/
 /** v2 行内分格分隔符（‖ 分格、｜ 分字段） */
 const INLINE_SEP_RE = /[‖｜|]/
 /** 结构性行（无页头时据此自动开页，兼容外部纯文本导入） */
-const STRUCTURAL_RE = /^(?:[①②③④⑤⑥⑦⑧⑨⑩]|[【\[]|[「『])|[‖]|[｜|]/
+const STRUCTURAL_RE = /^(?:[①②③④⑤⑥⑦⑧⑨⑩]|[【\[]|[「『]|#{1,6})|[‖]|[｜|]/
 
 /** v4 字段名 → 格字段（「景别」是景别，「镜头」是运镜） */
 const CELL_FIELD_KEYS: Record<string, 'shot' | 'camera' | 'content' | 'cast' | 'action' | 'expression' | 'sfx' | 'lighting' | 'note'> = {
@@ -203,13 +205,14 @@ function splitSpeech(value: string): [string | undefined, string] {
 /**
  * 解析 LLM 返回的 Markdown 分镜文本为结构化分镜数组。
  *
- * 主格式为「页块格式」（v4，符号规则：分镜格用【第X格】、字段标题用「XXX」、冒号后写具体内容）：
- * 一个 `## 分镜 N · X格` 页块 = 一张漫画图；页内先写 `【第X格】` 起一格，
- * 再从下一行起逐行写 `「字段名」：内容`（景别 / 镜头 / 画面 / 人物 / 动作 / 表情 / 台词 / 心声 / 画外 / 旁白 / 音效 / 光效 / 备注）。
- * 同时向下兼容三种历史形态：
- * 1. v3 页块：`①【镜头】画面` + `说话人：【台词】` / `旁白：【文字】`（正文【】可带可不带，解析时剥掉）；
- * 2. 旧字段行：`- 属性名：内容`（画面/内容、镜头、对白、旁白、绘画提示词、出场资产）；
- * 3. v2 行内分格：`近景｜画面｜台词 ‖ 中景｜画面`；无页头的纯结构文本（① / 【】/ 「」/ ‖ / ｜）自动开页。
+ * 主格式为「Markdown 页块格式」（v5，与全链路统一 Markdown 语法一致）：
+ * 一个 `## 分镜 N · X格` 页块 = 一张漫画图；页内先写 `### 第X格` 标题起一格，
+ * 再从下一行起逐行写 `- 字段名：内容`（景别 / 镜头 / 画面 / 人物 / 动作 / 表情 / 台词 / 心声 / 画外 / 旁白 / 音效 / 光效 / 备注）。
+ * 同时向下兼容四种历史形态：
+ * 1. v4 页块：`【第X格】` 起格 + `「字段名」：内容` 字段行；
+ * 2. v3 页块：`①【镜头】画面` + `说话人：【台词】` / `旁白：【文字】`（正文【】可带可不带，解析时剥掉）；
+ * 3. 旧字段行：`- 属性名：内容`（画面/内容、镜头、对白、旁白、绘画提示词、出场资产）；
+ * 4. v2 行内分格：`近景｜画面｜台词 ‖ 中景｜画面`；无页头的纯结构文本（① / 【】/ 「」/ ‖ / ｜/ ###）自动开页。
  *
  * @param content LLM 返回的原始 Markdown 文本
  * @param assets 项目资产库，用于解析出场资产绑定
@@ -353,26 +356,36 @@ export function parseStoryboardResponse(content: string, assets: LongProjectAsse
       startPage()
     }
 
-    // 1) v4 格标题行 `【第1格】`（可同行续写内容）
+    // 0) Markdown 格标题行 `### 第1格`（v5 主格式，可同行续写内容）
+    const mdCellTitle = line.match(MD_CELL_TITLE_RE)
+    if (mdCellTitle) {
+      pushCell({ content: mdCellTitle[2].trim() })
+      continue
+    }
+
+    // 1) v4 格标题行 `【第1格】`（历史兼容，可同行续写内容）
     const cellTitle = line.match(CELL_TITLE_RE)
     if (cellTitle) {
       pushCell({ content: cellTitle[2].trim() })
       continue
     }
 
-    // 2) 旧字段行 `- 画面：…`（优先判定，避免被说话人正则误吃）
+    // 2) 字段行 `- 画面：…`（Markdown v5 与旧字段行共用 `- 字段：内容` 语法）
     const field = line.match(FIELD_RE)
     if (field) {
       const key = field[1].trim()
       const value = field[2].trim()
+      // 字段行在格内（`### 第X格` / `【第X格】` 之后）走 v5/v4 语义：镜头=运镜、台词拆说话人、出场资产进格；
+      // 无格（页级）保持旧字段行语义：镜头=景别、台词整段、出场资产页级绑定。
+      const cell = lastCell()
       if (key === '画面' || key === '内容') pushContent(value)
-      // 旧格式只有「镜头」= 景别；v4 的「镜头」是运镜（走下面的「」字段行）
-      else if (key === '镜头' || key === '景别') { const cell = lastCell(); if (cell) { cell.shot = value; lastCellKey = 'shot' } else if (current) current.shot = value; lastField = null }
-      else if (key === '对白' || key === '台词') pushDialogue(undefined, undefined, value)
+      else if (key === '景别') { if (cell) { cell.shot = value; lastCellKey = 'shot' } else if (current) current.shot = value; lastField = null }
+      else if (key === '镜头') { if (cell) pushCellField('camera', value); else if (current) { current.shot = value; lastField = null } }
+      else if (key === '运镜') pushCellField('camera', value)
+      else if (key === '对白' || key === '台词') { if (cell) pushSpeech(undefined, value); else pushDialogue(undefined, undefined, value) }
       else if (key === '心声' || key === '独白') pushSpeech('心声', value)
       else if (key === '画外') pushSpeech('画外', value)
       else if (key === '旁白') pushNarration(value)
-      else if (key === '运镜') pushCellField('camera', value)
       else if (key === '人物' || key === '出场角色') pushCellField('cast', value)
       else if (key === '动作') pushCellField('action', value)
       else if (key === '表情') pushCellField('expression', value)
@@ -380,7 +393,7 @@ export function parseStoryboardResponse(content: string, assets: LongProjectAsse
       else if (key === '光效') pushCellField('lighting', value)
       else if (key === '备注') pushCellField('note', value)
       else if (key === '绘画提示词') { if (current) current.imagePrompt = value; lastField = 'imagePrompt' }
-      else if (key === '出场资产') { if (current) current.assetBindings = bindingsFromValue(value, assets, chapterId, chapterOrders); lastField = null }
+      else if (key === '出场资产') { if (cell) pushCellAssets(value); else if (current) current.assetBindings = bindingsFromValue(value, assets, chapterId, chapterOrders); lastField = null }
       else lastField = null
       continue
     }
@@ -573,19 +586,19 @@ function panelToCells(panel: LongProjectStoryboardPanel): LongProjectStoryboardC
 }
 
 /**
- * 一页 → 页块文本（v4：`【第X格】` + `「字段名」：内容`）。
+ * 一页 → 页块文本（v5 Markdown：`### 第X格` 标题 + `- 字段名：内容` 列表行）。
  * 与 LLM 输出、可复制格式完全一致，可在单一输入框里直接编辑；空字段整行省略。
  */
 export function serializePanelBlock(panel: LongProjectStoryboardPanel): string {
   const cells = panelToCells(panel)
-  // 完全空白的新页不给任何格块，避免出现空的「【第1格】」
+  // 完全空白的新页不给任何格块，避免出现空的「### 第1格」
   if (!cells.some((cell) => cellHasContent(cell))) return ''
   const lines: string[] = []
   cells.forEach((cell, index) => {
-    lines.push(`【第${index + 1}格】`)
+    lines.push(`### 第${index + 1}格`)
     const push = (label: string, value?: string) => {
       const text = (value ?? '').trim()
-      if (text) lines.push(`「${label}」：${text}`)
+      if (text) lines.push(`- ${label}：${text}`)
     }
     push('景别', cell.shot)
     push('镜头', cell.camera)
@@ -617,10 +630,10 @@ function cellHasContent(cell: LongProjectStoryboardCell): boolean {
  */
 export function formatCellsForPrompt(cells: LongProjectStoryboardCell[]): string {
   return cells.map((cell, index) => {
-    const lines = [`【第${index + 1}格】`]
+    const lines = [`### 第${index + 1}格`]
     const push = (label: string, value?: string) => {
       const text = (value ?? '').trim()
-      if (text) lines.push(`${label}：${text}`)
+      if (text) lines.push(`- ${label}：${text}`)
     }
     push('景别', cell.shot)
     push('镜头', cell.camera)
@@ -676,13 +689,13 @@ export function buildPanelPolishPrompt(blockText: string, scriptContext?: string
 - 补齐「人物」（本格画面内出现的角色）、「动作」、「表情」，只写画面上能看到的内容，不得编造；
 - 台词类字段补全说话人写法：对白用「台词」、内心独白用「心声」、说话人不在本格画面内用「画外」、
   无人称叙述用「旁白」；写法为 说话人：“台词”，引号用中文引号，说话人不得省略；
-- 保持「第X格」的序号连续；同一格内台词 / 心声 / 画外 / 旁白最多出现一个；
+- 保持每格标题（### 第X格）的序号连续；同一格内台词 / 心声 / 画外 / 旁白最多出现一个；
 - 单句台词不超过 20 字（单格满版不超过 30 字），超出时拆成多格；一页最多 4 格；
 - 一格内混入两条叙事线索时拆格；「画面」补足到 30~80 字。
 
 【必须遵守】
 - 剧情、画面事实、台词文字与说话人一律不得改动、增删或润色；不要补写剧本里没有的情节；
-- 只输出这一页分镜文本，不要输出其它页；不要解释、不要代码块、不要输出标题行。
+- 只输出这一页分镜文本，不要输出其它页；不要解释、不要代码块、不要输出 ## 分镜 N 页头行（每格标题 ### 第X格 必须保留）。
 
 【输出格式】
 ${outputFormatSpec('storyboard')}

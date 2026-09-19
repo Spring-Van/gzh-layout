@@ -69,7 +69,8 @@ export function buildAssetPromptPrompt(options: {
  * 每个状态同时登记两种定位键：序号 + 「资产名##状态名」；模型按名字回写，解析时优先按名字定位。
  * 同时返回按清单顺序排列的 `ordered`——顺序兜底（模型只给裸提示词时）依赖它。
  */
-function buildTargetList(targets: AssetPromptTarget[]): { text: string; index: AssetPromptTargetIndex; ordered: AssetPromptTargetRef[] } {
+/** 导出供「导入外部 AI 结果」复用：同一目标清单 → 同一解析上下文（index/ordered），与内置批量解析完全同构。 */
+export function buildTargetList(targets: AssetPromptTarget[]): { text: string; index: AssetPromptTargetIndex; ordered: AssetPromptTargetRef[] } {
   const index: AssetPromptTargetIndex = new Map()
   const ordered: AssetPromptTargetRef[] = []
   const lines: string[] = []
@@ -141,7 +142,7 @@ export async function generateAssetPrompts(options: {
  * - 传 templateContent：按模板（{{状态清单}}/{{风格上下文}}/{{目标生图模型}}）+ 状态信息拼装（用于发送前确认弹窗预览）；
  * - 传 prompt：直接使用调用方确认后的最终文本执行；
  * - 两者都无：使用内置默认指令（含系统默认内容要求与返回格式）。
- * **返回格式与批量发送完全一致**（Markdown 逐条「【资产名｜状态名】+ 提示词」），回填时只解析这一条。
+ * **返回格式与批量发送完全一致**（Markdown 逐条「## 资产名｜状态名」标题 + 提示词正文），回填时只解析这一条。
  * model 允许为空（仅拼装不调模型）。
  */
 export function buildSingleAssetPrompt(options: {
@@ -190,7 +191,7 @@ ${ASSET_PROMPT_FORMAT}`
 
 /**
  * 单条生成/重写执行：调用 LLM 并回填那一条的提示词正文。
- * 返回格式与批量一致，所以这里同样过解析器（单目标，只解析一条）——把「【资产名｜状态名】」
+ * 返回格式与批量一致，所以这里同样过解析器（单目标，只解析一条）——把「## 资产名｜状态名」
  * 包装剥掉，写回资产的是干净正文；模型完全没按格式返回时退化为整段正文，不让格式细节把结果丢掉。
  */
 export async function rewriteAssetPrompt(options: {

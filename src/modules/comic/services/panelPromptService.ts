@@ -34,8 +34,6 @@ export function buildPrevPanelsContext(entries: PrevPanelContextEntry[]): string
   }).join('\n\n')
 }
 
-const typeLabel: Record<string, string> = { character: '人物', scene: '场景', prop: '道具' }
-
 /** 解析绑定对应的资产与视觉状态（生图参考图也按同一口径实时解析）。 */
 export function resolvePanelBindings(panel: LongProjectStoryboardPanel, assets: LongProjectAsset[]): Array<{ asset: LongProjectAsset; variant: LongProjectAsset['variants'][number]; binding: LongProjectStoryboardAssetBinding }> {
   const result: Array<{ asset: LongProjectAsset; variant: LongProjectAsset['variants'][number]; binding: LongProjectStoryboardAssetBinding }> = []
@@ -50,19 +48,34 @@ export function resolvePanelBindings(panel: LongProjectStoryboardPanel, assets: 
 }
 
 /**
+ * 视觉状态的**有效参考图列表** —— 采纳图（`referenceImageIds`）优先；没有采纳图时
+ * 回落到工作台已生成的暂存图（`generatedImageIds`）。用户口径：资产生成的图就是参考图，
+ * 不应因为「没点采纳」就在分镜里显示无参考图。
+ *
+ * 分镜缩略图候选、取图（`resolvePanelRefImage`）统一走这里，保证展示与生图同一口径。
+ */
+export function effectiveVariantRefImages(
+  variant: Pick<LongProjectAsset['variants'][number], 'referenceImageIds' | 'generatedImageIds'>,
+): string[] {
+  const adopted = variant.referenceImageIds ?? []
+  if (adopted.length) return adopted
+  return variant.generatedImageIds ?? []
+}
+
+/**
  * 本镜实际使用的参考图 —— **单选口径，全项目唯一实现**。
- * 1. 分镜手动选过 `selectedImageIds[0]`，且该图仍存在于该视觉状态里 → 用它；
- * 2. 否则（从未选过 / 选中的图已被删除）→ 用该视觉状态的**第一张**；
- * 3. 该状态没有任何参考图 → `undefined`（生图不带此资产的参考图，UI 提示「无参考图」）。
+ * 1. 分镜手动选过 `selectedImageIds[0]`，且该图仍存在于该视觉状态的有效参考图里 → 用它；
+ * 2. 否则（从未选过 / 选中的图已被删除）→ 用有效参考图的**第一张**（采纳图为空时即生成图第一张）；
+ * 3. 该状态没有任何采纳图与生成图 → `undefined`（生图不带此资产的参考图，UI 提示「无参考图」）。
  *
  * 分镜页取图、资产工作台「N 镜在用」角标、资产卡图片标记三处必须共用此函数，
  * 否则会出现「标了在用其实没用」或「用了却没标」的口径漂移。
  */
 export function resolvePanelRefImage(
-  variant: Pick<LongProjectAsset['variants'][number], 'referenceImageIds'>,
+  variant: Pick<LongProjectAsset['variants'][number], 'referenceImageIds' | 'generatedImageIds'>,
   binding: Pick<LongProjectStoryboardAssetBinding, 'selectedImageIds'>,
 ): string | undefined {
-  const images = variant.referenceImageIds ?? []
+  const images = effectiveVariantRefImages(variant)
   if (!images.length) return undefined
   const picked = binding.selectedImageIds?.[0]
   return picked && images.includes(picked) ? picked : images[0]
@@ -104,7 +117,7 @@ export interface PanelAssetStateEntry {
 }
 
 /**
- * 镜内资产状态展开（页级 ∪ 格级，生图参考图与画面描述共用）：
+ * 镜内资产状态展开（页级 ∪ 格级，生图参考图与工作台引用统计共用）：
  * - 以页级 `resolvePanelBindings` 为资产清单基座；
  * - 每个资产收集格级声明的状态（按格序，同状态多格合并 cellIndexes），每个状态一条目；
  * - 无任何可信格级声明的资产退化为页级绑定状态（cellIndexes: []）；
@@ -129,40 +142,6 @@ export function resolvePanelAssetStates(panel: LongProjectStoryboardPanel, asset
       binding: entry.variant.id === binding.visualVersionId ? binding : undefined,
     }))
   })
-}
-
-/**
- * 资产视觉设定文本：绑定资产的视觉状态 + 绘画提示词 + 固定特征。
- * 单状态资产保持单行格式；镜内多状态（同资产不同格）时按格标注各状态。
- */
-export function buildPanelAssetsContext(panel: LongProjectStoryboardPanel, assets: LongProjectAsset[]): string {
-  const grouped = new Map<string, { asset: LongProjectAsset; entries: PanelAssetStateEntry[] }>()
-  for (const entry of resolvePanelAssetStates(panel, assets)) {
-    const group = grouped.get(entry.asset.id) ?? { asset: entry.asset, entries: [] }
-    group.entries.push(entry)
-    grouped.set(entry.asset.id, group)
-  }
-  if (!grouped.size) return '本分镜无绑定资产。'
-  return [...grouped.values()].map(({ asset, entries }) => {
-    const head = `- ${asset.name}（${typeLabel[asset.type] ?? asset.type}）`
-    const traitText = asset.fixedTraits.length ? `固定特征：${asset.fixedTraits.join('、')}` : ''
-    const detailOf = (variant: LongProjectAsset['variants'][number]) => [
-      variant.description ? `视觉描述：${variant.description}` : '',
-      variant.imagePrompt ? `绘画提示词：${variant.imagePrompt}` : '',
-    ].filter(Boolean).join('；')
-    if (entries.length === 1) {
-      const { variant } = entries[0]
-      const parts = [`视觉状态：${variant.name}`, detailOf(variant)].filter(Boolean)
-      return [head, parts.join('；'), traitText].filter(Boolean).join('｜')
-    }
-    // 多状态：各格状态分行标注（cellIndexes 空的条目标注"整镜"）
-    const lines = entries.map(({ variant, cellIndexes }) => {
-      const cellText = cellIndexes.length ? `（第${cellIndexes.map((index) => index + 1).join('、')}格）` : '（整镜）'
-      const parts = [`${variant.name}${cellText}`, detailOf(variant)].filter(Boolean)
-      return `  · ${parts.join('；')}`
-    })
-    return [head, ...lines, traitText ? `  · ${traitText}` : ''].filter(Boolean).join('\n')
-  }).join('\n')
 }
 
 /**
@@ -216,11 +195,12 @@ export function buildPanelInfoText(panel: LongProjectStoryboardPanel): string {
  * 拼装**逐镜**推导提示词（panel-prompt）。
  *
  * 变量：{{参考图清单}} / {{当前分镜}} / {{镜头}} / {{前文分镜}} / {{本章分镜概要}} /
- * {{绑定资产}} / {{目标生图模型}}；
+ * {{目标生图模型}}；
  * 是否进入提示词完全由模板决定——模板没写的变量不会出现（无自动追加兜底）。
  *
  * **不含共用属性**：共用属性只由 `composeFinalPrompt` 在生图时拼到描述前后，
- * 既不进模型输入也不进 `imagePrompt` 字段。
+ * 既不进模型输入也不进 `imagePrompt` 字段。也**不含资产视觉设定**：
+ * 资产外观由参考图清单（图号）承载，模型照图号引用参考图即可。
  *
  * 本环节逐镜单独调用、返回纯文本，**结果不需要解析**（返回格式约定写在模板内容里）。
  *
@@ -232,7 +212,6 @@ export function buildPanelPromptPrompt(options: {
   panel: LongProjectStoryboardPanel
   chapterOutline: string
   prevEntries: PrevPanelContextEntry[]
-  assets: LongProjectAsset[]
   refManifestText?: string
   targetImageModel?: string
 }): string {
@@ -246,7 +225,6 @@ export function buildPanelPromptPrompt(options: {
       镜头: panel.shot ?? '',
       前文分镜: buildPrevPanelsContext(options.prevEntries),
       本章分镜概要: options.chapterOutline,
-      绑定资产: buildPanelAssetsContext(panel, options.assets),
       目标生图模型: options.targetImageModel ?? '',
     },
   })
@@ -257,30 +235,25 @@ export function buildPanelPromptPrompt(options: {
  *
  * 与逐镜模板的差异（这是两个模板类型，不是同一个）：
  * - `{{当前分镜}}` → `{{全章分镜}}`（全章所有镜，一次交给模型）；
- * - `{{绑定资产}}` → `{{全章资产设定}}`（按「分镜N」逐镜分组）；
  * - 新增 `{{全章参考图清单}}`（按镜分组，图号与生图实际顺序一致）；
  * - **不需要** `{{镜头}}` / `{{前文分镜}}` / `{{本章分镜概要}}`：全章分镜原文里已经包含全部镜头与上下文。
  *
- * 与逐镜模板一致：**不含共用属性**（生图时才前后拼接）。
+ * 与逐镜模板一致：**不含共用属性**（生图时才前后拼接），也**不含资产视觉设定**（参考图清单承载资产外观）。
  */
 export function buildChapterPanelPromptPrompt(options: {
   templateContent: string
   panels: LongProjectStoryboardPanel[]
-  assets: LongProjectAsset[]
   /** panelId → 该镜资产参考图清单文本（由 buildRefManifestText(..., { assetsOnly: true }) 生成）。 */
   refManifestTexts: Map<string, string>
   targetImageModel?: string
 }): string {
   const { panels } = options
-  const section = (build: (panel: LongProjectStoryboardPanel) => string) =>
-    panels.map((panel) => `【分镜${panel.order}】\n${build(panel)}`).join('\n\n')
   return renderPromptTemplate({
     type: 'panel-prompt-chapter',
     content: options.templateContent,
     values: {
       全章分镜: panels.map((panel) => buildPanelInfoText(panel)).join('\n\n'),
-      全章资产设定: section((panel) => buildPanelAssetsContext(panel, options.assets)),
-      全章参考图清单: section((panel) => options.refManifestTexts.get(panel.id) || '（本镜没有资产参考图）'),
+      全章参考图清单: panels.map((panel) => `## 分镜 ${panel.order}\n${options.refManifestTexts.get(panel.id) || '（本镜没有资产参考图）'}`).join('\n\n'),
       目标生图模型: options.targetImageModel ?? '',
     },
   })
@@ -290,16 +263,17 @@ export function buildChapterPanelPromptPrompt(options: {
 export interface ChapterPromptParseResult {
   /** 成功对位的条目。 */
   entries: Array<{ panelId: string; order: number; prompt: string }>
-  /** 对位方式：按【分镜N】标记 / 按顺序兜底。 */
+  /** 对位方式：按分镜标记（## 分镜 N） / 按顺序兜底。 */
   mode: 'marked' | 'sequential'
   /** 未在输出中找到段落的镜序号（仅 marked 模式可能非空）。 */
   missingOrders: number[]
 }
 
 /**
- * 解析「整章一次生成」的输出：按 `【分镜N】` 分段对位到各分镜。
+ * 解析「整章一次生成」的输出：按 `## 分镜 N` 标题分段对位到各分镜。
  *
- * 容错：标记形态放宽为 `【分镜3】` / `【第3镜】` / `## 分镜3`；
+ * 容错：标记形态放宽为 `## 分镜3` / `【分镜3】` / `【第3镜】`；
+ * **`第N格` 不算分镜标记**（那是每镜内部的格小节标题，绝不能用来分段）；
  * 完全没有标记时退化为「按空行分段、按顺序对位」（`mode: 'sequential'`，UI 应提示用户核对）。
  */
 export function parseChapterPanelPrompts(
@@ -307,11 +281,11 @@ export function parseChapterPanelPrompts(
   panels: Array<Pick<LongProjectStoryboardPanel, 'id' | 'order'>>,
 ): ChapterPromptParseResult {
   const ordered = [...panels].sort((a, b) => a.order - b.order)
-  const pattern = /(?:^|\n)\s*(?:#{1,6}\s*)?[【\[]?\s*(?:分镜|第)\s*(\d+)\s*(?:镜|格)?\s*[】\]]?\s*[:：]?\s*/g
+  const pattern = /(?:^|\n)\s*(?:#{1,6}\s*)?[【\[]?\s*(?:分镜\s*(\d+)|第\s*(\d+)\s*镜)\s*[】\]]?\s*[:：]?\s*/g
   const marks: Array<{ order: number; start: number; end: number }> = []
   for (const match of text.matchAll(pattern)) {
     const index = match.index ?? 0
-    marks.push({ order: Number(match[1]), start: index, end: index + match[0].length })
+    marks.push({ order: Number(match[1] ?? match[2]), start: index, end: index + match[0].length })
   }
   if (marks.length) {
     const entries: ChapterPromptParseResult['entries'] = []

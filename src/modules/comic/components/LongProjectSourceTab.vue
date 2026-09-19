@@ -73,8 +73,7 @@
         <div v-else class="flex h-full flex-col items-center justify-center text-center">
           <ScanText :size="26" class="text-text-muted" />
           <h3 class="mt-3 text-sm font-medium text-text-primary">尚未生成分析</h3>
-          <p class="mt-2 max-w-sm text-xs leading-5 text-text-secondary">录入原文后，在顶部页签行右侧选择模型与提示词模板执行「分析原文」，梳理本章人物、场景、道具、事件与时间线，作为后续剧本、分镜与资产提取的依据。</p>
-          <button class="mt-4 secondary-button h-8 px-3 text-xs" @click="emit('import-analysis')"><ClipboardPaste :size="14" />手动写入分析结果</button>
+          <p class="mt-2 max-w-sm text-xs leading-5 text-text-secondary">录入原文后，在顶部页签行右侧选择模型与提示词模板执行「分析原文」，梳理本章人物、场景、道具、事件与时间线，作为后续剧本、分镜与资产提取的依据。也可在执行栏「发送前确认」弹窗内复制提示词到外部 AI，再把结果导入进来。</p>
         </div>
       </div>
     </section>
@@ -88,7 +87,7 @@
  * 分析结果可编辑，编辑内容实时回传父级持久化。
  */
 import { computed, ref, watch } from "vue";
-import { AlignJustify, ClipboardPaste, Ellipsis, Eraser, ListX, LoaderCircle, Pencil, Rows3, ScanText, TextAlignStart, Undo2 } from "lucide-vue-next";
+import { AlignJustify, Ellipsis, Eraser, ListX, LoaderCircle, Pencil, Rows3, ScanText, TextAlignStart, Undo2 } from "lucide-vue-next";
 import MarkdownView from "@comic/components/common/MarkdownView.vue";
 import type { LongProjectChapterDoc } from "@comic/types";
 
@@ -106,7 +105,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "update:draft", value: string): void;
   (e: "save-analysis", content: string): void;
-  (e: "import-analysis"): void;
 }>();
 
 // ========== 文本整理工具栏（撤销栈本地持有） ==========

@@ -39,6 +39,20 @@ const ASSET_TYPE_USAGE: Record<LongProjectAssetType, string> = {
   prop: '仅用于道具外观与材质',
 }
 
+/** assetsOnly 清单（画面描述「资产参考图」小节）用：资产类型的参考词。 */
+const ASSET_TYPE_REF_NOUN: Record<LongProjectAssetType, string> = {
+  character: '角色参考',
+  scene: '场景参考',
+  prop: '道具参考',
+}
+
+/** assetsOnly 清单用：资产类型的用途核心句（场景/道具前会按格号拼接「仅用于第N格的」）。 */
+const ASSET_TYPE_USAGE_CORE: Record<LongProjectAssetType, string> = {
+  character: '仅用于人物身份、脸部、发型、服装和外貌特征',
+  scene: '环境和空间布局',
+  prop: '道具外观与材质',
+}
+
 /** 共用属性图的用途声明。 */
 const SHARED_USAGE = '仅用于该属性描述所述的用途'
 
@@ -118,15 +132,21 @@ export function buildPanelRefManifest(args: {
 /**
  * 清单 → 提示词文本：逐图声明「图N = 谁、用于什么」。
  *
- * 形如：
+ * 完整清单（assetsOnly=false）形如：
  * ```
  * 图3 = 萧薰儿 · 战斗服（人物，第1-2格；仅用于人物身份、脸部、发型、服装与外貌特征）
  * ```
  *
- * 原则是**序号由代码算，语义由模型写**：模型只负责「使用图3保持萧薰儿与第1格一致」，
- * 绝不允许模型自己数图号。
+ * assetsOnly（推导画面描述专用）行版式 = 画面描述输出「资产参考图」小节的**目标版式**：
+ * ```
+ * 图4 = 萧薰儿（战斗服）角色参考，仅用于人物身份、脸部、发型、服装和外貌特征。
+ * 图5 = 萧家测试广场（白天）场景参考，仅用于第1格的环境和空间布局。
+ * ```
+ * 模型只负责把本镜用到的行**照抄**进输出（可按格微调用途句），图号永不自己编。
  *
- * `options.assetsOnly`（推导提示词专用）：只列**资产**参考图，共用属性图只留占位说明。
+ * 原则是**序号由代码算，语义由模型写**：绝不允许模型自己数图号。
+ *
+ * `options.assetsOnly`：只列**资产**参考图，共用属性图只留占位说明。
  * 画面描述环节不需要看到共用属性（它由 `composeFinalPrompt` 在生成后拼到描述之外），
  * 但图号必须保持生图时的真实序号，否则模型写的「图3」会对不上真正传进去的第三张图。
  */
@@ -141,9 +161,21 @@ export function buildRefManifestText(
       return `图${entry.index} = ${entry.label}（共用属性，${SHARED_USAGE}）`
     }
     const type = entry.assetType ?? 'prop'
-    const cellText = entry.cellIndexes?.length ? `第${entry.cellIndexes.map((index) => index + 1).join('、')}格` : '整镜'
-    const variantText = entry.variantName ? ` · ${entry.variantName}` : ''
-    return `图${entry.index} = ${entry.label}${variantText}（${ASSET_TYPE_LABEL[type]}，${cellText}；${ASSET_TYPE_USAGE[type]}）`
+    if (!options.assetsOnly) {
+      const cellText = entry.cellIndexes?.length ? `第${entry.cellIndexes.map((index) => index + 1).join('、')}格` : '整镜'
+      const variantText = entry.variantName ? ` · ${entry.variantName}` : ''
+      return `图${entry.index} = ${entry.label}${variantText}（${ASSET_TYPE_LABEL[type]}，${cellText}；${ASSET_TYPE_USAGE[type]}）`
+    }
+    // assetsOnly：行版式即输出「资产参考图」小节的目标版式（照抄即可）。人物是身份参考、全格生效，不写格号；
+    // 场景/道具写明格号范围（清单里确定性存有每个资产图出现的格），防生图模型把图用错格。
+    const variantText = entry.variantName ? `（${entry.variantName}）` : ''
+    const usage =
+      type === 'character'
+        ? ASSET_TYPE_USAGE_CORE.character
+        : entry.cellIndexes?.length
+          ? `仅用于第${entry.cellIndexes.map((index) => index + 1).join('、')}格的${ASSET_TYPE_USAGE_CORE[type]}`
+          : `仅用于${ASSET_TYPE_USAGE_CORE[type]}`
+    return `图${entry.index} = ${entry.label}${variantText}${ASSET_TYPE_REF_NOUN[type]}，${usage}。`
   })
   if (!options.assetsOnly) return lines.join('\n')
   const sharedNumbers = manifest.entries.filter((entry) => entry.source === 'shared').map((entry) => entry.index)

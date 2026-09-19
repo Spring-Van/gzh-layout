@@ -40,9 +40,9 @@
             <button class="secondary-button" @click="close">取消</button>
             <button
               class="primary-button h-9 px-4 text-xs"
-              :disabled="!canConfirm"
+              :disabled="!canConfirm || busy"
               @click="confirm"
-            >{{ parse ? '确认导入' : '保存' }}<ArrowRight :size="15" /></button>
+            ><LoaderCircle v-if="busy" :size="15" class="animate-spin" />{{ busy ? '导入中…' : parse ? '确认导入' : '保存' }}<ArrowRight v-if="!busy" :size="15" /></button>
           </div>
         </footer>
       </section>
@@ -69,8 +69,11 @@ const props = withDefaults(defineProps<{
   parse?: (content: string) => { title: string; items: string[] }
   /** 弹层层级：默认 z-50；在更高层容器（如资产全屏抽屉 z-[101]）内打开时需传入更高层级。 */
   zIndexClass?: string
+  /** 落库进行中：确认按钮转圈禁用，避免「点了没反应」的观感。 */
+  busy?: boolean
 }>(), {
   zIndexClass: 'z-50',
+  busy: false,
 })
 
 const emit = defineEmits<{

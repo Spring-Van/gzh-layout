@@ -116,7 +116,7 @@ describe('builder 关键行为（切换渲染引擎后）', () => {
       variant: variant({ description: '外观描述' }),
     });
     expect(prompt).toContain('【返回格式】');
-    expect(prompt).toContain('【资产名｜状态名】');
+    expect(prompt).toContain('## 资产名｜状态名');
   });
 
   it('分镜单页 AI 优化：携带本页页块文本与剧本上下文，并复用分镜输出协议', () => {
@@ -133,8 +133,8 @@ describe('builder 关键行为（切换渲染引擎后）', () => {
     expect(prompt).toContain('第一场 室内·夜：两方对峙');
     // 输出仍走页块协议（解析器据此回填格列表）
     expect(prompt).toContain('## 分镜 N');
-    expect(prompt).toContain('【第X格】');
-    expect(prompt).toContain('「字段名」：内容');
+    expect(prompt).toContain('### 第X格');
+    expect(prompt).toContain('- 字段名：内容');
     // 校正说明与新符号规则一致
     expect(prompt).toContain('「景别」');
     expect(prompt).toContain('说话人：“台词”');
@@ -156,24 +156,22 @@ describe('builder 关键行为（切换渲染引擎后）', () => {
       panel: panel as any,
       chapterOutline: '',
       prevEntries: [],
-      assets: [],
     });
     expect(prompt).toContain('分格详情：');
-    expect(prompt).toContain('【第1格】');
+    expect(prompt).toContain('### 第1格');
     expect(prompt).toContain('景别：近景');
     expect(prompt).toContain('镜头：从侧脸下摇至小臂');
     expect(prompt).toContain('人物：角色A');
     expect(prompt).toContain('动作：指节收紧');
     expect(prompt).toContain('表情：侧脸冷硬');
     expect(prompt).toContain('光效：暖黄顶灯');
-    expect(prompt).toContain('【第2格】');
+    expect(prompt).toContain('### 第2格');
     // 无 cells 的旧数据不出现分格详情，保持既有行为
     const legacy = buildPanelPromptPrompt({
       templateContent: '{{当前分镜}}',
       panel: { id: 'p2', order: 2, content: '两人对峙', assetBindings: [] } as any,
       chapterOutline: '',
       prevEntries: [],
-      assets: [],
     });
     expect(legacy).not.toContain('分格详情：');
   });

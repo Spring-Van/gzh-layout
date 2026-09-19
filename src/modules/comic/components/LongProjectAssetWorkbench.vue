@@ -86,7 +86,7 @@
             @update:prompt="(value) => updatePrompt(selectedItem!.asset, selectedVariant!, value)"
             @rewrite-prompt="(v) => openRewriteModal(selectedItem!.asset, v)"
             @generate="(v) => generateImage(selectedItem!.asset, v)"
-            @remove-gen-image="(payload) => removeGeneratedImage(selectedItem!.asset, payload)"
+            @remove-gen-image="(payload) => requestDeleteGeneratedImage(selectedItem!.asset, payload)"
             @remove-image="(payload) => removeImage(selectedItem!.asset, payload)"
             @add-image="(payload) => addImage(selectedItem!.asset, payload)"
             @pick-images="(v) => openAssetPicker(selectedItem!.asset, v)"
@@ -100,7 +100,7 @@
       </div>
     </div>
 
-    <!-- 批量提示词弹窗（配置 + 提示词区 + 进度条都在同一弹窗内） -->
+    <!-- 批量提示词弹窗（配置 + 提示词区 + 进度条都在同一弹窗内；始终全部重新生成） -->
     <AssetPromptGenerateModal
       ref="promptModalRef"
       v-model="promptModalVisible"
@@ -108,10 +108,7 @@
       :templates="assetPromptTemplates"
       :default-model-id="assetGenConfig?.promptModelId"
       :default-template-id="assetGenConfig?.promptTemplateId"
-      :target-count="promptTargetCount"
-      :missing-count="promptTargetCount"
-      :total-count="totalVariantCount"
-      allow-scope
+      :target-count="totalVariantCount"
       allow-send-mode
       :busy="promptBatchBusy"
       :build-prompt="buildPromptPreview"
@@ -119,6 +116,7 @@
       @confirm="runBatchPrompts"
       @retry="retryFailedPrompts"
       @save="savePromptResults"
+      @import-request="promptImportVisible = true"
     />
 
     <!-- 单条提示词确认弹窗 -->
@@ -132,6 +130,17 @@
       :busy="rewriteBusy"
       :build-prompt="buildRewritePreview"
       @confirm="runRewritePrompt"
+    />
+
+    <!-- 外部 AI 代跑结果导入（一次性发送）：与内置模型同一解析器、同一核对/填充流程 -->
+    <ManualResultImportDialog
+      :visible="promptImportVisible"
+      title="导入外部 AI 生成的绘画提示词"
+      placeholder="粘贴外部 AI 按清单生成的结果，格式为逐条「## 资产名｜状态名」标题 + 提示词正文…"
+      z-index-class="z-[140]"
+      :parse="parsePromptImportPreview"
+      @confirm="confirmPromptImport"
+      @close="promptImportVisible = false"
     />
 
     <!-- 生图配置抽屉 -->
@@ -150,7 +159,7 @@
       :images="previewImages"
       :image-index="previewIndex"
       :alt="previewAlt"
-      @remove="removePreviewImage"
+      @remove="requestRemovePreviewImage"
     />
 
     <!-- 资产图选择弹窗：从资产库勾选图片追加为参考图 -->
@@ -160,6 +169,16 @@
       append
       include-generated
       @confirm="appendAssetImages"
+    />
+
+    <!-- 删除生成图确认（z-[210] 压过大图预览 z-[200]，预览内删除时可见） -->
+    <ConfirmDialog
+      v-model="deleteConfirmVisible"
+      title="删除这张生成图"
+      :content="deleteConfirmContent"
+      confirm-text="确认删除"
+      z-index-class="z-[210]"
+      @confirm="confirmDeleteImage"
     />
   </div>
 </template>
@@ -173,14 +192,16 @@
 import { computed, nextTick, reactive, ref, toRaw, watch } from 'vue'
 import { Boxes, Eraser, LoaderCircle, MapPin, Package, UserRound } from 'lucide-vue-next'
 import AssetVariantCard from './AssetVariantCard.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
 import AssetPromptGenerateModal, { type AssetPromptRetryPayload, type AssetPromptRunItem, type AssetPromptRunResult } from './AssetPromptGenerateModal.vue'
+import ManualResultImportDialog from './common/ManualResultImportDialog.vue'
 import AssetImageGenDrawer from './AssetImageGenDrawer.vue'
 import AssetImagePreviewModal from './AssetImagePreviewModal.vue'
 import AssetImagePickerModal from './AssetImagePickerModal.vue'
 import { useToast } from '@comic/composables/useToast'
 import { imageGenerationService } from '@comic/services/imageGenerationService'
-import { buildAssetPromptPrompt, buildSingleAssetPrompt, buildStyleContext, generateAssetPrompts, rewriteAssetPrompt, type AssetPromptTarget } from '@comic/services/assetPromptService'
-import { AssetPromptParseError, type AssetPromptParseDiagnostics } from '@comic/services/assetPromptParser'
+import { buildAssetPromptPrompt, buildSingleAssetPrompt, buildStyleContext, buildTargetList, generateAssetPrompts, rewriteAssetPrompt, type AssetPromptTarget } from '@comic/services/assetPromptService'
+import { AssetPromptParseError, describeParseFailure, parseAssetPromptResponse, type AssetPromptParseDiagnostics } from '@comic/services/assetPromptParser'
 import type { AssetUsageIndex } from '@comic/services/assetUsageService'
 import type { AssetGenConfig, LongProjectAsset, LongProjectAssetVariant, ModelConfig, PromptTemplate, SharedPromptBlock } from '@comic/types'
 
@@ -275,16 +296,11 @@ const styleContext = computed(() => buildStyleContext(props.sharedBlocks ?? [], 
 const currentImageModel = computed(() => props.imageModels.find((m) => m.id === props.assetGenConfig?.imageModelId))
 /** 资产图选择弹窗数据源：项目全部资产。 */
 const pickerAssets = computed(() => props.allAssets ?? props.assets)
-/** 提示词生成目标（仅缺提示词的状态）：默认「仅补缺失」。 */
-const promptTargets = computed<AssetPromptTarget[]>(() => props.assets
-  .map((asset) => ({ asset, variants: asset.variants.filter((v) => !v.imagePrompt?.trim()) }))
-  .filter((item) => item.variants.length))
-/** 全部状态目标：用于「全部重新生成」（覆盖已有提示词）。 */
+/** 提示词生成目标：全部视觉状态（批量始终全部重新生成，覆盖已有提示词）。 */
 const allPromptTargets = computed<AssetPromptTarget[]>(() => props.assets
   .map((asset) => ({ asset, variants: asset.variants }))
   .filter((item) => item.variants.length))
 const totalVariantCount = computed(() => allPromptTargets.value.reduce((count, item) => count + item.variants.length, 0))
-const promptTargetCount = computed(() => promptTargets.value.reduce((count, item) => count + item.variants.length, 0))
 /** 有可生成目标：本章存在任一视觉状态即可（含全部重写场景），不再因「都有提示词」而禁用。 */
 const hasPromptTargets = computed(() => totalVariantCount.value > 0)
 /** 生图目标：有提示词但还没有生成图的状态。 */
@@ -294,12 +310,11 @@ const genTargets = computed(() => props.assets.flatMap((asset) => asset.variants
 const hasGenTargets = computed(() => genTargets.value.length > 0)
 
 // ========== 提示词 ==========
-/** 构建批量提示词生成用的最终 prompt（供弹窗预览，按所选范围/发送方式取目标；只按模板内容拼）。 */
-function buildPromptPreview(template: PromptTemplate, scope?: 'missing' | 'all', sendMode?: 'once' | 'per-item'): string {
-  const targets = scope === 'all' ? allPromptTargets.value : promptTargets.value
+/** 构建批量提示词生成用的最终 prompt（供弹窗预览，按所选发送方式取形态；只按模板内容拼）。 */
+function buildPromptPreview(template: PromptTemplate, sendMode?: 'once' | 'per-item'): string {
   // 逐条发送：预览首个目标的单条拼装提示词（结果直接取全文回填，不解析）
   if (sendMode === 'per-item') {
-    const first = targets.flatMap(({ asset, variants }) => variants.map((variant) => ({ asset, variant })))[0]
+    const first = allPromptTargets.value.flatMap(({ asset, variants }) => variants.map((variant) => ({ asset, variant })))[0]
     if (!first) return ''
     return buildSingleAssetPrompt({
       asset: toRaw(first.asset),
@@ -313,7 +328,7 @@ function buildPromptPreview(template: PromptTemplate, scope?: 'missing' | 'all',
   // 一次性发送：返回格式约定写在模板内容里（见模板的【返回格式】段）
   return buildAssetPromptPrompt({
     templateContent: template.content,
-    targets: targets.map(({ asset, variants }) => ({ asset: toRaw(asset), variants: variants.map(toRaw) })),
+    targets: allPromptTargets.value.map(({ asset, variants }) => ({ asset: toRaw(asset), variants: variants.map(toRaw) })),
     styleContext: styleContext.value,
     targetImageModel: currentImageModel.value?.name,
   })
@@ -321,7 +336,7 @@ function buildPromptPreview(template: PromptTemplate, scope?: 'missing' | 'all',
 
 // ========== 批量提示词：规划 → 执行（弹窗内进度） → 保存回填 ==========
 
-type BatchPromptOptions = { modelId: string; templateId: string; prompt?: string; scope?: 'missing' | 'all'; sendMode?: 'once' | 'per-item' }
+type BatchPromptOptions = { modelId: string; templateId: string; prompt?: string; sendMode?: 'once' | 'per-item' }
 
 /** 批量弹窗实例（用于把逐条执行进度回传到弹窗内的进度视图）。 */
 const promptModalRef = ref<InstanceType<typeof AssetPromptGenerateModal> | null>(null)
@@ -352,9 +367,8 @@ function reportItemProgress(variantId: string, status: 'running' | 'done' | 'fai
  * 逐条模式的条目清单（含每条按模板拼装的初始文本）：供给弹窗展示与逐条修改。
  * 用户改过的文本会随 confirm 的 perItemPrompts 回传，执行时原样发送。
  */
-function buildPromptItems(template: PromptTemplate, scope?: 'missing' | 'all'): Array<AssetPromptRunItem & { prompt: string }> {
-  const targets = scope === 'all' ? allPromptTargets.value : promptTargets.value
-  return targets.flatMap(({ asset, variants }) => variants.map((variant) => ({
+function buildPromptItems(template: PromptTemplate): Array<AssetPromptRunItem & { prompt: string }> {
+  return allPromptTargets.value.flatMap(({ asset, variants }) => variants.map((variant) => ({
     key: batchItemKey(asset.id, variant.id),
     assetId: asset.id,
     variantId: variant.id,
@@ -425,7 +439,7 @@ async function runPerItemPrompts(
 
 /**
  * 生成提示词（弹窗内确认后执行，弹窗保持打开，进度显示在弹窗文本框下方）。
- * - 范围：仅补缺失 / 全部重新生成；
+ * - 范围：始终全部视觉状态（覆盖已有提示词）；
  * - 发送方式：一次性（全部状态一份清单一次请求）/ 逐条（每个状态单独请求，失败不中断，文本取弹窗内已修改的每条）；
  * - **两种方式都不自动落库**：结果只回传到弹窗，等用户核对后点「填充到资产」才回填（见 savePromptResults）。
  */
@@ -433,9 +447,9 @@ async function runBatchPrompts(options: BatchPromptOptions & { perItemPrompts?: 
   const context = resolveBatchContext(options)
   if (!context) return
   const sendMode = options.sendMode === 'per-item' ? 'per-item' : 'once'
-  const targets = options.scope === 'all' ? allPromptTargets.value : promptTargets.value
+  const targets = allPromptTargets.value
   if (!targets.length) {
-    toast.error(options.scope === 'all' ? '本章暂无视觉状态' : '所有状态都已有提示词，可切换为「全部重新生成」')
+    toast.error('本章暂无视觉状态')
     batchRuns[sendMode] = null
     return
   }
@@ -592,6 +606,59 @@ function saveGenConfigSelection(options: BatchPromptOptions) {
   emit('update:gen-config', { ...(props.assetGenConfig ?? defaultGenConfig()), promptModelId: options.modelId, promptTemplateId: options.templateId })
 }
 
+// ========== 外部 AI 代跑（仅一次性发送）：复制提示词 → 外部生成 → 导入解析回填 ==========
+
+const promptImportVisible = ref(false)
+
+/** 解析外部 AI 返回的逐条提示词：与内置批量共用同一目标清单与同一解析器。 */
+function parseImportedAssetPrompts(content: string) {
+  const { index, ordered } = buildTargetList(allPromptTargets.value)
+  const { items, diagnostics } = parseAssetPromptResponse(content, { index, ordered })
+  if (!items.length) throw new Error(describeParseFailure(diagnostics))
+  return items
+}
+
+/** 导入解析预览（ManualResultImportDialog 的 parse 回调）。 */
+function parsePromptImportPreview(content: string) {
+  const items = parseImportedAssetPrompts(content)
+  return {
+    title: `解析到 ${items.length} 条提示词`,
+    items: items.map((item) => `${item.assetName} · ${item.variantName}：${item.imagePrompt.slice(0, 40)}${item.imagePrompt.length > 40 ? '…' : ''}`),
+  }
+}
+
+/**
+ * 确认导入：解析结果按「一次性发送」回执写入弹窗（与内置模型返回同一口径），
+ * 结果只留在弹窗内，等用户核对后点「填充到资产」才写回。
+ * 同时补记执行上下文（模型/模板取项目默认配置），让导入后也能用「重新生成」走内置模型。
+ */
+function confirmPromptImport(content: string) {
+  const items = parseImportedAssetPrompts(content)
+  if (!batchRuns.once) {
+    const model = props.llmModels.find((m) => m.id === props.assetGenConfig?.promptModelId) ?? props.llmModels[0]
+    const template = assetPromptTemplates.value.find((t) => t.id === props.assetGenConfig?.promptTemplateId) ?? assetPromptTemplates.value[0]
+    if (model && template) batchRuns.once = { model, template, targets: allPromptTargets.value }
+  }
+  reportItemProgress('batch-once', 'done', {
+    items: items.map((item) => ({
+      assetId: item.assetId,
+      variantId: item.variantId,
+      assetName: item.assetName,
+      variantName: item.variantName,
+      imagePrompt: item.imagePrompt,
+      // 非精确命中（模糊匹配 / 顺序兜底）在弹窗里标出来，提醒用户核对归属
+      match: item.match,
+    })),
+  })
+  emit('prompt-completed')
+  const expected = totalVariantCount.value
+  if (items.length < expected) {
+    toast.warning(`已导入 ${items.length} 条，有 ${expected - items.length} 个状态未返回（已在弹窗内标出，可修改后再次导入或单条 AI 重写）`)
+  } else {
+    toast.success(`已导入 ${items.length} 条提示词，请核对后点「填充到资产」写回`)
+  }
+}
+
 // ========== 单条提示词（确认弹窗） ==========
 const rewriteModalVisible = ref(false)
 const rewriteBusy = ref(false)
@@ -732,6 +799,66 @@ function defaultGenConfig(): AssetGenConfig {
 }
 
 // ========== 参考图与生成预览管理 ==========
+
+/** 删除确认弹窗状态：生成图删除一律先确认（卡片右上角叉 / 大图预览内删除两个入口）。 */
+const deleteConfirmVisible = ref(false)
+const deleteTarget = ref<{ asset: LongProjectAsset; variant: LongProjectAssetVariant; index: number; source: 'generated' | 'reference' } | null>(null)
+const deleteConfirmContent = computed(() => {
+  if (!deleteTarget.value) return ''
+  const kind = deleteTarget.value.source === 'generated' ? '生成图' : '参考图'
+  return `将删除「${deleteTarget.value.asset.name} · ${deleteTarget.value.variant.name}」的一张${kind}，删除后无法恢复，是否确认？`
+})
+
+/** 卡片「生成预览」右上角叉：先确认再删除。 */
+function requestDeleteGeneratedImage(asset: LongProjectAsset, payload: { variant: LongProjectAssetVariant; index: number }) {
+  deleteTarget.value = { asset, variant: payload.variant, index: payload.index, source: 'generated' }
+  deleteConfirmVisible.value = true
+}
+
+/** 大图预览内删除：生成图先确认；参考图维持原行为（用户自己上传的，删除可逆感知低）。 */
+function requestRemovePreviewImage(index: number) {
+  const image = previewImages.value[index]
+  const found = image ? findImageOwner(image) : null
+  if (!found) return
+  if (found.source === 'generated') {
+    deleteTarget.value = { asset: found.asset, variant: found.variant, index: (found.variant.generatedImageIds ?? []).indexOf(image), source: 'generated' }
+    deleteConfirmVisible.value = true
+    return
+  }
+  executeDelete({ asset: found.asset, variant: found.variant, index: found.variant.referenceImageIds.indexOf(image), source: 'reference' })
+  shrinkPreviewAfterDelete(index)
+}
+
+/** 确认删除：真正执行落库。 */
+function confirmDeleteImage() {
+  const target = deleteTarget.value
+  if (!target) return
+  const image = target.source === 'generated' ? target.variant.generatedImageIds?.[target.index] : target.variant.referenceImageIds[target.index]
+  executeDelete(target)
+  if (image) {
+    const previewIndexAt = previewImages.value.indexOf(image)
+    if (previewIndexAt >= 0) shrinkPreviewAfterDelete(previewIndexAt)
+  }
+  deleteTarget.value = null
+}
+
+/** 执行删除落库（update:asset 由父级走 read-modify-write 持久化）。 */
+function executeDelete(target: { asset: LongProjectAsset; variant: LongProjectAssetVariant; index: number; source: 'generated' | 'reference' }) {
+  if (target.source === 'generated') {
+    removeGeneratedImage(target.asset, { variant: target.variant, index: target.index })
+  } else {
+    removeImage(target.asset, { variant: target.variant, index: target.index })
+  }
+}
+
+/** 预览数组同步收缩，避免显示已删除的图。 */
+function shrinkPreviewAfterDelete(index: number) {
+  previewImages.value = previewImages.value.filter((_, i) => i !== index)
+  if (previewIndex.value >= previewImages.value.length) {
+    previewIndex.value = Math.max(0, previewImages.value.length - 1)
+  }
+}
+
 function removeGeneratedImage(asset: LongProjectAsset, payload: { variant: LongProjectAssetVariant; index: number }) {
   const next = (payload.variant.generatedImageIds ?? []).filter((_, index) => index !== payload.index)
   emit('update:asset', { assetId: asset.id, variantId: payload.variant.id, patch: { generatedImageIds: next } })
@@ -770,19 +897,6 @@ function previewImageAlt(): string {
   const found = image ? findImageOwner(image) : null
   if (!found) return '图片'
   return `${found.asset.name} · ${found.variant.name} · ${found.source === 'generated' ? '生成图' : '参考图'}`
-}
-
-function removePreviewImage(index: number) {
-  const image = previewImages.value[index]
-  const found = image ? findImageOwner(image) : null
-  if (!found) return
-  if (found.source === 'generated') {
-    removeGeneratedImage(found.asset, { variant: found.variant, index: (found.variant.generatedImageIds ?? []).indexOf(image) })
-  } else {
-    removeImage(found.asset, { variant: found.variant, index: found.variant.referenceImageIds.indexOf(image) })
-  }
-  previewImages.value = previewImages.value.filter((_, i) => i !== index)
-  if (previewIndex.value >= previewImages.value.length) previewIndex.value = Math.max(0, previewImages.value.length - 1)
 }
 
 // ========== 资产图选择（追加为参考图） ==========

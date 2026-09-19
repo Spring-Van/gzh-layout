@@ -73,7 +73,6 @@
           <p class="mt-2 max-w-sm text-xs leading-5 text-text-secondary">{{ scriptOnly ? "按场景组织剧情、人物、动作、情绪、对白与剧情目的，供分镜生成使用。" : "基于章节原文与原文分析，把这一章改编成按场景组织的漫画剧本（剧情、人物、动作、情绪、对白、剧情目的），供分镜生成使用。" }}</p>
           <div class="mt-4 flex gap-2">
             <button class="secondary-button h-8 px-3 text-xs" @click="startHandwriting"><Pencil :size="14" />直接编写</button>
-            <button class="secondary-button h-8 px-3 text-xs" @click="emit('import-script')"><ClipboardPaste :size="14" />手动写入剧本结果</button>
           </div>
         </div>
       </div>
@@ -89,7 +88,7 @@
  * 执行栏由主页面渲染在页签行右侧。
  */
 import { ref, watch } from "vue";
-import { ClipboardPaste, FileText, LoaderCircle, Pencil, ScrollText, TriangleAlert } from "lucide-vue-next";
+import { FileText, LoaderCircle, Pencil, ScrollText, TriangleAlert } from "lucide-vue-next";
 import MarkdownView from "@comic/components/common/MarkdownView.vue";
 import type { LongProjectChapterDoc } from "@comic/types";
 
@@ -108,7 +107,6 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (e: "save-script", content: string): void;
-  (e: "import-script"): void;
 }>();
 
 /** 字数统计（去空白字符）。 */

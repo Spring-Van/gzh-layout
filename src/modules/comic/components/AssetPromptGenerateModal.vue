@@ -13,7 +13,7 @@
           </header>
 
           <div class="flex min-h-0 flex-1 flex-col overflow-hidden p-5">
-            <!-- ===== 上方：模型 / 模板 / 范围 / 发送方式 ===== -->
+            <!-- ===== 上方：模型 / 模板 / 发送方式 ===== -->
             <div class="grid shrink-0 grid-cols-2 gap-4">
               <label class="flex flex-col gap-1.5 text-xs text-text-secondary">
                 LLM 模型
@@ -31,27 +31,8 @@
               </label>
             </div>
 
-            <div v-if="allowScope" class="mt-4 flex shrink-0 items-center gap-4">
-              <span class="text-xs text-text-secondary">生成范围</span>
-              <label
-                class="flex items-center gap-1.5 text-xs text-text-secondary"
-                :class="{ 'pointer-events-none opacity-50': !missingCount || running || started }"
-              >
-                <input v-model="scope" type="radio" value="missing" class="h-3 w-3 accent-cyan-400" :disabled="!missingCount || running || started" />
-                仅补缺失（{{ missingCount ?? 0 }}）
-              </label>
-              <label
-                class="flex items-center gap-1.5 text-xs text-text-secondary"
-                :class="{ 'pointer-events-none opacity-50': running || started }"
-              >
-                <input v-model="scope" type="radio" value="all" class="h-3 w-3 accent-cyan-400" :disabled="running || started" />
-                全部重新生成（{{ totalCount ?? 0 }}）
-              </label>
-              <span v-if="started" class="text-[11px] text-text-muted">（本次已锁定，重新生成沿用同一范围）</span>
-            </div>
-
             <!-- 发送方式：一次性发送（一份清单）/ 逐条发送（每条单独请求，可逐条查看修改） -->
-            <div v-if="allowSendMode" class="mt-3 flex shrink-0 items-center gap-4">
+            <div v-if="allowSendMode" class="mt-4 flex shrink-0 items-center gap-4">
               <span class="text-xs text-text-secondary">发送方式</span>
               <label class="flex cursor-pointer items-center gap-1.5 text-xs text-text-secondary" :class="{ 'pointer-events-none opacity-50': running }" title="全部状态拼成一份清单，一次请求返回所有提示词；下方文本框即这份清单">
                 <input v-model="sendMode" type="radio" value="once" class="h-3 w-3 accent-cyan-400" :disabled="running" />
@@ -85,16 +66,31 @@
                 <span class="min-w-0 truncate text-[11px] text-text-muted">{{ viewHint }}</span>
               </div>
 
-              <!-- 提示词视图 · 一次性发送：整份清单（发送前/重发前都可改） -->
+              <!-- 提示词视图 · 一次性发送：整份清单（发送前/重发前都可改；可复制给外部 AI、可导入外部结果） -->
               <template v-if="effectiveView === 'prompt' && !isPerItem">
                 <div class="flex shrink-0 items-center justify-between gap-3">
                   <span class="min-w-0 truncate text-xs text-text-secondary">最终发送的提示词（可在发送前修改）</span>
-                  <button
-                    class="shrink-0 text-xs text-cyan-500 hover:text-cyan-400 disabled:opacity-40 dark:text-cyan-400 dark:hover:text-cyan-300"
-                    :disabled="running"
-                    title="恢复系统按当前模板拼装的提示词"
-                    @click="resetPrompt"
-                  >重置</button>
+                  <div class="flex shrink-0 items-center gap-3">
+                    <button
+                      v-if="promptText"
+                      class="shrink-0 text-xs text-cyan-500 hover:text-cyan-400 disabled:opacity-40 dark:text-cyan-400 dark:hover:text-cyan-300"
+                      :disabled="running"
+                      title="复制整份提示词，可粘贴到外部 AI 执行"
+                      @click="copyPrompt"
+                    >{{ copied ? '已复制 ✓' : '复制提示词' }}</button>
+                    <button
+                      class="shrink-0 text-xs text-cyan-500 hover:text-cyan-400 disabled:opacity-40 dark:text-cyan-400 dark:hover:text-cyan-300"
+                      :disabled="running"
+                      title="把外部 AI 按本清单生成的结果粘贴回来，按「资产名｜状态名」解析后进入下方结果核对流程"
+                      @click="emit('import-request')"
+                    >导入外部 AI 结果</button>
+                    <button
+                      class="shrink-0 text-xs text-cyan-500 hover:text-cyan-400 disabled:opacity-40 dark:text-cyan-400 dark:hover:text-cyan-300"
+                      :disabled="running"
+                      title="恢复系统按当前模板拼装的提示词"
+                      @click="resetPrompt"
+                    >重置</button>
+                  </div>
                 </div>
                 <textarea
                   v-model="promptText"
@@ -347,14 +343,17 @@
 /**
  * 生成绘画提示词弹窗（批量 / 单条）——所有内容在一个弹窗内完成，不再二次弹进度窗口。
  *
- * 上方固定：LLM 模型 / 提示词模板 / 生成范围 / 发送方式（执行中锁定）。
+ * 上方固定：LLM 模型 / 提示词模板 / 发送方式（执行中锁定）。批量始终按**全部目标**执行（覆盖已有提示词）。
  * 下方按「视图」切换（跑出结果后出现切换页签）：
  * - **提示词**：要发给大模型的内容，随时可改，点「重新生成」就按当前内容重发；
  * - **生成结果**：模型返回的提示词，可逐条修改，点「填充到资产」才写回。
  * 进度区就在提示词输入框下方（进度条 + 已完成 N/M + 未填充提醒 + 失败/缺条说明），不跳窗。
  *
+ * 一次性发送额外支持**外部 AI 代跑**：复制提示词 → 外部 AI 生成 → 点「导入外部 AI 结果」
+ * 粘贴回传，由父组件按同一解析器解析后回填到结果视图（与内置模型同一核对/填充流程）。
+ *
  * 成功/失败约定：
- * - **不再自动落库**。生成/重试成功后结果只留在弹窗里（页面顶部有「未填充」提醒），
+ * - **不再自动落库**。生成/导入成功后结果只留在弹窗里（页面顶部有「未填充」提醒），
  *   必须人工核对后点「填充到资产」，避免直接覆盖资产里已有的绘画提示词；
  * - 有结果但未填充时关闭弹窗，会弹二次确认（取消 / 直接关闭 / 填充并关闭）；
  * - 失败或未完成时底部出现「仅重跑失败（N）」（逐条模式），「重新生成」则整批重跑；
@@ -403,7 +402,6 @@ export interface AssetPromptConfirmPayload {
   modelId: string
   templateId: string
   prompt?: string
-  scope?: 'missing' | 'all'
   sendMode?: 'once' | 'per-item'
   /** 逐条发送时：每条各自的最终发送文本（用户可在弹窗内逐条修改后再发）。 */
   perItemPrompts?: Array<{ variantId: string; prompt: string }>
@@ -445,23 +443,18 @@ interface Props {
   templates: PromptTemplate[]
   defaultModelId?: string
   defaultTemplateId?: string
+  /** 全部目标视觉状态数（批量始终按全部目标执行）。 */
   targetCount: number
   busy: boolean
-  /** 构建一次性发送用的最终 prompt。 */
-  buildPrompt: (template: PromptTemplate, scope?: 'missing' | 'all', sendMode?: 'once' | 'per-item') => string
+  /** 构建最终 prompt：一次性发送 = 整份清单；逐条发送 = 首条的示例。 */
+  buildPrompt: (template: PromptTemplate, sendMode?: 'once' | 'per-item') => string
   /**
    * 逐条模式：按当前配置返回全部条目，以及每条按模板拼装的初始文本（用户可改后发送）。
-   * 弹窗打开、模板/范围变化时调用；不传时逐条模式退化为只读预览。
+   * 弹窗打开、模板变化时调用；不传时逐条模式退化为只读预览。
    */
-  buildItems?: (template: PromptTemplate, scope?: 'missing' | 'all') => Array<AssetPromptRunItem & { prompt: string }>
-  /** 批量模式：允许选择生成范围（仅补缺失 / 全部重新生成）。 */
-  allowScope?: boolean
+  buildItems?: (template: PromptTemplate) => Array<AssetPromptRunItem & { prompt: string }>
   /** 批量模式：允许选择发送方式（一次性 / 逐条）。 */
   allowSendMode?: boolean
-  /** 缺少提示词的视觉状态数（allowScope 时展示）。 */
-  missingCount?: number
-  /** 全部视觉状态数（allowScope 时展示）。 */
-  totalCount?: number
 }
 
 const props = defineProps<Props>()
@@ -476,12 +469,12 @@ const emit = defineEmits<{
   (e: 'retry', payload: AssetPromptRetryPayload): void
   /** 填充到资产：仅包含模型产出的结果（含用户手动修改）。 */
   (e: 'save', results: AssetPromptRunResult[]): void
+  /** 导入外部 AI 结果（仅一次性发送模式提供）：由父组件打开导入弹窗并解析回填。 */
+  (e: 'import-request'): void
 }>()
 
 const modelId = ref('')
 const templateId = ref('')
-/** 生成范围：仅补缺失（默认）/ 全部重新生成。 */
-const scope = ref<'missing' | 'all'>('missing')
 /** 发送方式：一次性（默认，全部状态一份清单）/ 逐条（每个状态单独请求）。 */
 const sendMode = ref<'once' | 'per-item'>('once')
 
@@ -572,15 +565,11 @@ const started = computed(() => state.value.started)
 
 const activeItem = computed<RunItem | null>(() => items.value[state.value.activeIndex] ?? null)
 const isPerItem = computed(() => Boolean(props.allowSendMode && sendMode.value === 'per-item'))
-const isOverwrite = computed(() => Boolean(props.allowScope && scope.value === 'all'))
-const effectiveCount = computed(() => {
-  if (!props.allowScope) return props.targetCount
-  return scope.value === 'missing' ? (props.missingCount ?? 0) : (props.totalCount ?? 0)
-})
+const effectiveCount = computed(() => props.targetCount)
 const builtPrompt = computed(() => {
   const template = props.templates.find((t) => t.id === templateId.value)
   if (!template) return ''
-  return props.buildPrompt(template, props.allowScope ? scope.value : undefined, props.allowSendMode ? sendMode.value : undefined)
+  return props.buildPrompt(template, props.allowSendMode ? sendMode.value : undefined)
 })
 const canConfirm = computed(() => Boolean(modelId.value && templateId.value && effectiveCount.value > 0))
 const doneCount = computed(() => items.value.filter((item) => item.status === 'done' || item.status === 'failed').length)
@@ -699,12 +688,13 @@ const percent = computed(() => {
   return totalForProgress.value ? Math.round((done / totalForProgress.value) * 100) : 0
 })
 
-const title = computed(() => (props.allowScope ? '批量生成绘画提示词' : '生成绘画提示词'))
+/** 批量模式标题（批量实例传了 allowSendMode，单条重写实例没有）。 */
+const title = computed(() => (props.allowSendMode ? '批量生成绘画提示词' : '生成绘画提示词'))
 const subtitle = computed(() => {
   if (!props.allowSendMode) return '将使用所选 LLM 生成提示词，结果需人工核对后点「填充到资产」写回。'
   return isPerItem.value
     ? '逐条发送：每个视觉状态单独一次请求，可切换查看并修改每一条；结果需点「填充到资产」写回。'
-    : `一次性发送：全部 ${effectiveCount.value} 个视觉状态拼成一份清单，下方即最终发送内容${isOverwrite.value ? '（覆盖已有提示词）' : ''}。`
+    : `一次性发送：全部 ${effectiveCount.value} 个视觉状态拼成一份清单，下方即最终发送内容（覆盖已有提示词）。`
 })
 const progressText = computed(() => {
   if (running.value) return isPerItem.value ? '逐条生成中…' : '一次性生成中…'
@@ -753,7 +743,7 @@ function setView(view: PromptView) {
 
 /**
  * 按当前配置刷新逐条条目。
- * 关键约定：**切换模板 / 范围不作废已有文本** —— 已存在的条目一律原样保留（含用户改动），
+ * 关键约定：**切换模板不作废已有文本** —— 已存在的条目一律原样保留（含用户改动），
  * 只补充新出现的条目、移除已不在目标范围内的条目。用户想按新模板重算时点「重置本条」。
  */
 function refreshItems() {
@@ -761,7 +751,7 @@ function refreshItems() {
   const template = props.templates.find((t) => t.id === templateId.value)
   if (!template) return
   const list = state.value.items
-  const planned = props.buildItems(template, props.allowScope ? scope.value : undefined)
+  const planned = props.buildItems(template)
   const existing = new Map(list.map((item) => [item.variantId, item]))
   // 保留用户在旧条目上的排序位置：先按现有 items 的顺序保留交集，再追加新增条目
   const kept = list
@@ -802,7 +792,6 @@ watch(() => props.modelValue, (visible) => {
   closeConfirmVisible.value = false
   if (!modelId.value) modelId.value = props.defaultModelId || props.llmModels[0]?.id || ''
   if (!templateId.value) templateId.value = props.defaultTemplateId || props.templates[0]?.id || ''
-  if (props.allowScope) scope.value = (props.missingCount ?? 0) > 0 ? 'missing' : 'all'
   // 两种发送方式各自初始化清单文本
   runStates['per-item'].prompt = builtPromptFor('per-item')
   runStates.once.prompt = builtPromptFor('once')
@@ -813,10 +802,10 @@ watch(() => props.modelValue, (visible) => {
 function builtPromptFor(mode: 'once' | 'per-item'): string {
   const template = props.templates.find((t) => t.id === templateId.value)
   if (!template) return ''
-  return props.buildPrompt(template, props.allowScope ? scope.value : undefined, props.allowSendMode ? mode : undefined)
+  return props.buildPrompt(template, props.allowSendMode ? mode : undefined)
 }
 
-// 切换模板 / 范围 / 发送方式：未开始执行时同步刷新。
+// 切换模板 / 发送方式：未开始执行时同步刷新。
 // 注意：**换模板不作废用户已编辑的文本**（与逐条模式一致），想按新模板重算时点「重置」。
 watch([builtPrompt, isPerItem], () => {
   if (state.value.started) return
@@ -836,14 +825,13 @@ function handleConfirm() {
   if (!isPerItem.value) {
     const template = props.templates.find((t) => t.id === templateId.value)
     state.value.targets = template && props.buildItems
-      ? props.buildItems(template, props.allowScope ? scope.value : undefined).map(({ key, assetId, variantId, assetName, variantName }) => ({ key, assetId, variantId, assetName, variantName }))
+      ? props.buildItems(template).map(({ key, assetId, variantId, assetName, variantName }) => ({ key, assetId, variantId, assetName, variantName }))
       : []
   }
   const payload: AssetPromptConfirmPayload = {
     modelId: modelId.value,
     templateId: templateId.value,
     prompt: state.value.prompt,
-    scope: props.allowScope ? scope.value : undefined,
     sendMode: props.allowSendMode ? sendMode.value : undefined,
     perItemPrompts: isPerItem.value
       ? items.value.map((item) => ({ variantId: item.variantId, prompt: item.text }))
@@ -880,7 +868,7 @@ function resetActive() {
   }
   const template = props.templates.find((t) => t.id === templateId.value)
   const fresh = template && props.buildItems
-    ? props.buildItems(template, props.allowScope ? scope.value : undefined).find((plan) => plan.variantId === item.variantId)
+    ? props.buildItems(template).find((plan) => plan.variantId === item.variantId)
     : undefined
   item.text = fresh?.prompt ?? item.originalText
   item.originalText = item.text
@@ -891,6 +879,24 @@ function resetActive() {
 function resetPrompt() {
   if (running.value) return
   state.value.prompt = builtPrompt.value
+}
+
+// ===== 复制提示词（一次性发送）：把整份清单交给外部 AI 执行 =====
+const copied = ref(false)
+let copiedTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 复制整份提示词到剪贴板（剪贴板不可用时静默，用户仍可手动选择文本复制）。 */
+async function copyPrompt() {
+  const text = state.value.prompt.trim()
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    copied.value = true
+    if (copiedTimer) clearTimeout(copiedTimer)
+    copiedTimer = setTimeout(() => { copied.value = false }, 1600)
+  } catch {
+    /* 忽略：仅影响复制按钮反馈 */
+  }
 }
 
 /** 切换当前条目（下拉框 / 前后按钮共用）；标记用户已手动选择，避免生成进度抢焦点。 */
@@ -923,7 +929,12 @@ function applyProgress(update: AssetPromptItemProgress) {
   // 一次性发送完成：用解析出的逐条结果替换条目，让每条都能切看/修改
   if (update.status === 'done' && update.items?.length) {
     const template = props.templates.find((t) => t.id === templateId.value)
-    const planned = template && props.buildItems ? props.buildItems(template, props.allowScope ? scope.value : undefined) : []
+    const planned = template && props.buildItems ? props.buildItems(template) : []
+    // 目标快照为空（如「导入外部 AI 结果」未经 confirm 直接回填）时补齐，
+    // 这样「未返回结果」的缺失检测依然可用
+    if (!target.targets.length) {
+      target.targets = planned.map(({ key, assetId, variantId, assetName, variantName }) => ({ key, assetId, variantId, assetName, variantName }))
+    }
     const plannedMap = new Map(planned.map((plan) => [plan.variantId, plan.prompt]))
     list.splice(0, list.length, ...update.items.map((item) => ({
       key: item.variantId,

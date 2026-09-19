@@ -42,8 +42,8 @@
       {{ actionLabel }}
     </button>
 
-    <!-- 发送前确认：可临时修改最终提示词 -->
-    <PromptPreviewDialog :visible="previewVisible" :content="previewContent" @update:content="previewContent = $event" @confirm="handleConfirm" @close="previewVisible = false" />
+    <!-- 发送前确认：可临时修改最终提示词；「导入外部 AI 结果」经 import 事件交由父组件打开对应环节的导入弹窗 -->
+    <PromptPreviewDialog :visible="previewVisible" :content="previewContent" @update:content="previewContent = $event" @confirm="handleConfirm" @import="emit('import')" @close="previewVisible = false" />
 
     <!-- 窄形态配置弹层：Teleport 到 body（逃离 overflow 裁剪），fixed 定位按按钮位置动态决定上/下弹 -->
     <Teleport to="body">
@@ -120,6 +120,8 @@ const emit = defineEmits<{
   (e: 'update:modelId', value: string): void
   (e: 'update:templateId', value: string): void
   (e: 'run', prompt: string): void
+  /** 发送前确认弹窗内点了「导入外部 AI 结果」：由父组件打开对应环节的导入弹窗。 */
+  (e: 'import'): void
 }>()
 
 const confirmBeforeRun = ref(localStorage.getItem(props.confirmStorageKey) !== 'false')

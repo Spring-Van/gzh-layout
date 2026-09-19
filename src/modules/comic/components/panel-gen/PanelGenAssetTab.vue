@@ -75,8 +75,7 @@
       <div v-else class="flex flex-1 flex-col items-center justify-center p-8 text-center">
         <div class="flex h-14 w-14 items-center justify-center rounded-lg border border-border-subtle bg-surface"><ScanText :size="24" class="text-text-muted" /></div>
         <h3 class="mt-4 text-sm font-medium text-text-primary">本章尚未提取资产</h3>
-        <p class="mt-2 max-w-sm text-xs leading-5 text-text-secondary">在页面顶部选择模型与模板执行「提取资产」，结合原文分析、剧本与分镜，识别需要固定长相的人物、场景和道具。</p>
-        <button class="mt-4 secondary-button h-8 px-3 text-xs" @click="emit('import-extraction')"><ClipboardPaste :size="14" />手动导入资产</button>
+        <p class="mt-2 max-w-sm text-xs leading-5 text-text-secondary">在页面顶部选择模型与模板执行「提取资产」，结合原文分析、剧本与分镜，识别需要固定长相的人物、场景和道具。也可在执行栏「发送前确认」弹窗内复制提示词到外部 AI，再把结果导入进来。</p>
       </div>
     </div>
 
@@ -122,7 +121,7 @@
  * 生图工作台额外显示引用情况（状态级「被 N 章 · M 镜引用」+ 图片级「N 镜」在用标记），数据由 buildAssetUsageIndex 统一算出。
  */
 import { computed, ref } from "vue";
-import { FileText, ClipboardPaste, Images, Info, LoaderCircle, MapPin, Package, Palette, ScanText, UserRound } from "lucide-vue-next";
+import { FileText, Images, Info, LoaderCircle, MapPin, Package, Palette, ScanText, UserRound } from "lucide-vue-next";
 import LongProjectAssetExtractionReview from "@comic/components/LongProjectAssetExtractionReview.vue";
 import LongProjectChapterAssets from "@comic/components/LongProjectChapterAssets.vue";
 import LongProjectAssetWorkbench from "@comic/components/LongProjectAssetWorkbench.vue";
@@ -178,8 +177,6 @@ const emit = defineEmits<{
   (e: "update:view", value: AssetView): void;
   /** 失败视图「重新提取」：由页面沿用上次提示词重跑。 */
   (e: "retry-extraction"): void;
-  /** 手动导入资产（外部 AI 代跑）：由页面弹出导入弹窗。 */
-  (e: "import-extraction"): void;
 }>();
 
 const toast = useToast();
@@ -340,18 +337,56 @@ async function confirmExtraction() {
 
 // ========== 生图工作台回写 ==========
 
-/** 资产工作台回写：在持久化队列内基于最新数据 patch 视觉状态。 */
+/**
+ * 资产工作台回写：在持久化队列内基于最新数据 patch 视觉状态。
+ *
+ * patch 移除了图片（生成图 / 参考图删除）时，同步清扫 storyboardRuns 里所有分镜
+ * 绑定 `selectedImageIds` 对这些图的引用 —— `resolvePanelRefImage` 虽然对悬空选中
+ * 自愈（回落第一张），但数据里不留死引用才是真正的「删除无残留」。
+ */
 function updateAssetVariant(payload: { assetId: string; variantId: string; patch: Partial<LongProjectAssetVariant> }) {
   void props.mutateLongProjectData((data) => {
+    let removedImages: string[] = [];
     data.assets = (data.assets ?? []).map((asset) => {
       if (asset.id !== payload.assetId) return asset;
-      if (!asset.variants.some((item) => item.id === payload.variantId)) return asset;
+      const oldVariant = asset.variants.find((item) => item.id === payload.variantId);
+      if (!oldVariant) return asset;
+      // 差集 = 本次被删掉的图 id（仅删除类 patch 会产生，追加/重排时为空）
+      removedImages = [
+        ...(oldVariant.generatedImageIds ?? []),
+        ...(oldVariant.referenceImageIds ?? []),
+      ].filter((id) =>
+        !(payload.patch.generatedImageIds ?? oldVariant.generatedImageIds ?? []).includes(id)
+        && !(payload.patch.referenceImageIds ?? oldVariant.referenceImageIds ?? []).includes(id),
+      );
       return {
         ...asset,
         variants: asset.variants.map((item) => item.id === payload.variantId ? { ...item, ...payload.patch, updatedAt: Date.now() } : item),
         updatedAt: Date.now(),
       };
     });
+    // 清扫分镜绑定里指向已删图片的单选引用（页级 + 格级绑定）
+    if (removedImages.length) {
+      const removed = new Set(removedImages);
+      data.storyboardRuns = (data.storyboardRuns ?? []).map((run) => ({
+        ...run,
+        panels: run.panels.map((panel) => ({
+          ...panel,
+          assetBindings: panel.assetBindings.map((binding) => {
+            if (!binding.selectedImageIds?.some((id) => removed.has(id))) return binding;
+            return { ...binding, selectedImageIds: binding.selectedImageIds.filter((id) => !removed.has(id)) };
+          }),
+          cells: panel.cells?.map((cell) => ({
+            ...cell,
+            assetBindings: (cell.assetBindings ?? []).map((binding) => {
+              if (!binding.selectedImageIds?.some((id) => removed.has(id))) return binding;
+              return { ...binding, selectedImageIds: binding.selectedImageIds.filter((id) => !removed.has(id)) };
+            }),
+          })),
+        })),
+        updatedAt: Date.now(),
+      }));
+    }
   });
 }
 

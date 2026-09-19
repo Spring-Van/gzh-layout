@@ -64,6 +64,31 @@ describe('手动导入：解析函数复用（外部 AI 代跑）', () => {
     expect(panels[1].cells?.[0].narration).toBe('三年后，一切都不一样了。');
   });
 
+  it('分镜：v5 Markdown 页块（### 第X格 + - 字段：内容）多页逐字段解析，出场资产进格', () => {
+    const content = [
+      '## 分镜 1 · 双格',
+      '### 第1格',
+      '- 景别：近景',
+      '- 画面：角色A的手臂占前景，指节收紧。',
+      '- 台词：角色A：“站住。”',
+      '### 第2格',
+      '- 景别：中景',
+      '- 画面：角色B停在原地，没有回头。',
+      '- 旁白：风停了。',
+      '## 分镜 2 · 单格',
+      '### 第1格',
+      '- 景别：特写',
+      '- 画面：关键道具躺在地上，泛着冷光。',
+      '- 备注：冷光必须画出来。',
+    ].join('\n');
+    const panels = parseStoryboardResponse(content, [], 'c1', {});
+    expect(panels).toHaveLength(2);
+    expect(panels[0].cellLabel).toBe('双格');
+    expect(panels[0].cells?.[0]).toMatchObject({ shot: '近景', speaker: '角色A', dialogue: '站住。' });
+    expect(panels[0].cells?.[1]).toMatchObject({ shot: '中景', narration: '风停了。' });
+    expect(panels[1].cells?.[0]).toMatchObject({ shot: '特写', note: '冷光必须画出来。' });
+  });
+
   it('分镜：兼容 v2 行内分格（‖ 分格、｜ 分字段）', () => {
     const panels = parseStoryboardResponse('## 分镜 1\n近景｜角色A指节收紧 ‖ 中景｜角色B皱眉｜角色B：你怎么能那么残忍？', [], 'c1', {});
     expect(panels[0].cells).toHaveLength(2);
@@ -111,25 +136,25 @@ describe('手动导入：解析函数复用（外部 AI 代跑）', () => {
     expect(panels[0].dialogue).toContain('角色B（心声）：他到底想干什么……');
   });
 
-  it('分镜：v4 页块文本 ⇄ 格列表往返一致（台词正文入库去引号，出库补回）', () => {
+  it('分镜：v5 Markdown 页块文本 ⇄ 格列表往返一致（台词正文入库去引号，出库补回）', () => {
     const text = [
-      '【第1格】',
-      '「景别」：近景转特写',
-      '「镜头」：从角色A侧脸下摇至小臂',
-      '「画面」：角色A的手臂占前景，指节收紧，青筋凸起。',
-      '「人物」：角色A',
-      '「动作」：指节收紧，手臂绷紧。',
-      '「表情」：侧脸冷硬，眼神压着怒意。',
-      '「台词」：角色A：“破坏了它的关键部分，跟要了它的命有什么区别？”',
-      '「音效」：沙沙——鳞片摩擦。',
-      '「光效」：暖黄顶灯，背景压暗。',
-      '【第2格】',
-      '「景别」：中景',
-      '「画面」：角色B一手扶住室内靠背，身体微僵。',
-      '「人物」：角色B',
-      '「心声」：角色B：“他到底想干什么……”',
-      '「旁白」：夜色压下来，屋里的灯忽然灭了。',
-      '「备注」：灯灭必须画出来。',
+      '### 第1格',
+      '- 景别：近景转特写',
+      '- 镜头：从角色A侧脸下摇至小臂',
+      '- 画面：角色A的手臂占前景，指节收紧，青筋凸起。',
+      '- 人物：角色A',
+      '- 动作：指节收紧，手臂绷紧。',
+      '- 表情：侧脸冷硬，眼神压着怒意。',
+      '- 台词：角色A：“破坏了它的关键部分，跟要了它的命有什么区别？”',
+      '- 音效：沙沙——鳞片摩擦。',
+      '- 光效：暖黄顶灯，背景压暗。',
+      '### 第2格',
+      '- 景别：中景',
+      '- 画面：角色B一手扶住室内靠背，身体微僵。',
+      '- 人物：角色B',
+      '- 心声：角色B：“他到底想干什么……”',
+      '- 旁白：夜色压下来，屋里的灯忽然灭了。',
+      '- 备注：灯灭必须画出来。',
     ].join('\n');
     const cells = parsePanelBlock(text);
     expect(cells).toHaveLength(2);
@@ -139,6 +164,24 @@ describe('手动导入：解析函数复用（外部 AI 代跑）', () => {
     expect(summary.narration).toBe('夜色压下来，屋里的灯忽然灭了。');
     // 序列化与输入逐字一致
     expect(serializePanelBlock({ id: 'p1', order: 1, content: '', cells, assetBindings: [] })).toBe(text);
+  });
+
+  it('分镜：v4 页块格式（【第X格】+「字段名」：）作为历史兼容仍可解析，序列化升级为 v5 Markdown', () => {
+    const v4 = [
+      '【第1格】',
+      '「景别」：近景转特写',
+      '「镜头」：从角色A侧脸下摇至小臂',
+      '「画面」：角色A的手臂占前景，指节收紧，青筋凸起。',
+      '「台词」：角色A：“破坏了它的关键部分，跟要了它的命有什么区别？”',
+    ].join('\n');
+    const cells = parsePanelBlock(v4);
+    expect(cells).toHaveLength(1);
+    expect(cells[0]).toMatchObject({ shot: '近景转特写', camera: '从角色A侧脸下摇至小臂', speaker: '角色A' });
+    // 打开即升级：旧符号重新序列化为 v5 Markdown
+    const upgraded = serializePanelBlock({ id: 'p1', order: 1, content: '', cells, assetBindings: [] });
+    expect(upgraded).toContain('### 第1格');
+    expect(upgraded).toContain('- 景别：近景转特写');
+    expect(parsePanelBlock(upgraded)).toEqual(cells);
   });
 
   it('分镜：兼容旧 v3 页块（①【镜头】画面 + 说话人：【台词】），序列化升级为 v4', () => {
@@ -152,33 +195,33 @@ describe('手动导入：解析函数复用（外部 AI 代跑）', () => {
     expect(cells).toHaveLength(2);
     expect(cells[0]).toMatchObject({ shot: '近景', speaker: '角色A', dialogue: '破坏了它的关键部分，跟要了它的命有什么区别？' });
     expect(cells[1]).toMatchObject({ shot: '中景', narration: '空气安静了一分钟。' });
-    // 打开即升级：旧文本重新序列化为 v4
+    // 打开即升级：旧文本重新序列化为 v5 Markdown
     const upgraded = serializePanelBlock({ id: 'p1', order: 1, content: '', cells, assetBindings: [] });
-    expect(upgraded).toContain('【第1格】');
-    expect(upgraded).toContain('「景别」：近景');
-    expect(upgraded).toContain('「台词」：角色A：“破坏了它的关键部分，跟要了它的命有什么区别？”');
-    expect(upgraded).toContain('「旁白」：空气安静了一分钟。');
+    expect(upgraded).toContain('### 第1格');
+    expect(upgraded).toContain('- 景别：近景');
+    expect(upgraded).toContain('- 台词：角色A：“破坏了它的关键部分，跟要了它的命有什么区别？”');
+    expect(upgraded).toContain('- 旁白：空气安静了一分钟。');
     // 升级后再解析仍是同一份格列表（幂等）
     expect(parsePanelBlock(upgraded)).toEqual(cells);
   });
 
-  it('分镜：旧数据（无 cells）序列化为 v4 页块，页级对白/旁白拆回格内', () => {
+  it('分镜：旧数据（无 cells）序列化为 v5 Markdown 页块，页级对白/旁白拆回格内', () => {
     const legacy = {
       id: 'p1', order: 1, content: '两人对峙', shot: '中景',
       dialogue: '角色A：放它走吧', narration: '夜深了', assetBindings: [],
     };
     const text = serializePanelBlock(legacy as any);
     expect(text).toBe([
-      '【第1格】',
-      '「景别」：中景',
-      '「画面」：两人对峙',
-      '「台词」：角色A：“放它走吧”',
-      '「旁白」：夜深了',
+      '### 第1格',
+      '- 景别：中景',
+      '- 画面：两人对峙',
+      '- 台词：角色A：“放它走吧”',
+      '- 旁白：夜深了',
     ].join('\n'));
     expect(parsePanelBlock(text)).toHaveLength(1);
   });
 
-  it('分镜：完全空白页不给格块（不产生空的【第1格】）', () => {
+  it('分镜：完全空白页不给格块（不产生空的「### 第1格」）', () => {
     expect(serializePanelBlock({ id: 'p1', order: 1, content: '', assetBindings: [] } as any)).toBe('');
   });
 

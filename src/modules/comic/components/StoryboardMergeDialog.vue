@@ -107,7 +107,7 @@ watch(() => props.modelValue, (visible) => {
 function artworkInfo(panelId: string): { hasImage: boolean; label: string } {
   const artwork = props.artworkMap.get(panelId)
   if (artwork?.selectedImageId) return { hasImage: true, label: '有成图' }
-  if (artwork?.generatedImageIds?.length) return { hasImage: false, label: `${artwork.generatedImageIds.length} 张候选` }
+  if (artwork?.generatedImageIds?.length) return { hasImage: false, label: `${artwork.generatedImageIds.length} 张生成图（当前显示首张）` }
   return { hasImage: false, label: '无成图' }
 }
 

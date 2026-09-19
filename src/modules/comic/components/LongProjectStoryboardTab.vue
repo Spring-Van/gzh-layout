@@ -4,7 +4,7 @@
     <!-- 顶部操作区：Teleport 到主页面 tab 行右侧容器（#storyboard-actions）
          动作组由内容阶段决定（页签行「分镜」下拉 / 右栏「分镜内容 | 提示词」共用同一状态）；资产常驻，绘图配置归属提示词阶段 -->
     <Teleport to="#storyboard-actions">
-      <!-- 分镜内容阶段：生成分镜（与「原文 / 剧本」页签执行栏同构）+ 手动导入 -->
+      <!-- 分镜内容阶段：生成分镜（与「原文 / 剧本」页签执行栏同构，导入入口在发送前确认弹窗内） -->
       <template v-if="stage === 'storyboard'">
         <div class="min-w-0 max-w-2xl">
           <PromptRunBar
@@ -19,13 +19,9 @@
             confirm-storage-key="comic-long-storyboard-confirm"
             :build-prompt="buildStoryboardRunPrompt"
             @run="runStoryboardFromEditor"
+            @import="storyboardImportVisible = true"
           />
         </div>
-        <button
-          class="secondary-button h-9 shrink-0 px-2.5 text-xs"
-          title="粘贴外部 AI 生成的分镜结果，解析后导入（与内置大模型相同解析流程）"
-          @click="storyboardImportVisible = true"
-        ><ClipboardPaste :size="14" />手动导入</button>
       </template>
 
       <!-- 提示词阶段：画面描述推导 → 生图 → 导出；绘图配置属于本阶段 -->
@@ -40,13 +36,7 @@
           <Sparkles v-else :size="14" />
           批量推导描述
         </button>
-        <!-- 外部 AI 代跑「整章一次生成」后回贴：按【分镜N】对位写入各镜画面描述 -->
-        <button
-          class="secondary-button h-9 shrink-0 px-3 text-xs"
-          :disabled="!panels.length"
-          :title="!panels.length ? '本章暂无分镜' : '把外部 AI 生成的整章画面描述粘贴进来（按【分镜N】对位）'"
-          @click="promptImportVisible = true"
-        ><ClipboardPaste :size="14" />导入描述</button>
+        <!-- 外部 AI 代跑「整章一次生成」的导入入口收进批量推导弹窗（一次性发送时展示） -->
         <!-- 绘图配置：绘画模型 + 共用属性，属于「提示词 → 生图」阶段；紧贴批量生图，便于生图前调参 -->
         <button
           class="secondary-button h-9 shrink-0 px-3 text-xs"
@@ -113,8 +103,8 @@
               :artwork="currentArtwork"
               :is-generating="currentArtwork?.genStatus === 'running'"
               @generate="generatePanelImage(currentPanel)"
-              @adopt="adoptImage"
-              @remove-gen-image="removeGenImage"
+              @switch-image="switchPanelImage"
+              @delete-image="deleteCurrentGenImage"
               @preview="openPreview"
             />
           </div>
@@ -123,11 +113,10 @@
               :panel="currentPanel"
               :assets="assets"
               :chapter-orders="chapterOrders"
-              @update-variant-images="updateVariantImages"
+              :ref-manifest="currentRefManifest"
               @set-binding-images="setBindingImages"
               @set-binding-variant="setBindingVariant"
               @preview="openPreview"
-              @go-asset-workbench="emit('go-assets', $event)"
             />
           </div>
         </template>
@@ -242,7 +231,7 @@
       </div>
     </Transition>
 
-    <!-- 批量推导确认弹窗（逐镜 / 整章一次 两种生成方式） -->
+    <!-- 批量推导确认弹窗（逐条 / 一次性 两种发送方式，始终全部重新推导） -->
     <PanelPromptGenerateModal
       v-model="promptModalVisible"
       :llm-models="llmModels"
@@ -251,7 +240,6 @@
       :default-model-id="config.promptModelId"
       :default-template-id="config.promptTemplateId"
       mode="batch"
-      :missing-count="missingInferCount"
       :total-count="panels.length"
       :busy="batchPromptBusy"
       :build-prompt="buildBatchPromptPreview"
@@ -259,6 +247,7 @@
       :build-copy-text="buildCopyText"
       :create-template="createPanelPromptTemplate"
       @confirm="runBatchPrompts"
+      @import="promptImportVisible = true"
     />
 
     <!-- 单镜推导确认弹窗 -->
@@ -282,7 +271,17 @@
       :images="previewImages"
       :image-index="previewIndex"
       :alt="previewAlt"
-      @remove="removePreviewImage"
+      @remove="requestRemovePreviewImage"
+    />
+
+    <!-- 预览内删除生成图确认（z-[210] 压过大图预览 z-[200]） -->
+    <ConfirmDialog
+      v-model="previewDeleteVisible"
+      title="删除这张成图"
+      content="将删除分镜当前显示的成图，删除后无法恢复，是否确认？"
+      confirm-text="确认删除"
+      z-index-class="z-[210]"
+      @confirm="confirmRemovePreviewImage"
     />
 
     <!-- 绘图配置抽屉（复用短篇生图页同款组件） -->
@@ -294,21 +293,23 @@
       @save="handleSaveImageConfig"
     />
 
-    <!-- 手动导入分镜（外部 AI 代跑）：粘贴 → 解析预览 → 确认导入 -->
+    <!-- 手动导入分镜（外部 AI 代跑）：粘贴 → 解析预览 → 确认导入；z-[140] 压过「确认发送内容」/批量推导弹窗（z-50/z-[130] 层级） -->
     <ManualResultImportDialog
       :visible="storyboardImportVisible"
       title="手动导入分镜"
       placeholder="粘贴外部 AI 生成的分镜结果…"
+      z-index-class="z-[140]"
       :parse="parseStoryboardPreview"
       @confirm="confirmStoryboardImport"
       @close="storyboardImportVisible = false"
     />
 
-    <!-- 手动导入画面描述（外部 AI 代跑整章生成）：粘贴 → 按【分镜N】对位预览 → 确认写入 -->
+    <!-- 手动导入画面描述（外部 AI 代跑整章生成）：粘贴 → 按 ## 分镜 N 对位预览 → 确认写入；z-[140] 压过批量推导弹窗 -->
     <ManualResultImportDialog
       :visible="promptImportVisible"
       title="手动导入整章画面描述"
-      placeholder="粘贴外部 AI 生成的整章画面描述（每镜以【分镜N】开头）…"
+      placeholder="粘贴外部 AI 生成的整章画面描述（每镜以 ## 分镜 N 开头）…"
+      z-index-class="z-[140]"
       :parse="parsePromptImportPreview"
       @confirm="confirmPromptImport"
       @close="promptImportVisible = false"
@@ -334,7 +335,7 @@
  */
 import { computed, onMounted, reactive, ref, toRaw, watch, type Ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
-import { ArrowRight, ClipboardPaste, Download, ListTree, LoaderCircle, SlidersHorizontal, Sparkles, Undo2 } from 'lucide-vue-next'
+import { ArrowRight, Download, ListTree, LoaderCircle, SlidersHorizontal, Sparkles, Undo2 } from 'lucide-vue-next'
 import { comicDb, comicDownload } from '@/api/comic'
 import { useToast } from '@comic/composables/useToast'
 import ManualResultImportDialog from '@comic/components/common/ManualResultImportDialog.vue'
@@ -467,6 +468,9 @@ const previewVisible = ref(false)
 const previewImages = ref<string[]>([])
 const previewIndex = ref(0)
 const previewAlt = ref('')
+/** 大图预览内删除的二次确认。 */
+const previewDeleteVisible = ref(false)
+const previewDeleteIndex = ref(0)
 
 // ========== 派生数据 ==========
 
@@ -584,14 +588,6 @@ const storyboardTemplates = computed(() =>
 const sharedBlocks = computed(() => project.value?.imageGenConfig?.sharedBlocks ?? [])
 const imageModelName = computed(() => imageModels.value.find((model) => model.id === config.imageModelId)?.name)
 
-/** 需要推导的分镜：无描述 / 推导失败 / 已过期。 */
-function needsInfer(panel: LongProjectStoryboardPanel): boolean {
-  const artwork = artworkMap.value.get(panel.id)
-  if (!artwork?.imagePrompt?.trim()) return true
-  return artwork.promptStatus === 'failed' || artwork.promptStatus === 'stale'
-}
-const missingInferCount = computed(() => panels.value.filter((panel) => needsInfer(panel)).length)
-
 /** 批量生图目标：有描述、未成图、未在生成中。 */
 const genTargets = computed(() =>
   panels.value.filter((panel) => {
@@ -600,10 +596,13 @@ const genTargets = computed(() =>
   }),
 )
 
-/** 当前分镜参考图清单（唯一图号来源，生图 / 分组 / 提示词三处同源）。 */
+/** 当前分镜参考图清单（唯一图号来源，生图 / 分组 / 提示词 / 中栏图N角标四处同源）。 */
 function refManifestOf(panel: LongProjectStoryboardPanel) {
   return buildPanelRefManifest({ panel: toRaw(panel), assets: assets.value.map(toRaw), sharedBlocks: sharedBlocks.value })
 }
+
+/** 当前分镜清单（中栏资产绑定的「图N」角标与说明用）。 */
+const currentRefManifest = computed(() => (currentPanel.value ? refManifestOf(currentPanel.value) : undefined))
 
 /** 当前分镜参考图分组（按类型，右栏「参考图设置」勾选用）。
  * 顺序严格等于图号顺序：共用属性（style）→ 人物 → 场景 → 道具；每个视觉状态一张（单选口径）。 */
@@ -643,17 +642,36 @@ function upsertArtwork(panelId: string, patch: Partial<LongProjectPanelArtwork>)
   })
 }
 
-/** 更换资产视觉状态参考图：替换式写回资产库并持久化（对所有引用该资产的分镜生效）。 */
-function updateVariantImages(payload: { assetId: string; variantId: string; images: string[] }) {
-  void props.mutateLongProjectData((data) => {
-    data.assets ??= []
-    const asset = data.assets.find((item) => item.id === payload.assetId)
-    if (!asset) return
-    const variant = asset.variants.find((item) => item.id === payload.variantId)
-    if (!variant) return
-    variant.referenceImageIds = [...payload.images]
-    variant.updatedAt = Date.now()
-    asset.updatedAt = Date.now()
+/**
+ * 批量新增/更新分镜画面记录：合并为**一次** read-modify-write。
+ *
+ * 逐条 await upsertArtwork 会让每条都走一遍「DB 全量读 → 两次全量深拷贝 → 全量写回」，
+ * 整章 34 镜就是 34 次全量 IO，导入会卡死界面；批量场景一律用本函数。
+ */
+function upsertArtworksBatch(items: Array<{ panelId: string; patch: Partial<LongProjectPanelArtwork> }>) {
+  const chapter = currentChapter.value
+  const panelIds = new Set(panels.value.map((item) => item.id))
+  if (!chapter || !items.length) return Promise.resolve()
+  return props.mutateLongProjectData((data) => {
+    data.panelArtworks ??= []
+    const now = Date.now()
+    for (const { panelId, patch } of items) {
+      // 分镜可能已被删除（导入/推导期间结构变动），跳过不存在镜
+      if (!panelIds.has(panelId)) continue
+      const index = data.panelArtworks.findIndex((item) => item.panelId === panelId)
+      if (index >= 0) {
+        data.panelArtworks[index] = { ...data.panelArtworks[index], ...patch, updatedAt: now }
+      } else {
+        data.panelArtworks.push({
+          panelId,
+          chapterId: chapter.id,
+          promptStatus: 'none',
+          genStatus: 'none',
+          ...patch,
+          updatedAt: now,
+        })
+      }
+    }
   })
 }
 
@@ -807,25 +825,30 @@ async function confirmStoryboardImport(content: string) {
 /** 整章画面描述手动导入（外部 AI 代跑「整章一次生成」后回贴）。 */
 const promptImportVisible = ref(false)
 
-/** 导入预览：按【分镜N】标记对位，标出命中的镜号与方式。 */
+/** 导入预览：按分镜标记对位，标出命中的镜号与方式。 */
 function parsePromptImportPreview(content: string): { title: string; items: string[] } {
   const parsed = parseChapterPanelPrompts(content, panels.value.map((panel) => ({ id: panel.id, order: panel.order })))
   if (!parsed.entries.length) throw new Error('没有解析出任何分镜描述，请检查内容是否为空。')
-  const head = parsed.mode === 'marked' ? `按【分镜N】对位到 ${parsed.entries.length} 个分镜` : `未找到【分镜N】标记，按顺序对位到 ${parsed.entries.length} 个分镜（请核对序号）`
+  const head = parsed.mode === 'marked' ? `按 ## 分镜 N 对位到 ${parsed.entries.length} 个分镜` : `未找到分镜标记，按顺序对位到 ${parsed.entries.length} 个分镜（请核对序号）`
   const items = parsed.entries.map((entry) => `分镜 ${entry.order}：${entry.prompt.slice(0, 40)}${entry.prompt.length > 40 ? '…' : ''}`)
   if (parsed.missingOrders.length) items.push(`未对上（保持原样）：分镜 ${parsed.missingOrders.join('、')}`)
   return { title: head, items }
 }
 
 /** 确认导入整章画面描述：命中即覆盖描述，未命中的分镜保持原样。 */
+const promptImportBusy = ref(false)
+
 async function confirmPromptImport(content: string) {
   const parsed = parseChapterPanelPrompts(content, panels.value.map((panel) => ({ id: panel.id, order: panel.order })))
   if (!parsed.entries.length) {
     toast.error('没有解析出任何分镜描述')
     return
   }
-  for (const entry of parsed.entries) {
-    await upsertArtwork(entry.panelId, { imagePrompt: entry.prompt, promptSource: 'manual', promptStatus: 'done' })
+  promptImportBusy.value = true
+  try {
+    await upsertArtworksBatch(parsed.entries.map((entry) => ({ panelId: entry.panelId, patch: { imagePrompt: entry.prompt, promptSource: 'manual' as const, promptStatus: 'done' as const } })))
+  } finally {
+    promptImportBusy.value = false
   }
   promptImportVisible.value = false
   toast[parsed.missingOrders.length ? 'warning' : 'success'](
@@ -1064,13 +1087,12 @@ function buildPromptForPanel(panel: LongProjectStoryboardPanel, index: number, t
     panel: toRaw(panel),
     chapterOutline: chapterOutline.value,
     prevEntries: prevEntriesOf(index),
-    assets: assets.value.map(toRaw),
     refManifestText: buildRefManifestText(refManifestOf(panel), { assetsOnly: true }),
     targetImageModel: imageModelName.value,
   })
 }
 
-/** 拼装「整章一次生成」提示词：全章分镜 + 各镜资产设定 + 各镜资产参考图清单；无模板返回空串。 */
+/** 拼装「整章一次生成」提示词：全章分镜 + 各镜资产参考图清单；无模板返回空串。 */
 function buildChapterPromptFor(template: PromptTemplate | null): string {
   if (!template) return ''
   const chapterPanels = panels.value.map(toRaw)
@@ -1080,17 +1102,15 @@ function buildChapterPromptFor(template: PromptTemplate | null): string {
   return buildChapterPanelPromptPrompt({
     templateContent: template.content,
     panels: chapterPanels,
-    assets: assets.value.map(toRaw),
     refManifestTexts,
     targetImageModel: imageModelName.value,
   })
 }
 
-/** 批量弹窗预览：按范围取首个目标分镜拼装示例。 */
-function buildBatchPromptPreview(template: PromptTemplate | null, scope?: 'missing' | 'all'): string {
-  const firstIndex = scope === 'all' ? 0 : panels.value.findIndex((panel) => needsInfer(panel))
-  if (firstIndex < 0) return ''
-  return buildPromptForPanel(panels.value[firstIndex], firstIndex, template)
+/** 批量弹窗预览：首个分镜的拼装示例（批量始终全部重新推导）。 */
+function buildBatchPromptPreview(template: PromptTemplate | null): string {
+  if (!template || !panels.value.length) return ''
+  return buildPromptForPanel(panels.value[0], 0, template)
 }
 
 /** 整章一次生成弹窗预览：全章提示词（不截断，完整展示模型将收到的内容）。 */
@@ -1104,13 +1124,14 @@ function buildChapterPromptPreview(template: PromptTemplate | null): string {
  * 内置调用是逐镜的、本就知道是哪一镜，不需要标记；写进模板反而污染内置输出。
  */
 const COPY_FORMAT_NOTE = `【输出格式要求】
-为每一镜各输出一段画面描述，逐镜之间用【分镜N】单独一行分段；N 必须与上面的分镜序号一致，按序号递增，不遗漏、不新增、不打乱顺序。`
+为每一镜各输出一段，逐镜之间用 ## 分镜 N 标题行分段；N 必须与上面的分镜序号一致，按序号递增，不遗漏、不新增、不打乱顺序。
+每段内部严格按各镜提示词中的返回格式输出三部分：「资产参考图：」小节照抄该镜清单中该镜用到的图行 → 「请根据以上参考图生成一页N格漫画。」→ 逐格「第X格：」小节。`
 
 /** 复制到外部 AI 的文本：整章一次 → 与内置调用完全一致；逐镜依次 → 全章逐镜拼接 + 输出格式要求。 */
 function buildCopyText(template: PromptTemplate | null, source: 'per-panel' | 'chapter'): string {
   if (!template) return ''
   if (source === 'chapter') return buildChapterPromptFor(template)
-  const parts = panels.value.map((panel, index) => `【分镜${panel.order}】\n${buildPromptForPanel(panel, index, template)}`)
+  const parts = panels.value.map((panel, index) => `## 分镜 ${panel.order}\n${buildPromptForPanel(panel, index, template)}`)
   return [COPY_FORMAT_NOTE, ...parts].join('\n\n')
 }
 
@@ -1120,26 +1141,23 @@ function buildSinglePromptPreview(template: PromptTemplate | null): string {
   return buildPromptForPanel(currentPanel.value, currentIndex.value, template)
 }
 
-/** 批量推导入口：按生成方式分流到「逐镜依次」或「整章一次」。 */
-async function runBatchPrompts(options: { modelId: string; templateId: string; scope?: 'missing' | 'all'; source?: 'per-panel' | 'chapter' }) {
+/** 批量推导入口：按发送方式分流到「逐条发送（逐镜依次）」或「一次性发送（整章一次）」。 */
+async function runBatchPrompts(options: { modelId: string; templateId: string; source?: 'per-panel' | 'chapter' }) {
   if (options.source === 'chapter') return runChapterPrompts(options)
   generalRunPrompts(options)
 }
 
-/** 逐镜依次：按分镜顺序依次执行，每镜一次 LLM 调用，前文滑动窗口自动关联。 */
-async function generalRunPrompts(options: { modelId: string; templateId: string; scope?: 'missing' | 'all' }) {
+/** 逐条发送：按分镜顺序依次执行，每镜一次 LLM 调用，前文滑动窗口自动关联。始终全部重新推导（覆盖已有描述）。 */
+async function generalRunPrompts(options: { modelId: string; templateId: string }) {
   const model = llmModels.value.find((item) => item.id === options.modelId)
   const template = resolvePanelTemplate(options.templateId)
   if (!model || !template) {
     toast.warning('请先选择一个「分镜画面描述」模板')
     return
   }
-  const scope = options.scope ?? 'missing'
-  const targets = panels.value
-    .map((panel, index) => ({ panel, index }))
-    .filter(({ panel }) => scope === 'all' || needsInfer(panel))
+  const targets = panels.value.map((panel, index) => ({ panel, index }))
   if (!targets.length) {
-    toast.warning(scope === 'all' ? '本章暂无分镜' : '所有分镜都已有描述，可切换为「全部重新推导」')
+    toast.warning('本章暂无分镜')
     return
   }
   promptModalVisible.value = false
@@ -1168,7 +1186,7 @@ async function generalRunPrompts(options: { modelId: string; templateId: string;
 }
 
 /**
- * 整章一次：一次 LLM 调用产出全章各镜描述，按 `【分镜N】` 分段对位写回。
+ * 整章一次：一次 LLM 调用产出全章各镜描述，按 `## 分镜 N` 标题分段对位写回。
  *
  * 与逐镜的差别：调用 1 次（快、便宜、上下文全局一致），但没有滑动窗口的「已生成描述」做
  * 连续性锚点，且长章可能被截断 / 模型漏段 —— 因此对位失败会逐条提示，未对上的镜保持原状、
@@ -1195,17 +1213,17 @@ async function runChapterPrompts(options: { modelId: string; templateId: string 
     const prompt = buildChapterPromptFor(template)
     const raw = await inferPanelPrompt({ model: toRaw(model), prompt })
     const parsed = parseChapterPanelPrompts(raw, panels.value.map((panel) => ({ id: panel.id, order: panel.order })))
-    for (const entry of parsed.entries) {
-      await upsertArtwork(entry.panelId, { imagePrompt: entry.prompt, promptSource: 'inferred', promptStatus: 'done' })
-    }
-    // 未对上的镜按失败标记（保留已有描述不动）
-    for (const order of parsed.missingOrders) {
-      const panel = panels.value.find((item) => item.order === order)
-      if (panel) await upsertArtwork(panel.id, { promptStatus: 'failed' })
-    }
+    await upsertArtworksBatch([
+      ...parsed.entries.map((entry) => ({ panelId: entry.panelId, patch: { imagePrompt: entry.prompt, promptSource: 'inferred' as const, promptStatus: 'done' as const } })),
+      // 未对上的镜按失败标记（保留已有描述不动）
+      ...parsed.missingOrders
+        .map((order) => panels.value.find((item) => item.order === order)?.id)
+        .filter((id): id is string => Boolean(id))
+        .map((panelId) => ({ panelId, patch: { promptStatus: 'failed' as const } })),
+    ])
     const ok = parsed.entries.length
     if (parsed.mode === 'sequential' && ok) {
-      toast.info('模型未输出【分镜N】标记，已按顺序对位，请逐镜核对')
+      toast.info('模型未输出分镜标记，已按顺序对位，请逐镜核对')
     }
     toast[parsed.missingOrders.length ? 'warning' : 'success'](
       `整章推导完成：成功 ${ok}，未对上 ${parsed.missingOrders.length}`,
@@ -1326,7 +1344,8 @@ async function generatePanelImage(panel: LongProjectStoryboardPanel, refImages?:
       const latest = artworkMap.value.get(panel.id)
       await upsertArtwork(panel.id, {
         generatedImageIds: [...(latest?.generatedImageIds ?? []), result.imageUrl],
-        selectedImageId: latest?.selectedImageId ?? result.imageUrl,
+        // 生成即显示即使用：新图直接成为当前成图（多张时悬停可切回旧图）
+        selectedImageId: result.imageUrl,
         genStatus: 'done',
       })
       return true
@@ -1409,23 +1428,41 @@ async function exportImages() {
   }
 }
 
-// ========== 候选图管理 ==========
+// ========== 成图切换与删除（显示哪张就用哪张，导出即当前显示张） ==========
 
-/** 采纳候选图为主成图。 */
-function adoptImage(image: string) {
+/** 切换成图：方向 -1 上一张 / 1 下一张（循环），切换立即落库生效。 */
+function switchPanelImage(direction: -1 | 1) {
   const panel = currentPanel.value
-  if (!panel) return
-  void upsertArtwork(panel.id, { selectedImageId: image, genStatus: 'done' })
+  const artwork = currentArtwork.value
+  const list = artwork?.generatedImageIds ?? []
+  if (!panel || !artwork || list.length < 2) return
+  const index = artwork.selectedImageId ? Math.max(0, list.indexOf(artwork.selectedImageId)) : 0
+  const next = (index + direction + list.length) % list.length
+  void upsertArtwork(panel.id, { selectedImageId: list[next] })
 }
 
-/** 删除候选图（被删的是主成图时回退到首张候选）。 */
+/** 删除当前显示的成图（PanelPreview 内已弹窗确认）。 */
+function deleteCurrentGenImage() {
+  const panel = currentPanel.value
+  const artwork = currentArtwork.value
+  if (!panel || !artwork?.selectedImageId) return
+  removeGenImage((artwork.generatedImageIds ?? []).indexOf(artwork.selectedImageId))
+}
+
+/** 删除指定生成图；被删的是显示图时回落到剩余第一张，删空则回到未生成状态。 */
 function removeGenImage(index: number) {
   const panel = currentPanel.value
   const artwork = currentArtwork.value
-  if (!panel || !artwork) return
+  if (!panel || !artwork || index < 0) return
   const next = (artwork.generatedImageIds ?? []).filter((_, i) => i !== index)
   const patch: Partial<LongProjectPanelArtwork> = { generatedImageIds: next }
-  if (artwork.selectedImageId && !next.includes(artwork.selectedImageId)) patch.selectedImageId = next[0]
+  if (artwork.selectedImageId && !next.includes(artwork.selectedImageId)) {
+    if (next.length) patch.selectedImageId = next[0]
+    else {
+      patch.selectedImageId = undefined
+      patch.genStatus = 'none'
+    }
+  }
   void upsertArtwork(panel.id, patch)
 }
 
@@ -1438,8 +1475,14 @@ function openPreview(payload: { images: string[]; index: number }) {
   previewVisible.value = true
 }
 
-/** 大图预览内删除：仅支持删除当前分镜候选图。 */
-function removePreviewImage(index: number) {
+/** 大图预览内删除：先弹窗确认，确认后才真正删除（仅支持删除当前分镜的生成图）。 */
+function requestRemovePreviewImage(index: number) {
+  previewDeleteIndex.value = index
+  previewDeleteVisible.value = true
+}
+
+function confirmRemovePreviewImage() {
+  const index = previewDeleteIndex.value
   const image = previewImages.value[index]
   const artwork = currentArtwork.value
   if (image && artwork?.generatedImageIds?.includes(image)) {

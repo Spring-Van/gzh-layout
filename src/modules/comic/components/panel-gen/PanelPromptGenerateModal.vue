@@ -9,8 +9,8 @@
               <p class="mt-1 text-xs text-text-muted">
                 {{ isBatch
                   ? (isChapter
-                      ? `将本章 ${totalCount ?? 0} 个分镜一次性交给模型，按【分镜N】分段输出${isOverwrite ? '（覆盖已有描述）' : ''}`
-                      : `将依次推导 ${effectiveCount} 个分镜（一次只生成一条，前后分镜自动关联）${isOverwrite ? '（覆盖已有描述）' : ''}`)
+                      ? `将本章 ${totalCount ?? 0} 个分镜一次性交给模型，按 ## 分镜 N 标题分段输出（覆盖已有描述）`
+                      : `将依次推导 ${effectiveCount} 个分镜（一次只生成一条，前后分镜自动关联，覆盖已有描述）`)
                   : '一次只生成本分镜的画面描述，自动携带前文分镜上下文。' }}
               </p>
             </div>
@@ -18,16 +18,16 @@
           </header>
 
           <div class="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
-            <!-- 生成方式：逐镜依次 / 整章一次（两者的模板与变量不同，选哪边就用哪边的模板列表） -->
+            <!-- 发送方式：逐条发送（每镜一次请求）/ 一次性发送（整章一次请求），两者的模板与变量不同 -->
             <div v-if="isBatch" class="mb-4 flex items-center gap-4">
-              <span class="text-xs text-text-secondary">生成方式</span>
+              <span class="text-xs text-text-secondary">发送方式</span>
               <label class="flex cursor-pointer items-center gap-1.5 text-xs text-text-secondary">
                 <input v-model="source" type="radio" value="per-panel" class="h-3 w-3 accent-cyan-400" />
-                逐镜依次
+                逐条发送
               </label>
               <label class="flex cursor-pointer items-center gap-1.5 text-xs text-text-secondary">
                 <input v-model="source" type="radio" value="chapter" class="h-3 w-3 accent-cyan-400" />
-                整章一次
+                一次性发送
               </label>
             </div>
 
@@ -65,22 +65,10 @@
               </div>
             </div>
 
-            <div v-if="isBatch && !isChapter" class="mt-4 flex items-center gap-4">
-              <span class="text-xs text-text-secondary">推导范围</span>
-              <label class="flex items-center gap-1.5 text-xs text-text-secondary" :class="{ 'pointer-events-none opacity-50': !missingCount }">
-                <input v-model="scope" type="radio" value="missing" class="h-3 w-3 accent-cyan-400" :disabled="!missingCount" />
-                仅补缺失（{{ missingCount }}）
-              </label>
-              <label class="flex cursor-pointer items-center gap-1.5 text-xs text-text-secondary">
-                <input v-model="scope" type="radio" value="all" class="h-3 w-3 accent-cyan-400" />
-                全部重新推导（{{ totalCount }}）
-              </label>
-            </div>
-
             <div class="mt-4 flex flex-col gap-1.5">
               <div class="flex items-center justify-between">
                 <span class="text-xs text-text-secondary">
-                  {{ isBatch ? (isChapter ? '整章提示词（一次发送，按【分镜N】分段产出）' : '首个目标分镜的提示词示例（批量时逐镜按模板重新拼装，此处仅预览）') : '最终发送的提示词（可在本次执行前修改）' }}
+                  {{ isBatch ? (isChapter ? '整章提示词（一次发送，按 ## 分镜 N 标题分段产出）' : '首个目标分镜的提示词示例（批量时逐镜按模板重新拼装，此处仅预览）') : '最终发送的提示词（可在本次执行前修改）' }}
                 </span>
                 <div class="flex items-center gap-3">
                   <button
@@ -89,6 +77,13 @@
                     :title="copyTitle"
                     @click="copyPrompt"
                   >{{ copied ? '已复制 ✓' : copyTitle }}</button>
+                  <!-- 一次性发送：整章提示词复制到外部 AI 后，可把结果按分镜标记对位导入 -->
+                  <button
+                    v-if="isChapter && prompt"
+                    class="text-xs text-cyan-400 hover:text-cyan-300"
+                    title="粘贴外部 AI 生成的整章画面描述，按分镜标记对位写入各镜"
+                    @click="emit('import')"
+                  >导入外部 AI 结果</button>
                   <button v-if="!isBatch && builtPrompt" class="text-xs text-cyan-400 hover:text-cyan-300" title="恢复系统拼装的提示词" @click="prompt = builtPrompt">重置</button>
                 </div>
               </div>
@@ -123,7 +118,7 @@
 
 <script setup lang="ts">
 /**
- * 分镜画面描述推导确认弹窗：单镜模式可编辑最终 prompt；批量模式选范围、预览首镜示例。
+ * 分镜画面描述推导确认弹窗：单镜模式可编辑最终 prompt；批量模式选发送方式、预览首镜示例（始终全部重新推导）。
  */
 import { computed, ref, watch } from 'vue'
 import { LoaderCircle, X } from 'lucide-vue-next'
@@ -141,11 +136,10 @@ const props = defineProps<{
   /** batch：批量（选生成方式与范围）；single：单镜（prompt 可编辑）。 */
   mode: 'batch' | 'single'
   panelOrder?: number
-  missingCount?: number
   totalCount?: number
   busy: boolean
   /** 由父组件按模板拼装的最终 prompt；template 为 null（未选模板）时返回空串。 */
-  buildPrompt: (template: PromptTemplate | null, scope?: 'missing' | 'all') => string
+  buildPrompt: (template: PromptTemplate | null) => string
   /** 整章一次生成模式的 prompt 拼装（template 为 null 时返回空串）。 */
   buildChapterPrompt?: (template: PromptTemplate | null) => string
   /** 复制到外部 AI 用的文本（批量逐镜模式会拼接全章 + 输出格式要求）；缺省则复制预览框内容。 */
@@ -156,26 +150,25 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
-  (e: 'confirm', payload: { modelId: string; templateId: string; scope?: 'missing' | 'all'; prompt?: string; source?: PromptSource }): void
+  (e: 'confirm', payload: { modelId: string; templateId: string; prompt?: string; source?: PromptSource }): void
+  /** 一次性发送时「导入外部 AI 结果」：由父组件打开整章画面描述导入弹窗（本弹窗保持打开）。 */
+  (e: 'import'): void
 }>()
 
-/** 生成方式：逐镜依次 / 整章一次（两者的模板类型与变量不同）。 */
+/** 发送方式：逐条发送（逐镜依次）/ 一次性发送（整章一次生成），两者的模板类型与变量不同。 */
 export type PromptSource = 'per-panel' | 'chapter'
 
 const modelId = ref('')
 const templateId = ref('')
 const prompt = ref('')
-const scope = ref<'missing' | 'all'>('missing')
 const source = ref<PromptSource>('per-panel')
 const creating = ref(false)
 
 const isBatch = computed(() => props.mode === 'batch')
 const isChapter = computed(() => isBatch.value && source.value === 'chapter')
-const isOverwrite = computed(() => isBatch.value && !isChapter.value && scope.value === 'all')
 const effectiveCount = computed(() => {
   if (!isBatch.value) return 1
-  if (isChapter.value) return props.totalCount ?? 0
-  return scope.value === 'missing' ? (props.missingCount ?? 0) : (props.totalCount ?? 0)
+  return props.totalCount ?? 0
 })
 /** 当前生成方式对应的模板列表。 */
 const activeTemplates = computed(() => (isChapter.value ? (props.chapterTemplates ?? []) : props.templates))
@@ -183,7 +176,7 @@ const selectedTemplate = computed(() => activeTemplates.value.find((t) => t.id =
 const builtPrompt = computed(() => {
   if (!selectedTemplate.value) return ''
   if (isChapter.value) return props.buildChapterPrompt?.(selectedTemplate.value) ?? ''
-  return props.buildPrompt(selectedTemplate.value, isBatch.value ? scope.value : undefined)
+  return props.buildPrompt(selectedTemplate.value)
 })
 /** 模板必选：本环节没有内置模板，没选模板就不该能开始（单镜模式允许直接手写/粘贴 prompt）。 */
 const canConfirm = computed(() => {
@@ -194,17 +187,21 @@ const canConfirm = computed(() => {
 watch(() => props.modelValue, (visible) => {
   if (!visible) return
   if (!modelId.value) modelId.value = props.defaultModelId || props.llmModels[0]?.id || ''
-  // 模板记忆按类型隔离：只有记忆里的模板属于当前生成方式时才回填
-  templateId.value = activeTemplates.value.some((t) => t.id === props.defaultTemplateId) ? (props.defaultTemplateId ?? '') : ''
+  // 模板记忆按类型隔离：记忆里的模板属于当前生成方式时回填，否则默认选中第一个模板
+  templateId.value = activeTemplates.value.some((t) => t.id === props.defaultTemplateId) ? (props.defaultTemplateId ?? '') : (activeTemplates.value[0]?.id ?? '')
   if (isBatch.value) {
-    scope.value = (props.missingCount ?? 0) > 0 ? 'missing' : 'all'
     source.value = 'per-panel'
   }
   prompt.value = builtPrompt.value
 })
 
-// 生成方式 / 范围 / 模板任一变化 → 重新拼装预览
+// 发送方式 / 模板变化 → 重新拼装预览
 watch(builtPrompt, (value) => { prompt.value = value })
+
+// 发送方式切换会更换模板列表（逐镜 panel-prompt / 整章 panel-prompt-chapter）：当前模板失效时回退选中第一个
+watch(activeTemplates, (list) => {
+  if (!list.some((t) => t.id === templateId.value)) templateId.value = list[0]?.id ?? ''
+})
 
 /** 一键新建模板：建好后直接选中（父组件会把新模板推回列表）。 */
 async function handleCreateTemplate() {
@@ -226,7 +223,6 @@ function handleConfirm() {
   emit('confirm', {
     modelId: modelId.value,
     templateId: templateId.value,
-    scope: isBatch.value && !isChapter.value ? scope.value : undefined,
     prompt: isBatch.value ? undefined : prompt.value,
     source: isBatch.value ? source.value : 'per-panel',
   })

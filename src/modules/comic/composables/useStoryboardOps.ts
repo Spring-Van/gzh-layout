@@ -47,14 +47,14 @@ export function useStoryboardOps(options: {
   const deleteDialogVisible = ref(false)
   const deleteTargetPanel = ref<LongProjectStoryboardPanel | null>(null)
 
-  /** 删除确认文案：该页已有成图/候选图时额外提示会一并移除。 */
+  /** 删除确认文案：该页已有成图时额外提示会一并移除。 */
   const deleteDialogContent = computed(() => {
     const panel = deleteTargetPanel.value
     if (!panel) return '删除后无法恢复，是否确认删除？'
     const artwork = options.artworkMap.value.get(panel.id)
-    const imageCount = (artwork?.generatedImageIds?.length ?? 0) + (artwork?.selectedImageId ? 1 : 0)
+    const imageCount = artwork?.generatedImageIds?.length ?? 0
     return imageCount > 0
-      ? `分镜 ${panel.order} 已有成图，删除后候选图一并移除，是否确认删除？`
+      ? `分镜 ${panel.order} 已有 ${imageCount} 张成图，删除分镜后成图一并移除，是否确认删除？`
       : `删除第 ${panel.order} 页分镜后无法恢复，是否确认删除？`
   })
 

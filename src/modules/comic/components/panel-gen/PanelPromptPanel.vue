@@ -2,7 +2,7 @@
   <div class="flex h-full flex-col overflow-hidden">
     <!-- 内容区 -->
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
-      <!-- 提示词输入框：叠加高亮层（textarea 文字透明，背后渲染资产名高亮，悬停资产名出资产卡） -->
+      <!-- 提示词输入框：叠加高亮层（textarea 文字透明，背后按资产类型着色渲染资产名，点击高亮名看大图） -->
       <div class="relative min-h-0 flex-1 rounded-xl border border-border-subtle bg-surface p-4 shadow-sm shadow-black/10">
         <div ref="layerEl" class="pointer-events-none absolute inset-4 overflow-hidden whitespace-pre-wrap break-all text-xs leading-relaxed" aria-hidden="true">
           <template v-for="(segment, index) in segments" :key="index">
@@ -10,7 +10,6 @@
               v-if="segment.text"
               :class="segment.asset ? 'asset-highlight' : ''"
               :style="segment.asset ? assetHighlightStyle(segment.asset.type) : undefined"
-              :title="segment.asset ? `${segment.asset.name} · 点击查看资产图` : ''"
               :data-asset-id="segment.asset?.id"
             >{{ segment.text }}</span>
           </template>
@@ -21,23 +20,19 @@
           placeholder="在此输入本分镜的画面描述（生图提示词），可点击底部「AI 推导」由 LLM 生成后再修改..."
           @scroll="syncScroll"
           @click="handleClick"
-          @mousemove="handleMove"
-          @mouseleave="handleLeave"
         />
       </div>
-      <!-- 检测提示：提示词中识别到的资产（悬停即出资产卡看参考图） -->
+      <!-- 检测提示：提示词中识别到的资产（点击标签查看参考图） -->
       <div v-if="detectedAssetChips.length" class="mt-1.5 shrink-0">
         <div class="flex flex-wrap items-center gap-1.5">
           <span class="text-[10px] text-text-muted">识别资产</span>
-          <span
+          <AssetBindingTag
             v-for="asset in detectedAssetChips"
             :key="asset.id"
-            class="inline-flex"
-            @mouseenter="showCardAt(asset.id, $event)"
-            @mouseleave="handleLeave"
-          >
-            <AssetBindingTag :binding="asset.tagBinding" :assets="assets" @inspect="openAssetPreview" />
-          </span>
+            :binding="asset.tagBinding"
+            :assets="assets"
+            @inspect="openAssetPreview"
+          />
         </div>
       </div>
 
@@ -179,18 +174,6 @@
 
     <!-- 图片预览弹窗 -->
     <ImagePreviewModal v-model="showPreview" :images="previewImages" :image-index="previewIndex" alt="自定义参考图" />
-
-    <!-- 资产悬停卡：输入框内高亮文字 / 底部「识别资产」上悬停即出，纯展示该资产当前视觉状态与参考图 -->
-    <AssetHoverCard
-      v-if="hoveredAsset"
-      :asset="hoveredAsset"
-      :panel="panel"
-      :assets="assets"
-      :card-style="hoverCardStyle"
-      @enter="cancelHoverClose"
-      @leave="handleLeave"
-      @preview="openHoverPreview"
-    />
   </div>
 </template>
 
@@ -205,7 +188,6 @@ import { ChevronRight, Check, Copy, Eye, LoaderCircle, Plus, Sparkles, X } from 
 import type { LongProjectAsset, LongProjectPanelArtwork, LongProjectStoryboardAssetBinding, LongProjectStoryboardPanel, SharedPromptBlock } from '@comic/types'
 import ImagePreviewModal from '@comic/components/ImagePreviewModal.vue'
 import AssetBindingTag from '@comic/components/AssetBindingTag.vue'
-import AssetHoverCard from '@comic/components/AssetHoverCard.vue'
 import { processImage, uploadImage, type ImageStorageMode } from '@comic/services/uploadService'
 import { composeFinalPrompt } from '@comic/services/panelPromptService'
 import { useAssetHighlight } from '@comic/composables/useAssetHighlight'
@@ -258,18 +240,13 @@ const promptText = ref(props.artwork?.imagePrompt ?? '')
 const showRefConfig = ref(true)
 
 // ===== 提示词资产识别与高亮 =====
-// 高亮渲染、滚动同步、光标命中与悬停卡状态机都在 useAssetHighlight 里，与「分镜内容」框共用同一套。
+// 高亮渲染与滚动同步都在 useAssetHighlight 里，与「分镜内容」框共用同一套。
+// 点击高亮名字打开大图预览（onPick）；底部「识别资产」标签点击同样可查看。
 const {
   layerEl,
   segments,
   syncScroll,
   handleClick,
-  handleMove,
-  handleLeave,
-  hoveredAsset,
-  hoverCardStyle,
-  showCardAt,
-  cancelHoverClose,
 } = useAssetHighlight({
   text: () => promptText.value,
   assets: () => props.assets ?? [],
@@ -308,13 +285,6 @@ function openAssetPreview(asset: LongProjectAsset | null) {
   }
   previewImages.value = [...images]
   previewIndex.value = 0
-  showPreview.value = true
-}
-
-/** 悬停卡里点参考图：打开大图预览。 */
-function openHoverPreview(payload: { images: string[]; index: number }) {
-  previewImages.value = [...payload.images]
-  previewIndex.value = payload.index
   showPreview.value = true
 }
 

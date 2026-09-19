@@ -147,9 +147,9 @@
                   confirm-storage-key="comic-long-analysis-confirm"
                   :build-prompt="buildAnalysisRunPrompt"
                   @run="runAnalysis"
+                  @import="openManualImport('analysis')"
                 />
               </div>
-              <button class="secondary-button h-9 shrink-0 px-2.5 text-xs" title="粘贴外部 AI 生成的原文分析结果，跳过内置大模型调用" @click="openManualImport('analysis')"><ClipboardPaste :size="14" />手动写入</button>
             </div>
             <div v-show="activeTab === 'script'" class="flex min-w-0 items-center gap-2">
               <div class="min-w-0 max-w-2xl">
@@ -164,9 +164,9 @@
                   confirm-storage-key="comic-long-script-confirm"
                   :build-prompt="buildScriptRunPrompt"
                   @run="runScript"
+                  @import="openManualImport('script')"
                 />
               </div>
-              <button class="secondary-button h-9 shrink-0 px-2.5 text-xs" title="粘贴外部 AI 生成的漫画剧本结果，跳过内置大模型调用" @click="openManualImport('script')"><ClipboardPaste :size="14" />手动写入</button>
             </div>
             <div v-show="activeTab === 'storyboard'" id="storyboard-actions" class="flex min-w-0 flex-1 items-center justify-end gap-2" />
           </div>
@@ -179,7 +179,6 @@
           :analysis-doc="analysisDoc"
           :source-changed="analysisSourceChanged"
           @save-analysis="saveAnalysis"
-          @import-analysis="openManualImport('analysis')"
         />
 
         <LongProjectScriptTab
@@ -190,7 +189,6 @@
           :source-changed="scriptSourceChanged"
           :script-only="selectedChapter?.startMode === 'script'"
           @save-script="saveScript"
-          @import-script="openManualImport('script')"
         />
 
         <!-- 资产 tab：先于分镜确认本章资产（提取/审核/生图工作台），首次进入挂载后常驻（提取任务切页签不中断） -->
@@ -237,11 +235,12 @@
     <LongProjectNodeDialog v-model="nodeDialogVisible" :node-type="nodeDialogType" :rename-mode="Boolean(editingNode)" :initial-name="editingNode?.name" :parent-name="nodeDialogParentName" @submit="handleNodeDialogSubmit" />
     <ConfirmDialog v-model="deleteDialogVisible" title="删除内容" :content="deleteDialogContent" confirm-text="确认删除" @confirm="confirmDelete" />
 
-    <!-- 手动导入结果（外部 AI 代跑）：分析/剧本共用 -->
+    <!-- 手动导入结果（外部 AI 代跑）：分析/剧本共用；z-[140] 压过「确认发送内容」弹窗（z-[130]） -->
     <ManualResultImportDialog
       :visible="Boolean(importKind)"
       :title="importDialogConfig.title"
       :placeholder="importDialogConfig.placeholder"
+      z-index-class="z-[140]"
       @confirm="confirmManualImport"
       @close="importKind = null"
     />
@@ -271,7 +270,7 @@
 import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { v4 as uuidv4 } from "uuid";
-import { ArrowLeft, ArrowRight, Boxes, ChevronDown, Clapperboard, ClipboardPaste, FileImage, FilePlus2, FileText, FolderPlus, ListTree, Palette, PanelLeftClose, PanelLeftOpen, Pencil, ScanText, ScrollText, Trash2, Workflow } from "lucide-vue-next";
+import { ArrowLeft, ArrowRight, Boxes, ChevronDown, Clapperboard, FileImage, FilePlus2, FileText, FolderPlus, ListTree, Palette, PanelLeftClose, PanelLeftOpen, Pencil, ScanText, ScrollText, Trash2, Workflow } from "lucide-vue-next";
 import { comicDb } from "@/api/comic";
 import { useTabStore, resolveMatchKey } from "@/stores/tab";
 import ConfirmDialog from "@comic/components/ConfirmDialog.vue";

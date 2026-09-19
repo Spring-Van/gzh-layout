@@ -154,21 +154,21 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
   it('asset-prompt 返回格式只有一份：批量与逐条同格式（逐条只解析一条）', () => {
     const format = outputFormatSpec('asset-prompt');
     expect(format).toContain('Markdown');
-    expect(format).toContain('【资产名｜状态名】');
+    expect(format).toContain('## 资产名｜状态名');
   });
 
-  it('分镜格式说明：符号规则（格用【第X格】、标题用「」、冒号后写内容）', () => {
+  it('分镜格式说明：Markdown 结构规则（## 页头、### 第X格、- 字段：内容）', () => {
     const spec = outputFormatSpec('storyboard');
-    expect(spec).toContain('符号规则：分镜格用【第X格】；内容标题用「XXX」；冒号后写具体内容。');
-    expect(spec).toContain('【第X格】');
-    expect(spec).toContain('「字段名」：内容');
+    expect(spec).toContain('## 分镜 N');
+    expect(spec).toContain('### 第X格');
+    expect(spec).toContain('- 字段名：内容');
   });
 
   it('分镜格式说明：列出 14 个字段（含出场资产），台词类字段四选一且带说话人', () => {
     const spec = outputFormatSpec('storyboard');
     expect(spec).toContain('景别 / 镜头 / 画面 / 人物 / 出场资产 / 动作 / 表情 / 台词 / 心声 / 画外 / 旁白 / 音效 / 光效 / 备注');
     expect(spec).toContain('说话人：“台词”');
-    expect(spec).toContain('「旁白」不带说话人');
+    expect(spec).toContain('旁白不带说话人');
     // 【】不再用于台词包装（旧 v3 协议已废弃）
     expect(spec).not.toContain('说话人：【台词】');
   });
