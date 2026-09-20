@@ -341,6 +341,8 @@ export interface LongProjectPanelArtwork {
   imagePrompt?: string
   promptSource?: 'inferred' | 'manual'
   promptStatus: PanelPromptStatus
+  /** 当前分镜核心参考图的手动顺序（存稳定 key；图片增删后保留仍有效项，其余按默认顺序追加）。 */
+  referenceImageOrder?: string[]
   /** 成图暂存：候选图列表，采纳后写 selectedImageId */
   generatedImageIds?: string[]
   selectedImageId?: string
@@ -456,7 +458,8 @@ export interface ComicProject {
 
 export type ModelCategory = 'llm' | 'image' | 'video'
 export type ApiFormat = 'openai' | 'gemini' | 'claude'
-export type ApiSource = 'grsai' | 'xiguapi' | 'duomi' | 'openai'
+/** 图片接口来源。agnes 使用 Agnes Image generations API。 */
+export type ApiSource = 'grsai' | 'duomi' | 'openai' | 'agnes'
 
 export interface ModelConfig {
   id: string

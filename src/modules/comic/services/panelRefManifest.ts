@@ -1,7 +1,7 @@
 /**
  * 分镜参考图清单（`panelRefManifest`）—— **全项目唯一的图号事实来源**。
  *
- * 一张图「是第几号」只在这里算一次，生图取图、右栏参考图分组、画面描述提示词、
+ * 一张图「是第几号」只在这里算一次，生图取图、右栏参考图分组、最终生图提示词、
  * 资产工作台引用统计全部读同一份清单，杜绝「标了在用其实没用」「用了却没标」的口径漂移。
  *
  * 编号规则（严格按下述顺序，**从前向后**编号）：
@@ -17,9 +17,7 @@
  * 纯函数、无副作用、无缓存 —— 因此「改图后序号实时更新」是天然的：改图 / 换状态 / 调顺序
  * 都会在下一次拼装时立刻反映，不需要任何刷新按钮或落库同步。
  *
- * 清单有两副面孔，来自同一份 entries：
- * - `buildRefManifestText()`：完整清单（含共用属性图），用于人工核对；
- * - `buildRefManifestText(m, { assetsOnly: true })`：喂给模型的资产图号清单，**图号不变**。
+ * 画面内容推导模型不接收这份清单；最终图号定义由 `composeFinalPrompt` 在生图前生成。
  */
 
 import { getBlocksByPosition } from '@comic/utils/sharedBlocks'
@@ -29,35 +27,10 @@ import type { LongProjectAsset, LongProjectAssetType, LongProjectStoryboardPanel
 /** 资产类型的图号顺序：人物 → 场景 → 道具。 */
 export const ASSET_REF_ORDER: LongProjectAssetType[] = ['character', 'scene', 'prop']
 
-/** 资产类型中文名（清单文本用）。 */
-const ASSET_TYPE_LABEL: Record<LongProjectAssetType, string> = { character: '人物', scene: '场景', prop: '道具' }
-
-/** 资产类型的用途声明（清单文本用）。 */
-const ASSET_TYPE_USAGE: Record<LongProjectAssetType, string> = {
-  character: '仅用于人物身份、脸部、发型、服装与外貌特征',
-  scene: '仅用于环境与空间布局',
-  prop: '仅用于道具外观与材质',
-}
-
-/** assetsOnly 清单（画面描述「资产参考图」小节）用：资产类型的参考词。 */
-const ASSET_TYPE_REF_NOUN: Record<LongProjectAssetType, string> = {
-  character: '角色参考',
-  scene: '场景参考',
-  prop: '道具参考',
-}
-
-/** assetsOnly 清单用：资产类型的用途核心句（场景/道具前会按格号拼接「仅用于第N格的」）。 */
-const ASSET_TYPE_USAGE_CORE: Record<LongProjectAssetType, string> = {
-  character: '仅用于人物身份、脸部、发型、服装和外貌特征',
-  scene: '环境和空间布局',
-  prop: '道具外观与材质',
-}
-
-/** 共用属性图的用途声明。 */
-const SHARED_USAGE = '仅用于该属性描述所述的用途'
-
 /** 清单中的一条参考图。 */
 export interface PanelRefEntry {
+  /** 手动排序使用的稳定键。 */
+  key: string
   /** 全局 1-based 图号 = 传给生图模型的数组下标 + 1。 */
   index: number
   /** 来源：共用属性 / 资产。 */
@@ -68,6 +41,8 @@ export interface PanelRefEntry {
   blockId?: string
   /** 资产条目：资产类型。 */
   assetType?: LongProjectAssetType
+  /** 资产条目：资产 id。 */
+  assetId?: string
   /** 资产条目：视觉状态名。 */
   variantName?: string
   /** 资产条目：视觉状态 id（引用统计按它归组）。 */
@@ -95,15 +70,24 @@ export function buildPanelRefManifest(args: {
   panel: LongProjectStoryboardPanel
   assets: LongProjectAsset[]
   sharedBlocks?: SharedPromptBlock[] | null
+  /** 当前分镜保存的手动顺序；无效 key 自动丢弃，新条目按默认顺序追加。 */
+  referenceOrder?: string[]
 }): PanelRefManifest {
   const entries: PanelRefEntry[] = []
-  let next = 1
 
   // ① 插入最前的共用属性图
   for (const block of getBlocksByPosition(args.sharedBlocks, 'front')) {
     if (!block.enableRefImages) continue
-    for (const image of block.referenceImages ?? []) {
-      entries.push({ index: next++, source: 'shared', label: block.name, blockId: block.id, image })
+    for (const [imageIndex, image] of (block.referenceImages ?? []).entries()) {
+      const duplicateSuffix = (block.referenceImages ?? []).slice(0, imageIndex).filter((item) => item === image).length
+      entries.push({
+        key: `shared:${block.id}:${image}:${duplicateSuffix}`,
+        index: 0,
+        source: 'shared',
+        label: block.name,
+        blockId: block.id,
+        image,
+      })
     }
   }
 
@@ -114,9 +98,11 @@ export function buildPanelRefManifest(args: {
       const image = resolvePanelRefImage(variant, binding ?? {})
       if (!image) continue
       entries.push({
-        index: next++,
+        key: `asset:${asset.id}:${variant.id}`,
+        index: 0,
         source: 'asset',
         label: asset.name,
+        assetId: asset.id,
         assetType: type,
         variantName: variant.name,
         variantId: variant.id,
@@ -126,73 +112,31 @@ export function buildPanelRefManifest(args: {
     }
   }
 
-  return { images: entries.map((entry) => entry.image), entries }
+  const byKey = new Map(entries.map((entry) => [entry.key, entry]))
+  const ordered: PanelRefEntry[] = []
+  const seen = new Set<string>()
+  for (const key of args.referenceOrder ?? []) {
+    const entry = byKey.get(key)
+    if (!entry || seen.has(key)) continue
+    ordered.push(entry)
+    seen.add(key)
+  }
+  for (const entry of entries) {
+    if (seen.has(entry.key)) continue
+    ordered.push(entry)
+  }
+  const indexed = ordered.map((entry, index) => ({ ...entry, index: index + 1 }))
+  return { images: indexed.map((entry) => entry.image), entries: indexed }
 }
 
-/**
- * 清单 → 提示词文本：逐图声明「图N = 谁、用于什么」。
- *
- * 完整清单（assetsOnly=false）形如：
- * ```
- * 图3 = 萧薰儿 · 战斗服（人物，第1-2格；仅用于人物身份、脸部、发型、服装与外貌特征）
- * ```
- *
- * assetsOnly（推导画面描述专用）行版式 = 画面描述输出「资产参考图」小节的**目标版式**：
- * ```
- * 图4 = 萧薰儿（战斗服）角色参考，仅用于人物身份、脸部、发型、服装和外貌特征。
- * 图5 = 萧家测试广场（白天）场景参考，仅用于第1格的环境和空间布局。
- * ```
- * 模型只负责把本镜用到的行**照抄**进输出（可按格微调用途句），图号永不自己编。
- *
- * 原则是**序号由代码算，语义由模型写**：绝不允许模型自己数图号。
- *
- * `options.assetsOnly`：只列**资产**参考图，共用属性图只留占位说明。
- * 画面描述环节不需要看到共用属性（它由 `composeFinalPrompt` 在生成后拼到描述之外），
- * 但图号必须保持生图时的真实序号，否则模型写的「图3」会对不上真正传进去的第三张图。
- */
-export function buildRefManifestText(
-  manifest: PanelRefManifest,
-  options: { assetsOnly?: boolean } = {},
-): string {
-  const entries = options.assetsOnly ? manifest.entries.filter((entry) => entry.source === 'asset') : manifest.entries
-  if (!entries.length) return ''
-  const lines = entries.map((entry) => {
-    if (entry.source === 'shared') {
-      return `图${entry.index} = ${entry.label}（共用属性，${SHARED_USAGE}）`
-    }
-    const type = entry.assetType ?? 'prop'
-    if (!options.assetsOnly) {
-      const cellText = entry.cellIndexes?.length ? `第${entry.cellIndexes.map((index) => index + 1).join('、')}格` : '整镜'
-      const variantText = entry.variantName ? ` · ${entry.variantName}` : ''
-      return `图${entry.index} = ${entry.label}${variantText}（${ASSET_TYPE_LABEL[type]}，${cellText}；${ASSET_TYPE_USAGE[type]}）`
-    }
-    // assetsOnly：行版式即输出「资产参考图」小节的目标版式（照抄即可）。人物是身份参考、全格生效，不写格号；
-    // 场景/道具写明格号范围（清单里确定性存有每个资产图出现的格），防生图模型把图用错格。
-    const variantText = entry.variantName ? `（${entry.variantName}）` : ''
-    const usage =
-      type === 'character'
-        ? ASSET_TYPE_USAGE_CORE.character
-        : entry.cellIndexes?.length
-          ? `仅用于第${entry.cellIndexes.map((index) => index + 1).join('、')}格的${ASSET_TYPE_USAGE_CORE[type]}`
-          : `仅用于${ASSET_TYPE_USAGE_CORE[type]}`
-    return `图${entry.index} = ${entry.label}${variantText}${ASSET_TYPE_REF_NOUN[type]}，${usage}。`
-  })
-  if (!options.assetsOnly) return lines.join('\n')
-  const sharedNumbers = manifest.entries.filter((entry) => entry.source === 'shared').map((entry) => entry.index)
-  const note = sharedNumbers.length
-    ? `（${sharedNumbers.map((index) => `图${index}`).join('、')} 为前置共用属性参考图，由系统在画面描述之外另行拼接，无需在描述中引用）`
-    : ''
-  return [note, ...lines].filter(Boolean).join('\n')
-}
-
-/** 清单按资产类型分组（右栏「参考图设置」勾选项用；共用属性归入 style 组）。 */
+/** 清单按资产类型分组（右栏图号速览使用；共用属性归入 style 组）。 */
 export interface ManifestRefGroup {
   type: LongProjectAssetType | 'style'
   images: string[]
   entries: PanelRefEntry[]
 }
 
-/** 按类型分组清单；组顺序与图号顺序一致（style → 人物 → 场景 → 道具）。 */
+/** 按类型分组清单；每组内部保留当前全局图号顺序。 */
 export function groupManifestByType(manifest: PanelRefManifest): ManifestRefGroup[] {
   const groups: ManifestRefGroup[] = [
     { type: 'style', images: [], entries: [] },

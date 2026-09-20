@@ -8,7 +8,7 @@ import {
   resolvePanelAssetStates,
   resolvePanelRefImage,
 } from '../../src/modules/comic/services/panelPromptService';
-import { parseStoryboardResponse } from '../../src/modules/comic/services/storyboardService';
+import { bindingsFromValue, defaultVariant, parseStoryboardResponse } from '../../src/modules/comic/services/storyboardService';
 import type { LongProjectAsset, LongProjectStoryboardPanel, LongProjectStoryboardRun } from '../../src/modules/comic/types';
 
 /**
@@ -84,6 +84,37 @@ function asRun(panels: LongProjectStoryboardPanel[]): LongProjectStoryboardRun {
 }
 
 describe('分镜视觉状态绑定全链路', () => {
+  it('模型给出未知状态名时，回落绑定保存实际状态名与章节范围来源', () => {
+    const fallbackAsset = {
+      ...character,
+      variants: [
+        { ...character.variants[0], chapterRange: { startChapterId: 'c1', endChapterId: 'c2' } },
+      ],
+    } as LongProjectAsset;
+    const [binding] = bindingsFromValue('林 小雨（不存在的状态）', [fallbackAsset], 'c1', chapterOrders);
+    expect(binding).toMatchObject({
+      assetId: 'a1',
+      assetName: '林小雨',
+      visualVersionId: 'v1',
+      visualVersionName: '便装',
+      matchSource: 'chapter-range',
+    });
+  });
+
+  it('章节默认状态同时遵守开始与结束范围，不使用已结束或尚未开始的状态', () => {
+    const rangedAsset = {
+      ...character,
+      variants: [
+        { ...character.variants[0], chapterRange: { startChapterId: 'c1', endChapterId: 'c1' } },
+        { ...character.variants[1], chapterRange: { startChapterId: 'c3' } },
+      ],
+    } as LongProjectAsset;
+    const orders = { c1: 0, c2: 1, c3: 2 };
+    expect(defaultVariant(rangedAsset, 'c1', orders)?.id).toBe('v1');
+    expect(defaultVariant(rangedAsset, 'c2', orders)).toBeUndefined();
+    expect(defaultVariant(rangedAsset, 'c3', orders)?.id).toBe('v2');
+  });
+
   it('解析：格级「出场资产」各自保存状态，页级汇总取镜末状态', () => {
     const panels = parse();
     expect(panels).toHaveLength(2);

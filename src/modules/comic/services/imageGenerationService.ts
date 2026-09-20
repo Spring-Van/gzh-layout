@@ -1,8 +1,8 @@
 import type { ModelConfig, OpenAIImageParams } from '@comic/types'
-import { xiguapiService } from './xiguapiService'
 import { grsaiService } from './grsaiService'
 import { duomiService } from './duomiService'
 import { openaiImageService } from './openaiImageService'
+import { agnesImageService } from './agnesImageService'
 
 export interface GenerateResult {
   success: boolean
@@ -28,7 +28,7 @@ const extractGrsaiResult = (result: Awaited<ReturnType<typeof grsaiService.waitF
 export const imageGenerationService = {
   /**
    * 基于模型配置生图（页面生成模式）
-   * 根据模型的 apiSource 字段决定调用 grsai 还是 xiguapi 服务
+   * 根据模型的 apiSource 字段选择生图服务
    */
   async generateWithModel(
     modelConfig: ModelConfig,
@@ -45,10 +45,10 @@ export const imageGenerationService = {
     const apiSource = modelConfig.apiSource || 'grsai'
 
     try {
-      if (apiSource === 'xiguapi') {
-        return await this.generateWithXiguapiModel(modelConfig, prompt, imageUrls, aspectRatio, resolution, onProgress, onTaskCreated)
-      } else if (apiSource === 'duomi') {
+      if (apiSource === 'duomi') {
         return await this.generateWithDuomiModel(modelConfig, prompt, imageUrls, aspectRatio, quality, onProgress, onTaskCreated)
+      } else if (apiSource === 'agnes') {
+        return await this.generateWithAgnesModel(modelConfig, prompt, imageUrls, aspectRatio, resolution, onProgress)
       } else if (apiSource === 'openai') {
         return await this.generateWithOpenAIModel(modelConfig, prompt, imageUrls, aspectRatio, resolution, quality, onProgress)
       }
@@ -79,17 +79,9 @@ export const imageGenerationService = {
       if (apiSource === 'openai') {
         // OpenAI 是同步接口，不支持任务恢复
         return { success: false, error: 'OpenAI 类型为同步接口，不支持任务恢复，请重新生成', taskId }
-      } else if (apiSource === 'xiguapi') {
-        const result = await xiguapiService.waitForCompletion(
-          modelConfig.apiKey,
-          taskId,
-          (status) => onProgress?.(status === 'completed' ? 100 : 50, status),
-          maxAttempts,
-          interval
-        )
-        return result.imageUrl
-          ? { success: true, imageUrl: result.imageUrl, taskId }
-          : { success: false, error: result.error || '查询失败', taskId }
+      } else if (apiSource === 'agnes') {
+        // Agnes generations 是同步接口，不会返回可轮询的 taskId。
+        return { success: false, error: 'Agnes 类型为同步接口，不支持任务恢复，请重新生成', taskId }
       } else if (apiSource === 'duomi') {
         const result = await duomiService.waitForCompletion(
           modelConfig.apiKey,
@@ -116,43 +108,6 @@ export const imageGenerationService = {
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : '查询失败', taskId }
     }
-  },
-
-  /** 使用 xiguapi 服务生图（基于 ModelConfig） */
-  async generateWithXiguapiModel(
-    modelConfig: ModelConfig,
-    prompt: string,
-    imageUrls: string[],
-    aspectRatio: string,
-    resolution: string,
-    onProgress?: (progress: number, status: string) => void,
-    onTaskCreated?: (taskId: string) => void
-  ): Promise<GenerateResult> {
-    const res = (resolution || '1K') as '1K' | '2K' | '4K'
-    const ar = (aspectRatio || '3:4') as '1:1' | '4:3' | '3:4' | '16:9' | '9:16' | '3:2' | '2:3' | '21:9' | '5:4' | '4:5'
-
-    const createResult = await xiguapiService.createTask(modelConfig.apiKey, {
-      prompt,
-      model: modelConfig.model || 'nanobananapro',
-      imageUrls,
-      params: { resolution: res, aspectRatio: ar }
-    })
-
-    if (!createResult.taskId) return { success: false, error: '创建任务失败，未获取到 taskId' }
-
-    // 通知调用者 taskId 已创建
-    onTaskCreated?.(createResult.taskId)
-
-    onProgress?.(0, 'submitting')
-
-    const result = await xiguapiService.waitForCompletion(
-      modelConfig.apiKey, createResult.taskId,
-      (status) => onProgress?.(status === 'completed' ? 100 : 50, status)
-    )
-
-    return result.imageUrl
-      ? { success: true, imageUrl: result.imageUrl, taskId: createResult.taskId }
-      : { success: false, error: result.error || '生成失败', taskId: createResult.taskId }
   },
 
   /**
@@ -286,6 +241,41 @@ export const imageGenerationService = {
       }
     }
 
+    return { success: false, error: result.error || '生成失败' }
+  },
+
+  /** 使用 Agnes Image generations API 生图（同步接口）。 */
+  async generateWithAgnesModel(
+    modelConfig: ModelConfig,
+    prompt: string,
+    imageUrls: string[],
+    aspectRatio: string,
+    resolution: string,
+    onProgress?: (progress: number, status: string) => void,
+  ): Promise<GenerateResult> {
+    onProgress?.(10, 'generating')
+    let responseFormat: 'url' | 'b64_json' = 'url'
+    if (modelConfig.openaiExtraParams) {
+      try {
+        const params = JSON.parse(modelConfig.openaiExtraParams) as { responseFormat?: string }
+        if (params.responseFormat === 'b64_json') responseFormat = 'b64_json'
+      } catch {
+        // 兼容历史配置，解析失败时使用 URL 默认值。
+      }
+    }
+    const result = await agnesImageService.generate(modelConfig.apiKey, {
+      model: modelConfig.model || 'agnes-image-2.5-flash',
+      prompt,
+      images: imageUrls.length ? imageUrls : undefined,
+      size: resolution || '1K',
+      ratio: aspectRatio || undefined,
+      baseUrl: modelConfig.baseUrl,
+      responseFormat,
+    })
+    if (result.success && result.images.length) {
+      onProgress?.(100, 'completed')
+      return { success: true, imageUrl: result.images[0], imageUrls: result.images }
+    }
     return { success: false, error: result.error || '生成失败' }
   }
 }

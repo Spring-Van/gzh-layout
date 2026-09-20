@@ -8,7 +8,7 @@ import type { LongProjectAsset, LongProjectStoryboardAssetBinding, LongProjectSt
 
 /**
  * 格级资产状态绑定 —— 镜内多状态展开（页级 ∪ 格级）核心口径单测：
- * 生图参考图（currentRefGroups / panelRefImages）与工作台引用统计
+ * 生图参考图（currentRefGroups / buildPanelRefManifest）与工作台引用统计
  * 都按 resolvePanelAssetStates 的结果消费，此处锁死展开语义。
  */
 
@@ -142,10 +142,10 @@ describe('summarizeCellBindings（格级 → 页级汇总）', () => {
 describe('formatCellsForPrompt（画面描述的分格详情）', () => {
   it('每格带出场资产行（含状态名），供画面描述模型区分各格状态', () => {
     const text = formatCellsForPrompt(multiStatePanel.cells!);
-    expect(text).toContain('### 第1格');
-    expect(text).toContain('- 出场资产：林小雨（便装）');
-    expect(text).toContain('### 第2格');
-    expect(text).toContain('- 出场资产：林小雨（战斗服）');
+    expect(text).toContain('第1格');
+    expect(text).toContain('出场资产：林小雨（便装）');
+    expect(text).toContain('第2格');
+    expect(text).toContain('出场资产：林小雨（战斗服）');
   });
 
   it('无出场资产的格不输出该行', () => {

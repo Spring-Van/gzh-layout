@@ -40,7 +40,8 @@ export function resolvePanelBindings(panel: LongProjectStoryboardPanel, assets: 
   for (const binding of panel.assetBindings) {
     const asset = assets.find((item) => item.id === binding.assetId)
     if (!asset) continue
-    const variant = asset.variants.find((item) => item.id === binding.visualVersionId) ?? asset.variants[0]
+    const variant = asset.variants.find((item) => item.id === binding.visualVersionId)
+      ?? (!binding.visualVersionId ? asset.variants.find((item) => item.name === binding.visualVersionName) ?? asset.variants[0] : undefined)
     if (!variant) continue
     result.push({ asset, variant, binding })
   }
@@ -98,7 +99,8 @@ export function resolveCellBindings(panel: LongProjectStoryboardPanel, assets: L
     for (const binding of cell.assetBindings ?? []) {
       const asset = binding.assetId ? assets.find((item) => item.id === binding.assetId) : undefined
       if (!asset) continue
-      const variant = asset.variants.find((item) => item.id === binding.visualVersionId) ?? asset.variants[0]
+      const variant = asset.variants.find((item) => item.id === binding.visualVersionId)
+        ?? (!binding.visualVersionId ? asset.variants.find((item) => item.name === binding.visualVersionName) ?? asset.variants[0] : undefined)
       if (!variant) continue
       result.push({ asset, variant, cellIndex })
     }
@@ -114,6 +116,26 @@ export interface PanelAssetStateEntry {
   cellIndexes: number[]
   /** 页级绑定（手选图等用途）；该状态不是页级主状态时为 undefined。 */
   binding?: LongProjectStoryboardAssetBinding
+}
+
+/** 最终生图阶段所需的参考图清单最小结构，避免与 panelRefManifest 形成循环依赖。 */
+export interface RuntimeRefManifest {
+  images: string[]
+  entries: Array<{
+    index: number
+    source: 'shared' | 'asset'
+    label: string
+    blockId?: string
+    assetType?: LongProjectAsset['type']
+    variantName?: string
+    cellIndexes?: number[]
+  }>
+}
+
+/** 单独生成额外附加在核心清单末尾的参考图。 */
+export interface RuntimeExtraReference {
+  image: string
+  label: string
 }
 
 /**
@@ -154,8 +176,17 @@ export function resolvePanelAssetStates(panel: LongProjectStoryboardPanel, asset
 export function buildSharedBlockSection(
   blocks: SharedPromptBlock[] | undefined | null,
   position: PromptInsertPosition,
+  manifest?: RuntimeRefManifest,
 ): string {
-  const numMap = computeBlockImageNumbers(blocks)
+  const numMap = manifest
+    ? manifest.entries.reduce<Map<string, number[]>>((map, entry) => {
+        if (entry.source !== 'shared' || !entry.blockId) return map
+        const numbers = map.get(entry.blockId) ?? []
+        numbers.push(entry.index)
+        map.set(entry.blockId, numbers)
+        return map
+      }, new Map())
+    : computeBlockImageNumbers(blocks)
   return getBlocksByPosition(blocks, position)
     .map((block) => buildBlockText(block, numMap.get(block.id) ?? [], position))
     .filter(Boolean)
@@ -163,23 +194,41 @@ export function buildSharedBlockSection(
 }
 
 /**
- * 三层拼接：前置共用属性（代码拼）+ 画面描述（LLM / 人工）+ 后置共用属性（代码拼）。
+ * 最终生图拼接：前置共用属性 + 动态参考图定义 + 画面描述（LLM / 人工）+ 后置共用属性。
  *
  * **这是共用属性进入提示词的唯一入口**（推导提示词里不再有它们）：
  * 1. 描述保持纯净 → 可单独复制到外部 AI、可人工编辑，不被固定文案污染；
  * 2. 改画风 / 换共用属性图 → 不必重跑 LLM，下次生图自动生效；
  * 3. 固定文案（尤其参考图用途声明）不会因模型改写而漏句、串图。
  *
- * 序号也对得上：`buildPanelRefManifest` 把前置共用属性图算在前头，所以描述里写的
- * 「图3」就是真正传给生图的第 3 张图。
+ * 图号全部来自运行时清单，并与实际发送的图片数组保持同序。
  */
 export function composeFinalPrompt(
   imagePrompt: string,
   blocks: SharedPromptBlock[] | undefined | null,
+  manifest?: RuntimeRefManifest,
+  extraReferences: RuntimeExtraReference[] = [],
 ): string {
-  const front = buildSharedBlockSection(blocks, 'front')
-  const back = buildSharedBlockSection(blocks, 'back')
-  return [front, imagePrompt.trim(), back].filter(Boolean).join('\n\n')
+  const front = buildSharedBlockSection(blocks, 'front', manifest)
+  const back = buildSharedBlockSection(blocks, 'back', manifest)
+  const assetLines = (manifest?.entries ?? [])
+    .filter((entry) => entry.source === 'asset')
+    .map((entry) => {
+      const type = entry.assetType === 'character' ? '人物' : entry.assetType === 'scene' ? '场景' : '道具'
+      const state = entry.variantName ? `（${entry.variantName}）` : ''
+      const scope = entry.cellIndexes?.length ? `第${entry.cellIndexes.map((index) => index + 1).join('、')}格` : '整镜'
+      const usage = entry.assetType === 'character'
+        ? `仅用于${scope}的人物身份、脸部、发型、服装与外貌特征`
+        : entry.assetType === 'scene'
+          ? `仅用于${scope}的环境与空间布局`
+          : `仅用于${scope}的道具外观与材质`
+      return `图${entry.index} = ${entry.label}${state}${type}参考，${usage}。`
+    })
+  const extraLines = extraReferences.map((entry, index) => `图${(manifest?.images.length ?? 0) + index + 1} = ${entry.label}。`)
+  const referenceSection = [...assetLines, ...extraLines].length
+    ? `【动态参考图】\n${[...assetLines, ...extraLines].join('\n')}`
+    : ''
+  return [front, referenceSection, imagePrompt.trim(), back].filter(Boolean).join('\n\n')
 }
 
 /** 单镜信息文本（逐镜与全章两种模式共用同一拼法）。 */
@@ -194,25 +243,19 @@ export function buildPanelInfoText(panel: LongProjectStoryboardPanel): string {
 /**
  * 拼装**逐镜**推导提示词（panel-prompt）。
  *
- * 变量：{{参考图清单}} / {{当前分镜}} / {{镜头}} / {{前文分镜}} / {{本章分镜概要}} /
- * {{目标生图模型}}；
+ * 变量：{{当前分镜}} / {{镜头}} / {{前文分镜}} / {{本章分镜概要}} / {{目标生图模型}}；
  * 是否进入提示词完全由模板决定——模板没写的变量不会出现（无自动追加兜底）。
  *
- * **不含共用属性**：共用属性只由 `composeFinalPrompt` 在生图时拼到描述前后，
- * 既不进模型输入也不进 `imagePrompt` 字段。也**不含资产视觉设定**：
- * 资产外观由参考图清单（图号）承载，模型照图号引用参考图即可。
+ * **不含共用属性、参考图清单或图号**：这些内容只由 `composeFinalPrompt` 在生图时
+ * 根据当前图片顺序动态拼接，既不进模型输入也不进 `imagePrompt` 字段。
  *
  * 本环节逐镜单独调用、返回纯文本，**结果不需要解析**（返回格式约定写在模板内容里）。
- *
- * `refManifestText` 由调用方用 `buildRefManifestText(buildPanelRefManifest(...), { assetsOnly: true })`
- * 生成，这样图号只有一个来源，且本服务不与 panelRefManifest 形成循环依赖。
  */
 export function buildPanelPromptPrompt(options: {
   templateContent: string
   panel: LongProjectStoryboardPanel
   chapterOutline: string
   prevEntries: PrevPanelContextEntry[]
-  refManifestText?: string
   targetImageModel?: string
 }): string {
   const { panel } = options
@@ -220,7 +263,6 @@ export function buildPanelPromptPrompt(options: {
     type: 'panel-prompt',
     content: options.templateContent,
     values: {
-      参考图清单: options.refManifestText ?? '',
       当前分镜: buildPanelInfoText(panel),
       镜头: panel.shot ?? '',
       前文分镜: buildPrevPanelsContext(options.prevEntries),
@@ -235,16 +277,13 @@ export function buildPanelPromptPrompt(options: {
  *
  * 与逐镜模板的差异（这是两个模板类型，不是同一个）：
  * - `{{当前分镜}}` → `{{全章分镜}}`（全章所有镜，一次交给模型）；
- * - 新增 `{{全章参考图清单}}`（按镜分组，图号与生图实际顺序一致）；
  * - **不需要** `{{镜头}}` / `{{前文分镜}}` / `{{本章分镜概要}}`：全章分镜原文里已经包含全部镜头与上下文。
  *
- * 与逐镜模板一致：**不含共用属性**（生图时才前后拼接），也**不含资产视觉设定**（参考图清单承载资产外观）。
+ * 与逐镜模板一致：**不含共用属性、参考图清单或图号**，这些内容在生图时动态拼接。
  */
 export function buildChapterPanelPromptPrompt(options: {
   templateContent: string
   panels: LongProjectStoryboardPanel[]
-  /** panelId → 该镜资产参考图清单文本（由 buildRefManifestText(..., { assetsOnly: true }) 生成）。 */
-  refManifestTexts: Map<string, string>
   targetImageModel?: string
 }): string {
   const { panels } = options
@@ -253,7 +292,6 @@ export function buildChapterPanelPromptPrompt(options: {
     content: options.templateContent,
     values: {
       全章分镜: panels.map((panel) => buildPanelInfoText(panel)).join('\n\n'),
-      全章参考图清单: panels.map((panel) => `## 分镜 ${panel.order}\n${options.refManifestTexts.get(panel.id) || '（本镜没有资产参考图）'}`).join('\n\n'),
       目标生图模型: options.targetImageModel ?? '',
     },
   })

@@ -455,7 +455,8 @@ export const openaiImageService = {
           mimetype: 'image/png',
         })
       } catch (err) {
-        console.warn(`参考图 ${i + 1} 转换失败，跳过:`, err)
+        const detail = err instanceof Error ? err.message : '未知错误'
+        throw new Error(`参考图 ${i + 1} 转换失败，已停止生成：${detail}`)
       }
     }
 

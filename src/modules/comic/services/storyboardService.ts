@@ -59,16 +59,26 @@ export function buildStoryboardPrompt(templateContent: string, scriptContent: st
   })
 }
 
-function findAsset(name: string, assets: LongProjectAsset[]) { return assets.find((asset) => [asset.name, ...asset.aliases].some((item) => item.trim() === name.trim())) }
+function normalizeAssetName(name: string): string { return name.trim().replace(/[\s　]+/g, '').toLocaleLowerCase() }
+function findAsset(name: string, assets: LongProjectAsset[]) {
+  const target = normalizeAssetName(name)
+  return assets.find((asset) => [asset.name, ...asset.aliases].some((item) => normalizeAssetName(item) === target))
+}
 
 /** 资产默认视觉状态：按章节范围（晚于当前章节出现的往后排）选最近一个已生效状态。 */
 export function defaultVariant(asset: LongProjectAsset | undefined, chapterId: string, chapterOrders: Record<string, number>) {
   if (!asset) return undefined
   const currentOrder = chapterOrders[chapterId] ?? Number.MAX_SAFE_INTEGER
-  return asset.variants
-    .filter((variant) => (chapterOrders[variant.chapterRange?.startChapterId ?? variant.firstAppearanceChapterId ?? ''] ?? -1) <= currentOrder)
+  const active = asset.variants
+    .filter((variant) => {
+      const start = chapterOrders[variant.chapterRange?.startChapterId ?? variant.firstAppearanceChapterId ?? ''] ?? -1
+      const end = variant.chapterRange?.endChapterId ? chapterOrders[variant.chapterRange.endChapterId] : undefined
+      return start <= currentOrder && (end === undefined || currentOrder <= end)
+    })
     .sort((a, b) => (chapterOrders[b.chapterRange?.startChapterId ?? b.firstAppearanceChapterId ?? ''] ?? -1) - (chapterOrders[a.chapterRange?.startChapterId ?? a.firstAppearanceChapterId ?? ''] ?? -1))[0]
-    ?? asset.variants[0]
+  if (active) return active
+  // 没有任何适用于当前章节的范围时，仅允许无范围状态兜底，避免使用已经结束或尚未开始的状态。
+  return asset.variants.find((variant) => !variant.chapterRange && !variant.firstAppearanceChapterId)
 }
 
 /**
@@ -83,10 +93,21 @@ export function bindingsFromValue(value: string, assets: LongProjectAsset[], cha
     const asset = findAsset(assetName, assets)
     // 状态三级匹配：精确名 → 双向包含模糊（模型微调措辞，如「少年」↔「少年期」）→ 章节范围默认
     const variants = asset?.variants ?? []
-    const variant = (visualVersionName ? variants.find((item) => item.name === visualVersionName) : undefined)
-      ?? (visualVersionName ? variants.find((item) => item.name.includes(visualVersionName) || visualVersionName.includes(item.name)) : undefined)
-      ?? defaultVariant(asset, chapterId, chapterOrders)
-    return { assetId: asset?.id, assetName, visualVersionId: variant?.id, visualVersionName: visualVersionName || variant?.name, matchSource: asset ? (visualVersionName ? 'model' : 'chapter-range') : 'unmatched', referenceImageIds: variant?.referenceImageIds ?? [] }
+    const exact = visualVersionName ? variants.find((item) => item.name === visualVersionName) : undefined
+    const fuzzy = !exact && visualVersionName
+      ? variants.find((item) => item.name.includes(visualVersionName) || visualVersionName.includes(item.name))
+      : undefined
+    const variant = exact ?? fuzzy ?? defaultVariant(asset, chapterId, chapterOrders)
+    const matchedModelState = Boolean(exact || fuzzy)
+    return {
+      assetId: asset?.id,
+      assetName: asset?.name ?? assetName,
+      visualVersionId: variant?.id,
+      // 始终保存实际匹配到的状态名，避免“显示状态”和“发送图片”不是同一个状态。
+      visualVersionName: variant?.name,
+      matchSource: asset ? (matchedModelState ? 'model' : 'chapter-range') : 'unmatched',
+      referenceImageIds: variant?.referenceImageIds ?? [],
+    }
   })
 }
 
@@ -136,8 +157,9 @@ export function serializeBindings(bindings: LongProjectStoryboardAssetBinding[])
 const PAGE_HEADER_RE = /^#{1,6}\s*(?:分镜\s*\d*|第\s*\d+\s*页)/
 /** 页头右侧的格数标签：`## 分镜 2 · 双格` → 「双格」 */
 const PAGE_LABEL_RE = /[·・]\s*([^·・]+?)\s*$/
-/** v5 Markdown 格标题行：`### 第1格`（主格式，允许同行续写内容） */
+/** 格标题：兼容旧 Markdown `### 第1格` 与新普通文本 `第1格`。 */
 const MD_CELL_TITLE_RE = /^#{1,6}\s*第\s*([0-9一二三四五六七八九十]+)\s*格\s*[:：]?\s*(.*)$/
+const PLAIN_CELL_TITLE_RE = /^第\s*([0-9一二三四五六七八九十]+)\s*格\s*[:：]?\s*(.*)$/
 /** v4 格标题行：`【第1格】`（历史兼容，允许同行续写内容） */
 const CELL_TITLE_RE = /^【\s*第\s*([0-9一二三四五六七八九十]+)\s*格\s*】\s*(.*)$/
 /** v4 字段行：`「景别」：内容`（引号兼容 「」『』【】[]） */
@@ -156,8 +178,9 @@ const NARRATION_RE = /^旁白\s*[：:]\s*(.*)$/
 const SPEAKER_RE = /^([^：:，。！？、；\s（）()]{1,10})\s*(?:[（(]\s*(心声|画外)\s*[)）])?\s*[：:]\s*(.*)$/
 /** v4 台词值（带引号）：`说话人：“台词”` */
 const QUOTED_SPEECH_RE = /^(.{1,20}?)\s*[：:]\s*[“"‘'「『]\s*([\s\S]*?)\s*[”"’'」』]?\s*$/
-/** 旧字段行：`- 画面：内容` */
+/** 字段行：兼容旧 Markdown `- 画面：内容` 与新普通文本 `画面：内容`。 */
 const FIELD_RE = /^[-*]\s*([^：:]+)[：:]\s*(.*)$/
+const PLAIN_FIELD_RE = /^([^：:]{1,12})[：:]\s*(.*)$/
 /** v2 行内分格分隔符（‖ 分格、｜ 分字段） */
 const INLINE_SEP_RE = /[‖｜|]/
 /** 结构性行（无页头时据此自动开页，兼容外部纯文本导入） */
@@ -205,9 +228,9 @@ function splitSpeech(value: string): [string | undefined, string] {
 /**
  * 解析 LLM 返回的 Markdown 分镜文本为结构化分镜数组。
  *
- * 主格式为「Markdown 页块格式」（v5，与全链路统一 Markdown 语法一致）：
- * 一个 `## 分镜 N · X格` 页块 = 一张漫画图；页内先写 `### 第X格` 标题起一格，
- * 再从下一行起逐行写 `- 字段名：内容`（景别 / 镜头 / 画面 / 人物 / 动作 / 表情 / 台词 / 心声 / 画外 / 旁白 / 音效 / 光效 / 备注）。
+ * 主格式为「页头 Markdown、格内普通文本」格式：
+ * 一个 `## 分镜 N · X格` 页块 = 一张漫画图；页内先写普通文本 `第X格` 起一格，
+ * 再从下一行起逐行写 `字段名：内容`；同时兼容旧格式的 Markdown 格标题和列表字段。
  * 同时向下兼容四种历史形态：
  * 1. v4 页块：`【第X格】` 起格 + `「字段名」：内容` 字段行；
  * 2. v3 页块：`①【镜头】画面` + `说话人：【台词】` / `旁白：【文字】`（正文【】可带可不带，解析时剥掉）；
@@ -356,10 +379,16 @@ export function parseStoryboardResponse(content: string, assets: LongProjectAsse
       startPage()
     }
 
-    // 0) Markdown 格标题行 `### 第1格`（v5 主格式，可同行续写内容）
+    // 0) 格标题：新格式为普通文本 `第1格`，同时兼容历史 `### 第1格`
     const mdCellTitle = line.match(MD_CELL_TITLE_RE)
     if (mdCellTitle) {
       pushCell({ content: mdCellTitle[2].trim() })
+      continue
+    }
+
+    const plainCellTitle = line.match(PLAIN_CELL_TITLE_RE)
+    if (plainCellTitle) {
+      pushCell({ content: plainCellTitle[2].trim() })
       continue
     }
 
@@ -370,11 +399,15 @@ export function parseStoryboardResponse(content: string, assets: LongProjectAsse
       continue
     }
 
-    // 2) 字段行 `- 画面：…`（Markdown v5 与旧字段行共用 `- 字段：内容` 语法）
-    const field = line.match(FIELD_RE)
+    // 2) 字段行：新格式 `画面：…`，同时兼容旧格式 `- 画面：…`
+    const field = line.match(FIELD_RE) ?? line.match(PLAIN_FIELD_RE)
     if (field) {
       const key = field[1].trim()
       const value = field[2].trim()
+      const knownField = new Set(['画面', '内容', '景别', '镜头', '运镜', '对白', '台词', '心声', '独白', '画外', '旁白', '人物', '出场角色', '动作', '表情', '音效', '光效', '备注', '绘画提示词', '出场资产'])
+      if (!knownField.has(key) && !line.match(FIELD_RE)) {
+        // 普通文本中的「说话人：台词」等非字段行交给后面的台词解析。
+      } else {
       // 字段行在格内（`### 第X格` / `【第X格】` 之后）走 v5/v4 语义：镜头=运镜、台词拆说话人、出场资产进格；
       // 无格（页级）保持旧字段行语义：镜头=景别、台词整段、出场资产页级绑定。
       const cell = lastCell()
@@ -395,7 +428,8 @@ export function parseStoryboardResponse(content: string, assets: LongProjectAsse
       else if (key === '绘画提示词') { if (current) current.imagePrompt = value; lastField = 'imagePrompt' }
       else if (key === '出场资产') { if (cell) pushCellAssets(value); else if (current) current.assetBindings = bindingsFromValue(value, assets, chapterId, chapterOrders); lastField = null }
       else lastField = null
-      continue
+        continue
+      }
     }
 
     // 3) 格行 `①【近景】画面`
@@ -586,19 +620,19 @@ function panelToCells(panel: LongProjectStoryboardPanel): LongProjectStoryboardC
 }
 
 /**
- * 一页 → 页块文本（v5 Markdown：`### 第X格` 标题 + `- 字段名：内容` 列表行）。
+ * 一页 → 页块文本：只有页头使用 Markdown；格标题和字段使用普通文本。
  * 与 LLM 输出、可复制格式完全一致，可在单一输入框里直接编辑；空字段整行省略。
  */
 export function serializePanelBlock(panel: LongProjectStoryboardPanel): string {
   const cells = panelToCells(panel)
-  // 完全空白的新页不给任何格块，避免出现空的「### 第1格」
+  // 完全空白的新页不给任何格块，避免出现空的格标题
   if (!cells.some((cell) => cellHasContent(cell))) return ''
   const lines: string[] = []
   cells.forEach((cell, index) => {
-    lines.push(`### 第${index + 1}格`)
+    lines.push(`第${index + 1}格`)
     const push = (label: string, value?: string) => {
       const text = (value ?? '').trim()
-      if (text) lines.push(`- ${label}：${text}`)
+      if (text) lines.push(`${label}：${text}`)
     }
     push('景别', cell.shot)
     push('镜头', cell.camera)
@@ -630,10 +664,10 @@ function cellHasContent(cell: LongProjectStoryboardCell): boolean {
  */
 export function formatCellsForPrompt(cells: LongProjectStoryboardCell[]): string {
   return cells.map((cell, index) => {
-    const lines = [`### 第${index + 1}格`]
+    const lines = [`第${index + 1}格`]
     const push = (label: string, value?: string) => {
       const text = (value ?? '').trim()
-      if (text) lines.push(`- ${label}：${text}`)
+      if (text) lines.push(`${label}：${text}`)
     }
     push('景别', cell.shot)
     push('镜头', cell.camera)
@@ -689,13 +723,13 @@ export function buildPanelPolishPrompt(blockText: string, scriptContext?: string
 - 补齐「人物」（本格画面内出现的角色）、「动作」、「表情」，只写画面上能看到的内容，不得编造；
 - 台词类字段补全说话人写法：对白用「台词」、内心独白用「心声」、说话人不在本格画面内用「画外」、
   无人称叙述用「旁白」；写法为 说话人：“台词”，引号用中文引号，说话人不得省略；
-- 保持每格标题（### 第X格）的序号连续；同一格内台词 / 心声 / 画外 / 旁白最多出现一个；
+- 保持每格标题（第X格）的序号连续；同一格内台词 / 心声 / 画外 / 旁白最多出现一个；
 - 单句台词不超过 20 字（单格满版不超过 30 字），超出时拆成多格；一页最多 4 格；
 - 一格内混入两条叙事线索时拆格；「画面」补足到 30~80 字。
 
 【必须遵守】
 - 剧情、画面事实、台词文字与说话人一律不得改动、增删或润色；不要补写剧本里没有的情节；
-- 只输出这一页分镜文本，不要输出其它页；不要解释、不要代码块、不要输出 ## 分镜 N 页头行（每格标题 ### 第X格 必须保留）。
+- 只输出这一页分镜文本，不要输出其它页；不要解释、不要代码块、不要输出 ## 分镜 N 页头行（每格标题 第X格 必须保留）。
 
 【输出格式】
 ${outputFormatSpec('storyboard')}

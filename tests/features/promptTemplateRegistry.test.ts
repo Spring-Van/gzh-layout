@@ -111,7 +111,7 @@ describe('promptTemplateRegistry · 渲染引擎', () => {
 });
 
 describe('promptTemplateRegistry · 推荐模板', () => {
-  it('六个长篇类型的推荐模板都显式插入了该类型的全部变量（不再依赖兜底）', () => {
+  it('全部长篇类型的推荐模板都显式插入了该类型的全部变量（不再依赖兜底）', () => {
     for (const type of LONG_STORY_TEMPLATE_TYPES) {
       const template = RECOMMENDED_TEMPLATES[type];
       expect(template, `缺少推荐模板：${type}`).toBeTruthy();
@@ -142,11 +142,12 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
     }
   });
 
-  it('六个长篇类型的格式说明都要求 Markdown；style/story 无', () => {
-    for (const type of ['analysis', 'script', 'storyboard', 'extract', 'asset-prompt', 'panel-prompt'] as const) {
+  it('需要 Markdown 的长篇类型明确声明 Markdown；分镜只声明页级标题使用 Markdown', () => {
+    for (const type of ['analysis', 'script', 'extract', 'asset-prompt', 'panel-prompt', 'panel-prompt-chapter'] as const) {
       expect(outputFormatSpec(type).length).toBeGreaterThan(0);
       expect(outputFormatSpec(type), `${type} 应明确要求 Markdown 返回`).toContain('Markdown');
     }
+    expect(outputFormatSpec('storyboard')).toContain('仅页级标题使用 Markdown');
     expect(outputFormatSpec('style')).toBe('');
     expect(OUTPUT_FORMAT_SPECS.story).toBeUndefined();
   });
@@ -157,11 +158,23 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
     expect(format).toContain('## 资产名｜状态名');
   });
 
-  it('分镜格式说明：Markdown 结构规则（## 页头、### 第X格、- 字段：内容）', () => {
+  it('画面描述协议不要求模型输出参考图、图号或共用属性', () => {
+    for (const type of ['panel-prompt', 'panel-prompt-chapter'] as const) {
+      const format = outputFormatSpec(type);
+      expect(format).toContain('纯画面内容');
+      expect(format).toContain('不要输出资产参考图清单、图号、共用属性');
+      expect(RECOMMENDED_TEMPLATES[type]!.content).not.toContain('{{参考图清单}}');
+      expect(RECOMMENDED_TEMPLATES[type]!.content).not.toContain('{{全章参考图清单}}');
+    }
+  });
+
+  it('分镜格式说明：只有页头使用 Markdown，格内使用普通文本', () => {
     const spec = outputFormatSpec('storyboard');
     expect(spec).toContain('## 分镜 N');
-    expect(spec).toContain('### 第X格');
-    expect(spec).toContain('- 字段名：内容');
+    expect(spec).toContain('第X格');
+    expect(spec).toContain('字段名：内容');
+    expect(spec).not.toContain('### 第X格');
+    expect(spec).not.toContain('- 字段名：内容');
   });
 
   it('分镜格式说明：列出 14 个字段（含出场资产），台词类字段四选一且带说话人', () => {

@@ -49,26 +49,30 @@
 
         <Transition name="collapse">
           <div v-if="showRefConfig" class="space-y-2 rounded-lg border border-border-subtle bg-surface p-2.5">
-            <!-- 参考图勾选项 -->
-            <div class="flex flex-wrap gap-x-3 gap-y-1.5">
-              <label
-                v-for="opt in refOptions"
-                :key="opt.key"
-                class="flex select-none items-center gap-1.5 text-[11px]"
-                :class="opt.available ? 'cursor-pointer text-text-primary' : 'cursor-not-allowed text-text-muted'"
+            <!-- 核心参考图固定携带；顺序可手动调整，图号与最终发送数组实时同源。 -->
+            <div v-if="refManifest?.entries.length" class="space-y-1">
+              <div
+                v-for="(entry, index) in refManifest.entries"
+                :key="entry.key"
+                class="flex items-center gap-2 rounded-md border border-border-subtle px-2 py-1"
               >
-                <input
-                  v-model="refConfig[opt.key]"
-                  type="checkbox"
-                  :disabled="!opt.available"
-                  class="h-3 w-3 rounded border-border-subtle bg-input-bg text-cyan-500 focus:ring-cyan-500/30 focus:ring-offset-0"
-                />
-                <span>{{ opt.label }}</span>
-                <span v-if="opt.count > 0" class="text-text-muted">({{ opt.count }})</span>
-              </label>
+                <img :src="entry.image" class="h-8 w-8 shrink-0 rounded object-cover" alt="参考图" />
+                <span class="w-8 shrink-0 text-[10px] font-medium text-cyan-400">图{{ entry.index }}</span>
+                <span class="min-w-0 flex-1 truncate text-[10px] text-text-secondary">
+                  {{ entry.label }}{{ entry.variantName ? ` · ${entry.variantName}` : '' }}
+                </span>
+                <button class="text-text-muted hover:text-text-primary disabled:opacity-25" :disabled="index === 0" title="上移" @click="moveReference(index, -1)"><ChevronUp :size="13" /></button>
+                <button class="text-text-muted hover:text-text-primary disabled:opacity-25" :disabled="index === refManifest.entries.length - 1" title="下移" @click="moveReference(index, 1)"><ChevronDown :size="13" /></button>
+              </div>
             </div>
+            <p v-else class="text-[10px] text-text-muted">当前分镜没有核心参考图</p>
 
-            <!-- 图号速览：与生图实际发送顺序一致（共用属性 → 人物 → 场景 → 道具） -->
+            <label class="flex select-none items-center gap-1.5 text-[11px]" :class="generatedImage ? 'cursor-pointer text-text-primary' : 'cursor-not-allowed text-text-muted'">
+              <input v-model="refConfig.useGeneratedImage" type="checkbox" :disabled="!generatedImage" class="h-3 w-3 rounded border-border-subtle bg-input-bg text-cyan-500 focus:ring-cyan-500/30 focus:ring-offset-0" />
+              <span>追加上一版结果图</span>
+            </label>
+
+            <!-- 图号速览：按当前手动顺序汇总，与生图实际发送顺序一致。 -->
             <p v-if="numberSummary" class="text-[10px] leading-4 text-text-muted">{{ numberSummary }}</p>
 
             <!-- 自定义上传参考图 -->
@@ -133,10 +137,10 @@
         <div class="flex items-center justify-between gap-2">
           <p class="min-w-0 truncate text-[10px] text-text-muted">分镜 {{ panel.order }} · {{ promptText.length.toLocaleString() }} 字符</p>
           <div class="flex items-center gap-1.5">
-            <!-- 复制完整提示词（含共用属性）：粘到外部 AI 生成后再用「导入描述」回贴 -->
+            <!-- 复制运行时完整提示词，图号与当前参考图设置一致。 -->
             <button
               class="flex items-center gap-1.5 rounded-lg border border-border-subtle px-2.5 py-1.5 text-[11px] text-text-secondary transition-colors hover:border-border-default hover:text-text-primary"
-              title="复制完整提示词（前置共用属性 + 画面描述 + 后置共用属性），可粘贴到外部 AI 生成"
+              title="复制完整提示词（前置共用属性 + 动态图号定义 + 画面描述 + 后置共用属性）"
               @click="copyFinalPrompt"
             >
               <Check v-if="copied" :size="13" class="text-emerald-400" />
@@ -180,28 +184,25 @@
 <script setup lang="ts">
 /**
  * 分镜生图工作台右栏（提示词模式）：结构与短篇生图页 PageContentPanel 提示词模式一致——
- * 提示词输入框 + 参考图设置（分类勾选 + 自定义上传）+ 底部「单镜操作」（AI 推导 / 单独生成）。
- * 提示词防抖自动保存；单独生成携带勾选的参考图配置。
+ * 提示词输入框 + 核心参考图排序 + 自定义上传 + 底部「单镜操作」（AI 推导 / 单独生成）。
+ * 提示词防抖自动保存；核心参考图固定携带，上一版结果图和自定义图追加在末尾。
  */
 import { computed, reactive, ref, watch } from 'vue'
-import { ChevronRight, Check, Copy, Eye, LoaderCircle, Plus, Sparkles, X } from 'lucide-vue-next'
+import { ChevronDown, ChevronRight, ChevronUp, Check, Copy, Eye, LoaderCircle, Plus, Sparkles, X } from 'lucide-vue-next'
 import type { LongProjectAsset, LongProjectPanelArtwork, LongProjectStoryboardAssetBinding, LongProjectStoryboardPanel, SharedPromptBlock } from '@comic/types'
 import ImagePreviewModal from '@comic/components/ImagePreviewModal.vue'
 import AssetBindingTag from '@comic/components/AssetBindingTag.vue'
 import { processImage, uploadImage, type ImageStorageMode } from '@comic/services/uploadService'
-import { composeFinalPrompt } from '@comic/services/panelPromptService'
+import { composeFinalPrompt, effectiveVariantRefImages } from '@comic/services/panelPromptService'
+import type { PanelRefManifest } from '@comic/services/panelRefManifest'
 import { useAssetHighlight } from '@comic/composables/useAssetHighlight'
 import { useToast } from '@comic/composables/useToast'
 import { assetHighlightStyle } from '@comic/utils/assetTypeTheme'
 
 const toast = useToast()
 
-/** 单独生成的参考图配置（与短篇 RefImageConfig 同构） */
+/** 单独生成时可追加在核心清单末尾的参考图配置。 */
 export interface PanelRefConfig {
-  useStyleRef: boolean
-  useCharacterRef: boolean
-  useSceneRef: boolean
-  usePropRef: boolean
   useGeneratedImage: boolean
   customImages: string[]
 }
@@ -220,8 +221,10 @@ const props = defineProps<{
   promptBusy?: boolean
   /** 是否正在生图（禁用单独生成按钮）。 */
   generating?: boolean
-  /** 生图可携带的参考图分组（按类型）。 */
+  /** 兼容旧调用方的参考图分组；图号与排序以 refManifest 为准。 */
   refGroups: TypedRefGroup[]
+  /** 当前分镜核心参考图清单；顺序即实际发送顺序。 */
+  refManifest?: PanelRefManifest
   /** 当前已采纳成图（作为「结果图」参考选项）。 */
   generatedImage?: string | null
   /** 项目资产库：用于提示词内资产名识别、高亮与查看资产图。 */
@@ -233,6 +236,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'infer'): void
   (e: 'save', prompt: string): void
+  (e: 'reorder-reference', keys: string[]): void
   (e: 'single-generate', prompt: string, refConfig: PanelRefConfig): void
 }>()
 
@@ -277,8 +281,9 @@ function openAssetPreview(asset: LongProjectAsset | null) {
     return
   }
   const binding = props.panel.assetBindings.find((item) => item.assetId === asset.id)
-  const variant = asset.variants.find((item) => item.id === binding?.visualVersionId) ?? asset.variants[0]
-  const images = variant?.referenceImageIds ?? []
+  const variant = asset.variants.find((item) => item.id === binding?.visualVersionId)
+    ?? (!binding?.visualVersionId ? asset.variants.find((item) => item.name === binding?.visualVersionName) ?? asset.variants[0] : undefined)
+  const images = variant ? effectiveVariantRefImages(variant) : []
   if (!images.length) {
     toast.info(`「${asset.name} · ${variant?.name ?? '默认'}」暂无参考图`)
     return
@@ -297,10 +302,6 @@ const previewImages = ref<string[]>([])
 const previewIndex = ref(0)
 
 const refConfig = reactive<PanelRefConfig>({
-  useStyleRef: false,
-  useCharacterRef: false,
-  useSceneRef: false,
-  usePropRef: false,
   useGeneratedImage: false,
   customImages: [],
 })
@@ -322,21 +323,30 @@ watch(promptText, () => {
   }, 500)
 })
 
-/** 各类型参考图数量 */
-const groupCount = (type: TypedRefGroup['type']) => props.refGroups.find((group) => group.type === type)?.images.length ?? 0
-
-const GROUP_LABEL: Record<TypedRefGroup['type'], string> = { style: '共用属性', character: '人物', scene: '场景', prop: '道具' }
-
-/** 图号速览：把「图1 = 谁」按类型归并成一行，与生图实际发送顺序完全一致。 */
+/** 图号速览：严格按当前手动顺序显示，避免按资产类型分组后掩盖真实发送顺序。 */
 const numberSummary = computed(() =>
-  props.refGroups
-    .filter((group) => group.images.length && group.numbers?.length)
-    .map((group) => `${GROUP_LABEL[group.type]} ${(group.numbers ?? []).map((n) => `图${n}`).join('、')}`)
+  (props.refManifest?.entries ?? [])
+    .map((entry) => `图${entry.index} ${entry.label}${entry.variantName ? `（${entry.variantName}）` : ''}`)
     .join(' · '),
 )
 
-/** 最终送生图的完整提示词（三层拼接：前置共用属性 + 画面描述 + 后置共用属性），与生图实际发送内容一致。 */
-const finalPrompt = computed(() => composeFinalPrompt(promptText.value.trim(), props.sharedBlocks ?? []))
+/** 当前追加参考图；图号接在核心清单之后。 */
+const extraReferences = computed(() => {
+  const entries: Array<{ image: string; label: string }> = []
+  if (refConfig.useGeneratedImage && props.generatedImage) {
+    entries.push({ image: props.generatedImage, label: '本镜上一版结果图，用于构图与连续性参考' })
+  }
+  customRefImages.value.forEach((image, index) => entries.push({ image, label: `自定义参考图 ${index + 1}` }))
+  return entries
+})
+
+/** 最终送生图的完整提示词：动态参考图定义不进入 LLM 模板，在复制/生图时实时拼接。 */
+const finalPrompt = computed(() => composeFinalPrompt(
+  promptText.value.trim(),
+  props.sharedBlocks ?? [],
+  props.refManifest,
+  extraReferences.value,
+))
 
 const copied = ref(false)
 let copiedTimer: ReturnType<typeof setTimeout> | null = null
@@ -359,26 +369,23 @@ async function copyFinalPrompt() {
   }
 }
 
-/** 参考图勾选项配置 */
-const refOptions = computed(() => [
-  { key: 'useStyleRef' as const, label: '风格参考', count: groupCount('style'), available: groupCount('style') > 0 },
-  { key: 'useCharacterRef' as const, label: '人物参考', count: groupCount('character'), available: groupCount('character') > 0 },
-  { key: 'useSceneRef' as const, label: '场景参考', count: groupCount('scene'), available: groupCount('scene') > 0 },
-  { key: 'usePropRef' as const, label: '物品参考', count: groupCount('prop'), available: groupCount('prop') > 0 },
-  { key: 'useGeneratedImage' as const, label: '结果图', count: props.generatedImage ? 1 : 0, available: Boolean(props.generatedImage) },
-])
-
 /** 已选中的参考图总数 */
 const selectedRefCount = computed(() => {
-  let count = 0
-  if (refConfig.useStyleRef) count += groupCount('style')
-  if (refConfig.useCharacterRef) count += groupCount('character')
-  if (refConfig.useSceneRef) count += groupCount('scene')
-  if (refConfig.usePropRef) count += groupCount('prop')
+  let count = props.refManifest?.images.length ?? 0
   if (refConfig.useGeneratedImage && props.generatedImage) count += 1
   count += customRefImages.value.length
   return count
 })
+
+/** 手动调整核心参考图顺序；父组件持久化 key 列表，清单随即重新编号。 */
+function moveReference(index: number, direction: -1 | 1) {
+  const entries = props.refManifest?.entries ?? []
+  const target = index + direction
+  if (target < 0 || target >= entries.length) return
+  const keys = entries.map((entry) => entry.key)
+  ;[keys[index], keys[target]] = [keys[target], keys[index]]
+  emit('reorder-reference', keys)
+}
 
 /** 触发自定义参考图上传 */
 function triggerCustomUpload() {

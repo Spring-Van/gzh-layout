@@ -168,10 +168,12 @@
             :prompt-busy="promptBusyIds.has(currentPanel.id)"
             :generating="currentArtwork?.genStatus === 'running'"
             :ref-groups="currentRefGroups"
+            :ref-manifest="currentRefManifest"
             :shared-blocks="sharedBlocks"
             :generated-image="currentArtwork?.selectedImageId ?? currentArtwork?.generatedImageIds?.at(-1) ?? null"
             @infer="singleModalVisible = true"
             @save="savePromptEdit"
+            @reorder-reference="setReferenceOrder"
             @single-generate="runSingleGenerate"
           />
           <div v-else class="flex h-full items-center justify-center text-xs text-text-muted">请先生成分镜</div>
@@ -352,7 +354,7 @@ import {
   parseChapterPanelPrompts,
   type PrevPanelContextEntry,
 } from '@comic/services/panelPromptService'
-import { buildPanelRefManifest, buildRefManifestText, groupManifestByType } from '@comic/services/panelRefManifest'
+import { buildPanelRefManifest, groupManifestByType, type PanelRefManifest } from '@comic/services/panelRefManifest'
 import { buildAssetNameIndex, computeAutoBindings, reapplyVariantContinuation } from '@comic/services/promptAssetService'
 import { bindingsFromValue, buildStoryboardPrompt, cellCountLabel, defaultVariant, parseStoryboardResponse, polishPanelBlock, serializeBindings, summarizeCellBindings, summarizeCells, type ChapterAssetContext } from '@comic/services/storyboardService'
 import { useStoryboardRun } from '@comic/composables/useStoryboardRun'
@@ -598,14 +600,18 @@ const genTargets = computed(() =>
 
 /** 当前分镜参考图清单（唯一图号来源，生图 / 分组 / 提示词 / 中栏图N角标四处同源）。 */
 function refManifestOf(panel: LongProjectStoryboardPanel) {
-  return buildPanelRefManifest({ panel: toRaw(panel), assets: assets.value.map(toRaw), sharedBlocks: sharedBlocks.value })
+  return buildPanelRefManifest({
+    panel: toRaw(panel),
+    assets: assets.value.map(toRaw),
+    sharedBlocks: sharedBlocks.value,
+    referenceOrder: artworkMap.value.get(panel.id)?.referenceImageOrder,
+  })
 }
 
 /** 当前分镜清单（中栏资产绑定的「图N」角标与说明用）。 */
 const currentRefManifest = computed(() => (currentPanel.value ? refManifestOf(currentPanel.value) : undefined))
 
-/** 当前分镜参考图分组（按类型，右栏「参考图设置」勾选用）。
- * 顺序严格等于图号顺序：共用属性（style）→ 人物 → 场景 → 道具；每个视觉状态一张（单选口径）。 */
+/** 当前分镜参考图分组（兼容右栏资产统计；实际发送顺序由 currentRefManifest.entries 决定）。 */
 const currentRefGroups = computed<TypedRefGroup[]>(() => {
   const panel = currentPanel.value
   if (!panel) return []
@@ -704,6 +710,13 @@ function setBindingImages(payload: { panelId: string; assetId: string; imageIds:
   })
 }
 
+/** 保存当前分镜核心参考图的手动顺序。新增图片会由清单构建器自动追加，已删除图片的 key 自动忽略。 */
+function setReferenceOrder(keys: string[]) {
+  const panel = currentPanel.value
+  if (!panel) return
+  void upsertArtwork(panel.id, { referenceImageOrder: [...keys] })
+}
+
 /**
  * 手动切换本镜某资产绑定的视觉状态（绑定卡状态 pill）。
  * 目标镜页级绑定写为 manual 来源（新状态 id/名/参考图；清空单选快照，回落新状态首图），
@@ -746,9 +759,10 @@ function setBindingVariant(payload: { panelId: string; assetId: string; variantI
     return { ...panel, assetBindings, cells }
   })
   const nextPanels = reapplyVariantContinuation(anchorPanels, payload.assetId, variant.id, target.order, assets.value)
+  const resolvedPanels = nextPanels ?? anchorPanels
   void props.mutateLongProjectData((data) => {
     data.storyboardRuns = (data.storyboardRuns ?? []).map((item) =>
-      item.id === run.id ? { ...item, panels: nextPanels ?? anchorPanels, updatedAt: Date.now() } : item)
+      item.id === run.id ? { ...item, panels: resolvedPanels, updatedAt: Date.now() } : item)
   })
 }
 
@@ -1076,9 +1090,7 @@ function prevEntriesOf(index: number): PrevPanelContextEntry[] {
 }
 
 /**
- * 拼装单镜最终提示词（只按模板内容拼，运行时不追加任何协议段）；无模板返回空串。
- * 参考图清单用 `assetsOnly` 口径：只给资产图（图号仍是生图真实序号），
- * 共用属性正文不给模型——它由 `composeFinalPrompt` 在生图时拼到描述前后。
+ * 拼装单镜推导提示词；LLM 只负责纯画面内容，参考图与共用属性均在生图阶段动态拼接。
  */
 function buildPromptForPanel(panel: LongProjectStoryboardPanel, index: number, template: PromptTemplate | null): string {
   if (!template) return ''
@@ -1087,22 +1099,17 @@ function buildPromptForPanel(panel: LongProjectStoryboardPanel, index: number, t
     panel: toRaw(panel),
     chapterOutline: chapterOutline.value,
     prevEntries: prevEntriesOf(index),
-    refManifestText: buildRefManifestText(refManifestOf(panel), { assetsOnly: true }),
     targetImageModel: imageModelName.value,
   })
 }
 
-/** 拼装「整章一次生成」提示词：全章分镜 + 各镜资产参考图清单；无模板返回空串。 */
+/** 拼装「整章一次生成」提示词：只发送全章分镜内容；无模板返回空串。 */
 function buildChapterPromptFor(template: PromptTemplate | null): string {
   if (!template) return ''
   const chapterPanels = panels.value.map(toRaw)
-  const refManifestTexts = new Map(
-    chapterPanels.map((panel) => [panel.id, buildRefManifestText(refManifestOf(panel), { assetsOnly: true })]),
-  )
   return buildChapterPanelPromptPrompt({
     templateContent: template.content,
     panels: chapterPanels,
-    refManifestTexts,
     targetImageModel: imageModelName.value,
   })
 }
@@ -1125,7 +1132,7 @@ function buildChapterPromptPreview(template: PromptTemplate | null): string {
  */
 const COPY_FORMAT_NOTE = `【输出格式要求】
 为每一镜各输出一段，逐镜之间用 ## 分镜 N 标题行分段；N 必须与上面的分镜序号一致，按序号递增，不遗漏、不新增、不打乱顺序。
-每段内部严格按各镜提示词中的返回格式输出三部分：「资产参考图：」小节照抄该镜清单中该镜用到的图行 → 「请根据以上参考图生成一页N格漫画。」→ 逐格「第X格：」小节。`
+每段只写该镜的纯画面内容，逐格用「第X格：」小节组织；不要输出参考图清单、图号、共用属性或全局画风。`
 
 /** 复制到外部 AI 的文本：整章一次 → 与内置调用完全一致；逐镜依次 → 全章逐镜拼接 + 输出格式要求。 */
 function buildCopyText(template: PromptTemplate | null, source: 'per-panel' | 'chapter'): string {
@@ -1303,24 +1310,22 @@ function syncCurrentPanelBindings(prompt?: string) {
 
 // ========== 生图 ==========
 
-/**
- * 生图参考图：直接取参考图清单（唯一图号来源）。
- * 顺序 = 共用属性图（插入最前）→ 人物 → 场景 → 道具；不做截断，全部发送。
- */
-function panelRefImages(panel: LongProjectStoryboardPanel): string[] {
-  return refManifestOf(panel).images
-}
-
-/** 单镜生图：三层拼接提示词（前置共用属性 + 画面描述 + 后置共用属性）+ 清单参考图。refImages 可覆盖默认参考图。 */
-async function generatePanelImage(panel: LongProjectStoryboardPanel, refImages?: string[]): Promise<boolean> {
+/** 单镜生图：运行时动态拼接共用属性、参考图定义与纯画面描述。 */
+async function generatePanelImage(
+  panel: LongProjectStoryboardPanel,
+  options: { manifest?: PanelRefManifest; extras?: Array<{ image: string; label: string }> } = {},
+): Promise<boolean> {
   const artwork = artworkMap.value.get(panel.id)
   const description = artwork?.imagePrompt?.trim()
   if (!description) {
     toast.warning('请先推导或编辑画面描述')
     return false
   }
-  // 共用属性不进 imagePrompt 字段：改画风 / 换共用属性图不必重跑 LLM，下次生图自动生效
-  const prompt = composeFinalPrompt(description, sharedBlocks.value)
+  const manifest = options.manifest ?? refManifestOf(panel)
+  const extras = options.extras ?? []
+  // 图片顺序、图号定义与最终提示词在同一步生成，资产/共用属性变化后自动同步。
+  const prompt = composeFinalPrompt(description, sharedBlocks.value, manifest, extras)
+  const referenceImages = [...manifest.images, ...extras.map((entry) => entry.image)]
   const model = imageModels.value.find((item) => item.id === config.imageModelId)
   if (!model) {
     toast.error('请先在顶部绘图配置中选择生图模型')
@@ -1335,7 +1340,7 @@ async function generatePanelImage(panel: LongProjectStoryboardPanel, refImages?:
     const result = await imageGenerationService.generateWithModel(
       toRaw(model),
       prompt,
-      refImages ?? panelRefImages(panel),
+      referenceImages,
       config.aspectRatio,
       config.resolution,
       config.quality,
@@ -1384,22 +1389,16 @@ function cancelBatchGen() {
   batchGenCancelled = true
 }
 
-/** 右栏「单独生成」：先保存描述，再按勾选的参考图配置生成本镜。 */
+/** 右栏「单独生成」：核心清单固定携带，上一版结果图与自定义图只追加在末尾。 */
 async function runSingleGenerate(prompt: string, refConfig: PanelRefConfig) {
   const panel = currentPanel.value
   if (!panel) return
   await upsertArtwork(panel.id, { imagePrompt: prompt, promptSource: 'manual', promptStatus: 'done' })
-  const groups = currentRefGroups.value
-  const byType = (type: TypedRefGroup['type']) => groups.find((group) => group.type === type)?.images ?? []
-  const refs: string[] = [
-    ...(refConfig.useStyleRef ? byType('style') : []),
-    ...(refConfig.useCharacterRef ? byType('character') : []),
-    ...(refConfig.useSceneRef ? byType('scene') : []),
-    ...(refConfig.usePropRef ? byType('prop') : []),
-    ...(refConfig.useGeneratedImage ? [currentArtwork.value?.selectedImageId ?? currentArtwork.value?.generatedImageIds?.at(-1)].filter(Boolean) as string[] : []),
-    ...refConfig.customImages,
-  ]
-  await generatePanelImage(panel, refs)
+  const extras: Array<{ image: string; label: string }> = []
+  const generatedImage = currentArtwork.value?.selectedImageId ?? currentArtwork.value?.generatedImageIds?.at(-1)
+  if (refConfig.useGeneratedImage && generatedImage) extras.push({ image: generatedImage, label: '本镜上一版结果图，用于构图与连续性参考' })
+  refConfig.customImages.forEach((image, index) => extras.push({ image, label: `自定义参考图 ${index + 1}` }))
+  await generatePanelImage(panel, { manifest: refManifestOf(panel), extras })
 }
 
 /** 导出发布：按分镜顺序下载本章所有已采纳成图到本地。 */

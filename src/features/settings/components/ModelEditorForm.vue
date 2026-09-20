@@ -29,8 +29,10 @@
       <FieldInput
         v-model="form.baseUrl"
         label="Base URL"
-        placeholder="https://api.openai.com/v1"
-        hint="填到版本段为止即可（如 https://xxx/v1），/chat/completions 由程序自动拼接"
+        :placeholder="form.apiSource === 'agnes' ? 'https://apihub.agnes-ai.com' : 'https://api.openai.com/v1'"
+        :hint="form.apiSource === 'agnes'
+          ? 'Agnes 默认地址：https://apihub.agnes-ai.com；程序自动拼接 /v1/images/generations'
+          : '填到版本段为止即可（如 https://xxx/v1），接口路径由程序自动拼接'"
       />
 
       <label v-if="category === 'llm'" class="flex items-start gap-2 text-xs text-text-secondary">
@@ -163,7 +165,14 @@
         <div class="grid grid-cols-3 gap-3">
           <FieldInput v-model="form.aspectRatios" label="图片比例" placeholder="1:1, 16:9" />
           <FieldInput v-model="form.resolutions" label="分辨率" placeholder="1K, 2K, 4K" />
-          <FieldInput v-model="form.qualities" label="图片质量" placeholder="auto, high" />
+          <FieldInput v-if="form.apiSource !== 'agnes'" v-model="form.qualities" label="图片质量" placeholder="auto, high" />
+          <label v-else class="text-xs text-text-secondary">
+            <span class="mb-1.5 block">返回格式</span>
+            <select v-model="form.agnesResponseFormat" class="field-control">
+              <option value="url">URL（推荐）</option>
+              <option value="b64_json">Base64</option>
+            </select>
+          </label>
         </div>
 
         <template v-if="form.apiSource === 'openai'">
@@ -258,9 +267,9 @@ const emit = defineEmits<{
 
 const apiSources = [
   { value: 'grsai', label: 'GRSAI' },
-  { value: 'xiguapi', label: 'Xiguapi' },
   { value: 'duomi', label: 'Duomi' },
   { value: 'openai', label: 'OpenAI' },
+  { value: 'agnes', label: 'Agnes' },
 ] as const;
 
 function defaultForm() {
@@ -271,6 +280,7 @@ function defaultForm() {
     openaiOutputFormat: 'png' as 'png' | 'jpeg' | 'webp', openaiN: 1,
     openaiModeration: 'auto' as 'auto' | 'low', openaiOutputCompression: 50,
     openaiCompatibleMode: false,
+    agnesResponseFormat: 'url' as 'url' | 'b64_json',
   };
 }
 
@@ -320,13 +330,17 @@ function fillForm() {
     Object.assign(next, {
       // 旧数据里可能存着 gemini / claude —— 它们从未被任何代码消费，统一归一为 openai，
       // 避免界面显示「OpenAI 兼容」而库里却存着别的值
-      name: props.model.name, apiFormat: 'openai', apiSource: props.model.apiSource || 'grsai',
+      name: props.model.name,
+      apiFormat: 'openai',
+      // 旧配置中若保存了已不存在的来源，打开时统一迁移到默认 GRSAI。
+      apiSource: apiSources.some((option) => option.value === props.model?.apiSource) ? props.model.apiSource! : 'grsai',
       model: props.model.model, baseUrl: props.model.baseUrl, apiKey: props.model.apiKey,
       bypassProxy: Boolean(props.model.bypassProxy),
       aspectRatios: props.model.aspectRatios || '', resolutions: props.model.resolutions || '', qualities: props.model.qualities || '',
       openaiOutputFormat: openaiParams.outputFormat || 'png', openaiN: openaiParams.n || 1,
       openaiModeration: openaiParams.moderation || 'auto', openaiOutputCompression: openaiParams.outputCompression ?? 50,
       openaiCompatibleMode: openaiParams.compatibleMode || false,
+      agnesResponseFormat: openaiParams.responseFormat === 'b64_json' ? 'b64_json' : 'url',
     });
   }
   form.value = next;
@@ -344,6 +358,15 @@ watch(() => props.model, fillForm, { immediate: true });
 watch(form, () => {
   emit('dirty-change', JSON.stringify(form.value) !== snapshot);
 }, { deep: true });
+
+// Agnes 文档中的默认值直接填入，用户仍可按需覆盖比例、分辨率和地址。
+watch(() => form.value.apiSource, (source, previous) => {
+  if (source !== 'agnes' || source === previous) return;
+  if (!form.value.model.trim()) form.value.model = 'agnes-image-2.5-flash';
+  if (!form.value.baseUrl.trim()) form.value.baseUrl = 'https://apihub.agnes-ai.com';
+  if (!form.value.aspectRatios.trim()) form.value.aspectRatios = '1:1, 3:4, 4:3, 16:9, 9:16, 2:3, 3:2, 21:9';
+  if (!form.value.resolutions.trim()) form.value.resolutions = '1K, 2K, 3K, 4K';
+}, { flush: 'sync' });
 
 function resetForm() {
   fillForm();
@@ -455,6 +478,8 @@ function submit() {
         outputCompression: form.value.openaiOutputFormat === 'png' ? undefined : form.value.openaiOutputCompression,
         compatibleMode: form.value.openaiCompatibleMode,
       })
+    : form.value.apiSource === 'agnes'
+      ? JSON.stringify({ responseFormat: form.value.agnesResponseFormat })
     : undefined;
   emit('save', { ...form.value, openaiExtraParams });
 }

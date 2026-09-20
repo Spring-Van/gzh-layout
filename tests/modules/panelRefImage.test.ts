@@ -3,7 +3,7 @@ import { resolvePanelRefImage } from '../../src/modules/comic/services/panelProm
 
 /**
  * 本镜参考图口径 —— 全项目唯一的「取哪张图」实现，单测锁死语义。
- * 分镜页取图（currentRefGroups / panelRefImages）、资产工作台「N 镜」角标、
+ * 分镜页取图（currentRefGroups / buildPanelRefManifest）、资产工作台「N 镜」角标、
  * 资产卡图片标记三处共用它，任何一边改错都会出现口径漂移。
  */
 describe('resolvePanelRefImage（本镜参考图单选口径）', () => {

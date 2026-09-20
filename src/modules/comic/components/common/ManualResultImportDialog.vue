@@ -16,10 +16,14 @@
             v-model="content"
             :placeholder="placeholder"
             aria-label="粘贴导入内容"
+            @input="handleInput"
           />
         </div>
 
         <!-- 解析预览结果（仅带 parse 的环节） -->
+        <div v-if="removedThinking" class="shrink-0 border-t border-amber-400/30 bg-amber-500/10 px-5 py-2.5 text-xs text-amber-300">
+          检测到外部 AI 思考内容，已自动移除；下面将按清理后的正文解析和导入。
+        </div>
         <div v-if="parseError" class="shrink-0 border-t border-red-400/30 bg-red-500/10 px-5 py-2.5 text-xs text-red-500">
           {{ parseError }}
         </div>
@@ -60,6 +64,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import { ArrowRight, X } from 'lucide-vue-next'
+import { sanitizeExternalAiResult } from '@comic/services/manualImportService'
 
 const props = withDefaults(defineProps<{
   visible: boolean
@@ -85,6 +90,7 @@ const content = ref('')
 const parseError = ref('')
 const preview = ref<string[]>([])
 const previewTitle = ref('')
+const removedThinking = ref(false)
 
 /** 解析预览标题（解析函数通过抛错前暂存，或由调用方通过 parse 返回值约定——这里用通用「解析结果」）。 */
 const canConfirm = computed(() => {
@@ -99,11 +105,27 @@ watch(() => props.visible, (visible) => {
     content.value = ''
     parseError.value = ''
     preview.value = []
+    removedThinking.value = false
   }
 })
 
+function handleInput(event: Event) {
+  const raw = (event.target as HTMLTextAreaElement).value
+  const sanitized = sanitizeExternalAiResult(raw)
+  if (!sanitized.removedThinking) return
+  content.value = sanitized.content
+  removedThinking.value = true
+  parseError.value = ''
+  preview.value = []
+}
+
 /** 解析预览：调用 parse 解析内容，成功则展示标题与摘要列表。 */
 function runParse() {
+  const sanitized = sanitizeExternalAiResult(content.value)
+  if (sanitized.removedThinking) {
+    content.value = sanitized.content
+    removedThinking.value = true
+  }
   parseError.value = ''
   preview.value = []
   previewTitle.value = ''
@@ -119,7 +141,7 @@ function runParse() {
 
 function confirm() {
   if (!canConfirm.value) return
-  emit('confirm', content.value)
+  emit('confirm', sanitizeExternalAiResult(content.value).content)
 }
 
 function close() {
