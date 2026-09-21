@@ -102,6 +102,7 @@ describe('resolvePanelAssetStates（镜内状态展开：页级 ∪ 格级）', 
   it('同状态出现在多格时合并 cellIndexes', () => {
     const panel = {
       ...multiStatePanel,
+      assetBindings: [bindingOf('a1', '林小雨', 'v1', '便装')],
       cells: [
         { content: '格一', assetBindings: [bindingOf('a1', '林小雨', 'v1', '便装')] },
         { content: '格二', assetBindings: [bindingOf('a1', '林小雨', 'v1', '便装')] },
@@ -117,6 +118,18 @@ describe('resolvePanelAssetStates（镜内状态展开：页级 ∪ 格级）', 
     expect(states).toHaveLength(1);
     expect(states[0]).toMatchObject({ asset: scene, cellIndexes: [] });
     expect(states[0].binding).toBe(legacyPanel.assetBindings[0]);
+  });
+
+  it('页级画面描述状态不同于格级状态时，两种状态都进入参考图清单', () => {
+    const panel = {
+      ...multiStatePanel,
+      assetBindings: [bindingOf('a1', '林小雨', 'v2', '战斗服')],
+      cells: [{ content: '林小雨穿便装', assetBindings: [bindingOf('a1', '林小雨', 'v1', '便装')] }],
+    } as unknown as LongProjectStoryboardPanel;
+    const states = resolvePanelAssetStates(panel, assets);
+    expect(states.map((state) => state.variant.id)).toEqual(['v1', 'v2']);
+    expect(states[0].cellIndexes).toEqual([0]);
+    expect(states[1]).toMatchObject({ cellIndexes: [], binding: panel.assetBindings[0] });
   });
 });
 

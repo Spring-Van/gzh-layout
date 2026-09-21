@@ -2,38 +2,54 @@
   <div class="flex h-full flex-col overflow-hidden">
     <!-- 内容区 -->
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
-      <!-- 提示词输入框：叠加高亮层（textarea 文字透明，背后按资产类型着色渲染资产名，点击高亮名看大图） -->
-      <div class="relative min-h-0 flex-1 rounded-xl border border-border-subtle bg-surface p-4 shadow-sm shadow-black/10">
-        <div ref="layerEl" class="pointer-events-none absolute inset-4 overflow-hidden whitespace-pre-wrap break-all text-xs leading-relaxed" aria-hidden="true">
-          <template v-for="(segment, index) in segments" :key="index">
-            <span
-              v-if="segment.text"
-              :class="segment.asset ? 'asset-highlight' : ''"
-              :style="segment.asset ? assetHighlightStyle(segment.asset.type) : undefined"
-              :data-asset-id="segment.asset?.id"
-            >{{ segment.text }}</span>
-          </template>
+      <!-- 最终提示词同源预览：固定前置/后置只读，中间画面内容可编辑并单独保存。 -->
+      <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-sm shadow-black/10">
+        <div
+          v-if="finalPromptSections.front || finalPromptSections.references"
+          class="max-h-[38%] shrink-0 overflow-y-auto border-b border-border-subtle bg-elevated/35 px-4 py-3 text-[11px] leading-relaxed text-text-secondary"
+        >
+          <div v-if="finalPromptSections.front" class="whitespace-pre-wrap break-words">{{ finalPromptSections.front }}</div>
+          <div v-if="finalPromptSections.references" class="mt-3 whitespace-pre-wrap break-words text-cyan-200/85">{{ finalPromptSections.references }}</div>
         </div>
-        <textarea
-          v-model="promptText"
-          class="relative h-full w-full resize-none bg-transparent text-xs leading-relaxed text-transparent caret-cyan-400 placeholder:text-text-muted focus:outline-none"
-          placeholder="在此输入本分镜的画面描述（生图提示词），可点击底部「AI 推导」由 LLM 生成后再修改..."
-          @scroll="syncScroll"
-          @click="handleClick"
-        />
-      </div>
-      <!-- 检测提示：提示词中识别到的资产（点击标签查看参考图） -->
-      <div v-if="detectedAssetChips.length" class="mt-1.5 shrink-0">
-        <div class="flex flex-wrap items-center gap-1.5">
-          <span class="text-[10px] text-text-muted">识别资产</span>
-          <AssetBindingTag
-            v-for="asset in detectedAssetChips"
-            :key="asset.id"
-            :binding="asset.tagBinding"
-            :assets="assets"
-            @inspect="openAssetPreview"
+
+        <div class="relative min-h-32 flex-1 p-4">
+          <div ref="layerEl" class="pointer-events-none absolute inset-4 overflow-hidden whitespace-pre-wrap break-all text-xs leading-relaxed" aria-hidden="true">
+            <template v-for="(segment, index) in segments" :key="index">
+              <span
+                v-if="segment.text"
+                :class="segment.asset ? 'asset-highlight' : ''"
+                :style="segment.asset ? assetHighlightStyle(segment.asset.type) : undefined"
+                :data-asset-id="segment.asset?.id"
+              >{{ segment.text }}</span>
+            </template>
+          </div>
+          <textarea
+            v-model="promptText"
+            class="relative h-full w-full resize-none bg-transparent text-xs leading-relaxed text-transparent caret-cyan-400 placeholder:text-text-muted focus:outline-none"
+            placeholder="在此输入本分镜的画面描述（生图提示词），可点击底部「AI 推导」由 LLM 生成后再修改..."
+            @scroll="syncScroll"
+            @click="handleClick"
           />
         </div>
+
+        <div
+          v-if="finalPromptSections.back"
+          class="max-h-[24%] shrink-0 overflow-y-auto border-t border-border-subtle bg-elevated/35 px-4 py-3 text-[11px] leading-relaxed text-text-secondary"
+        >
+          <div class="whitespace-pre-wrap break-words">{{ finalPromptSections.back }}</div>
+        </div>
+      </div>
+      <div v-if="bindingAuditLabels.length" class="mt-1.5 flex shrink-0 items-start gap-1.5 border-l-2 border-amber-500/70 bg-amber-500/5 px-2 py-1.5 text-[10px] leading-4 text-amber-300">
+        <AlertTriangle :size="13" class="mt-0.5 shrink-0" />
+        <span class="min-w-0 flex-1">资产绑定待确认：{{ bindingAuditLabels.join('、') }}</span>
+        <button
+          class="flex h-5 w-5 shrink-0 items-center justify-center rounded text-amber-300 transition-colors hover:bg-amber-500/15 hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-40"
+          :disabled="repairingBindings"
+          title="重新检查并补齐资产绑定"
+          @click="emit('repair-bindings', promptText.trim())"
+        >
+          <RefreshCw :size="13" :class="repairingBindings ? 'animate-spin' : ''" />
+        </button>
       </div>
 
       <!-- 参考图设置（与短篇提示词模式一致） -->
@@ -135,7 +151,12 @@
           <span class="text-[11px] font-medium text-text-secondary">单镜操作</span>
         </div>
         <div class="flex items-center justify-between gap-2">
-          <p class="min-w-0 truncate text-[10px] text-text-muted">分镜 {{ panel.order }} · {{ promptText.length.toLocaleString() }} 字符</p>
+          <div class="flex min-w-0 items-center gap-2">
+            <p class="min-w-0 truncate text-[10px] text-text-muted">分镜 {{ panel.order }} · {{ promptText.length.toLocaleString() }} 字符</p>
+            <span v-if="isManuallyEdited" class="flex shrink-0 items-center gap-1 text-[10px] text-amber-300">
+              <Pencil :size="11" />已手动修改
+            </span>
+          </div>
           <div class="flex items-center gap-1.5">
             <!-- 复制运行时完整提示词，图号与当前参考图设置一致。 -->
             <button
@@ -161,7 +182,7 @@
             <button
               class="flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-3 py-1.5 text-[11px] font-medium text-white shadow-lg shadow-amber-500/20 transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               :disabled="!promptText.trim() || generating"
-              :title="!promptText.trim() ? '请先输入画面描述' : '按参考图设置生成本分镜画面'"
+              :title="!promptText.trim() ? '请先输入画面描述' : bindingAuditLabels.length ? '生成前将自动补绑并校验待确认项' : '按参考图设置生成本分镜画面'"
               @click="handleSingleGenerate"
             >
               <LoaderCircle v-if="generating" :size="14" class="animate-spin" />
@@ -188,16 +209,16 @@
  * 提示词防抖自动保存；核心参考图固定携带，上一版结果图和自定义图追加在末尾。
  */
 import { computed, reactive, ref, watch } from 'vue'
-import { ChevronDown, ChevronRight, ChevronUp, Check, Copy, Eye, LoaderCircle, Plus, Sparkles, X } from 'lucide-vue-next'
-import type { LongProjectAsset, LongProjectPanelArtwork, LongProjectStoryboardAssetBinding, LongProjectStoryboardPanel, SharedPromptBlock } from '@comic/types'
+import { AlertTriangle, ChevronDown, ChevronRight, ChevronUp, Check, Copy, Eye, LoaderCircle, Pencil, Plus, RefreshCw, Sparkles, X } from 'lucide-vue-next'
+import type { LongProjectAsset, LongProjectPanelArtwork, LongProjectStoryboardPanel, SharedPromptBlock } from '@comic/types'
 import ImagePreviewModal from '@comic/components/ImagePreviewModal.vue'
-import AssetBindingTag from '@comic/components/AssetBindingTag.vue'
 import { processImage, uploadImage, type ImageStorageMode } from '@comic/services/uploadService'
-import { composeFinalPrompt, effectiveVariantRefImages } from '@comic/services/panelPromptService'
+import { buildFinalPromptSections, composeFinalPrompt, effectiveVariantRefImages } from '@comic/services/panelPromptService'
 import type { PanelRefManifest } from '@comic/services/panelRefManifest'
 import { useAssetHighlight } from '@comic/composables/useAssetHighlight'
 import { useToast } from '@comic/composables/useToast'
 import { assetHighlightStyle } from '@comic/utils/assetTypeTheme'
+import { auditPanelAssetBindings, buildAssetNameIndex, formatPanelBindingAuditIssues } from '@comic/services/promptAssetService'
 
 const toast = useToast()
 
@@ -221,6 +242,8 @@ const props = defineProps<{
   promptBusy?: boolean
   /** 是否正在生图（禁用单独生成按钮）。 */
   generating?: boolean
+  /** 是否正在重新扫描并写回本章资产绑定。 */
+  repairingBindings?: boolean
   /** 兼容旧调用方的参考图分组；图号与排序以 refManifest 为准。 */
   refGroups: TypedRefGroup[]
   /** 当前分镜核心参考图清单；顺序即实际发送顺序。 */
@@ -238,14 +261,24 @@ const emit = defineEmits<{
   (e: 'save', prompt: string): void
   (e: 'reorder-reference', keys: string[]): void
   (e: 'single-generate', prompt: string, refConfig: PanelRefConfig): void
+  (e: 'repair-bindings', prompt: string): void
 }>()
 
 const promptText = ref(props.artwork?.imagePrompt ?? '')
 const showRefConfig = ref(true)
 
+/** 当前草稿也参与审计；保存完成前即可提示歧义、悬空状态或漏绑。 */
+const bindingAuditLabels = computed(() => {
+  const issues = auditPanelAssetBindings(
+    { ...props.panel, imagePrompt: promptText.value },
+    buildAssetNameIndex(props.assets ?? []),
+  )
+  return formatPanelBindingAuditIssues(issues)
+})
+
 // ===== 提示词资产识别与高亮 =====
 // 高亮渲染与滚动同步都在 useAssetHighlight 里，与「分镜内容」框共用同一套。
-// 点击高亮名字打开大图预览（onPick）；底部「识别资产」标签点击同样可查看。
+// 点击正文中的高亮资产名可查看当前绑定状态的参考图。
 const {
   layerEl,
   segments,
@@ -255,23 +288,6 @@ const {
   text: () => promptText.value,
   assets: () => props.assets ?? [],
   onPick: openAssetPreview,
-})
-
-/** 底部识别资产 chips：优先用分镜已有绑定快照（含视觉状态），未绑定时临时构造。 */
-const detectedAssetChips = computed<Array<{ id: string; tagBinding: LongProjectStoryboardAssetBinding }>>(() => {
-  const seen = new Set<string>()
-  const result: Array<{ id: string; tagBinding: LongProjectStoryboardAssetBinding }> = []
-  for (const segment of segments.value) {
-    const asset = segment.asset
-    if (!asset || seen.has(asset.id)) continue
-    seen.add(asset.id)
-    const binding = props.panel.assetBindings.find((item) => item.assetId === asset.id)
-    result.push({
-      id: asset.id,
-      tagBinding: binding ?? { assetId: asset.id, assetName: asset.name, matchSource: 'auto-text' as const },
-    })
-  }
-  return result
 })
 
 /** 查看资产视觉状态参考图。 */
@@ -319,9 +335,15 @@ watch(promptText, () => {
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
     const value = promptText.value.trim()
-    if (value && value !== props.artwork?.imagePrompt) emit('save', value)
+    if (value !== (props.artwork?.imagePrompt ?? '').trim()) emit('save', value)
   }, 500)
 })
+
+/** 推导结果一旦被人工编辑（含导入的人工内容），在操作区持续标识。 */
+const isManuallyEdited = computed(() =>
+  promptText.value.trim() !== (props.artwork?.imagePrompt ?? '').trim()
+  || props.artwork?.promptSource === 'manual',
+)
 
 /** 图号速览：严格按当前手动顺序显示，避免按资产类型分组后掩盖真实发送顺序。 */
 const numberSummary = computed(() =>
@@ -339,6 +361,14 @@ const extraReferences = computed(() => {
   customRefImages.value.forEach((image, index) => entries.push({ image, label: `自定义参考图 ${index + 1}` }))
   return entries
 })
+
+/** 编辑器与最终发送使用同一个四段拼接结果，属性或参考图变化后立即刷新。 */
+const finalPromptSections = computed(() => buildFinalPromptSections(
+  promptText.value,
+  props.sharedBlocks ?? [],
+  props.refManifest,
+  extraReferences.value,
+))
 
 /** 最终送生图的完整提示词：动态参考图定义不进入 LLM 模板，在复制/生图时实时拼接。 */
 const finalPrompt = computed(() => composeFinalPrompt(

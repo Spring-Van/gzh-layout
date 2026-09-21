@@ -348,12 +348,22 @@ export function useStoryboardOps(options: {
   }
 
   /**
-   * 分镜文本自动绑定同步：编辑/合并/拆分后重扫全部分镜文本，
-   * 出现资产名且未绑定 → 自动添加（延续上一镜视觉状态，否则章节范围默认）；
+   * 分镜文本自动绑定同步：编辑/合并/拆分后逐格重扫画面、人物、动作、表情与备注，
+   * 出现资产名且未绑定 → 自动添加（明确状态名优先，其次延续上一格/镜状态，否则章节范围默认）；
    * auto-text 绑定且名称消失 → 自动移除；其余来源绑定不动。
    */
   function autoSyncBindings(panels: LongProjectStoryboardPanel[], chapterId: string): LongProjectStoryboardPanel[] {
-    return syncPanelsAutoBindings(panels, buildAssetNameIndex(options.assets.value), (asset) => defaultVariant(asset, chapterId, options.chapterOrders.value))
+    const scanPanels = panels.map((panel) => ({
+      ...panel,
+      imagePrompt: panel.imagePrompt ?? options.artworkMap.value.get(panel.id)?.imagePrompt,
+    }))
+    const synced = syncPanelsAutoBindings(scanPanels, buildAssetNameIndex(options.assets.value), (asset) => defaultVariant(asset, chapterId, options.chapterOrders.value))
+    // imagePrompt 属于 panelArtworks；这里只把扫描所得绑定写回 storyboard panel，避免双份存储。
+    return synced.map((panel, index) => {
+      const source = panels[index]
+      if (panel.assetBindings === scanPanels[index].assetBindings && panel.cells === scanPanels[index].cells) return source
+      return { ...source, assetBindings: panel.assetBindings, cells: panel.cells }
+    })
   }
 
   onBeforeUnmount(() => {

@@ -276,7 +276,8 @@ export function buildExtractionConfirmResult(
 
 /**
  * 资产确认后按文本自动回填分镜绑定：
- * 重扫全部章节分镜文本，出现资产名且未绑定 → 自动添加（延续上一镜视觉状态，否则章节范围默认）；
+ * 逐格重扫画面、人物、动作、表情与备注，出现资产名且未绑定 → 自动添加
+ * （明确状态名优先，其次延续上一格/镜视觉状态，否则章节范围默认）；
  * auto-text 绑定且名称消失 → 自动移除；其余来源绑定不动。
  */
 export function backfillPanelAutoBindings(

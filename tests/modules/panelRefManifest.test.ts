@@ -205,6 +205,19 @@ describe('composeFinalPrompt — 运行时最终拼接', () => {
     expect(backSection).not.toMatch(/图\d/);
   });
 
+  it('最终提示词严格按前置属性、参考图定义、内容、后置属性排列', () => {
+    const manifest = buildPanelRefManifest({ panel, assets, sharedBlocks: blocks });
+    const result = composeFinalPrompt('唯一画面内容', blocks, manifest);
+    const frontIndex = result.indexOf('前置条件');
+    const referencesIndex = result.indexOf('【动态参考图】');
+    const contentIndex = result.indexOf('唯一画面内容');
+    const backIndex = result.indexOf('后置条件');
+    expect(frontIndex).toBeGreaterThanOrEqual(0);
+    expect(frontIndex).toBeLessThan(referencesIndex);
+    expect(referencesIndex).toBeLessThan(contentIndex);
+    expect(contentIndex).toBeLessThan(backIndex);
+  });
+
   it('画面描述保持纯净：函数不改写 imagePrompt，只在其前后拼接', () => {
     const description = '原始描述，一个字都不该被改。';
     const manifest = buildPanelRefManifest({ panel, assets, sharedBlocks: blocks });

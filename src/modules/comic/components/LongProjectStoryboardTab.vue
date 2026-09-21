@@ -167,6 +167,7 @@
             :assets="assets"
             :prompt-busy="promptBusyIds.has(currentPanel.id)"
             :generating="currentArtwork?.genStatus === 'running'"
+            :repairing-bindings="repairBindingsBusy"
             :ref-groups="currentRefGroups"
             :ref-manifest="currentRefManifest"
             :shared-blocks="sharedBlocks"
@@ -174,6 +175,7 @@
             @infer="singleModalVisible = true"
             @save="savePromptEdit"
             @reorder-reference="setReferenceOrder"
+            @repair-bindings="repairCurrentPanelBindings"
             @single-generate="runSingleGenerate"
           />
           <div v-else class="flex h-full items-center justify-center text-xs text-text-muted">请先生成分镜</div>
@@ -355,8 +357,8 @@ import {
   type PrevPanelContextEntry,
 } from '@comic/services/panelPromptService'
 import { buildPanelRefManifest, groupManifestByType, type PanelRefManifest } from '@comic/services/panelRefManifest'
-import { buildAssetNameIndex, computeAutoBindings, reapplyVariantContinuation } from '@comic/services/promptAssetService'
-import { bindingsFromValue, buildStoryboardPrompt, cellCountLabel, defaultVariant, parseStoryboardResponse, polishPanelBlock, serializeBindings, summarizeCellBindings, summarizeCells, type ChapterAssetContext } from '@comic/services/storyboardService'
+import { auditPanelAssetBindings, buildAssetNameIndex, formatPanelBindingAuditIssues, reapplyVariantContinuation, summarizePanelBindingHealth, summarizePanelsBindingHealth } from '@comic/services/promptAssetService'
+import { bindingsFromValue, buildStoryboardPrompt, buildVariantCodeMap, cellCountLabel, parseStoryboardResponse, polishPanelBlock, serializeBindings, summarizeCellBindings, summarizeCells, type ChapterAssetContext } from '@comic/services/storyboardService'
 import { useStoryboardRun } from '@comic/composables/useStoryboardRun'
 import { useStoryboardOps } from '@comic/composables/useStoryboardOps'
 import PanelListSidebar from '@comic/components/panel-gen/PanelListSidebar.vue'
@@ -438,6 +440,7 @@ const config = reactive<PanelGenConfig>({
 const promptBusyIds = reactive(new Set<string>())
 /** 正在「AI 优化本页」的分镜（panelId 集合）。 */
 const polishBusyIds = reactive(new Set<string>())
+const repairBindingsBusy = ref(false)
 const batchPromptBusy = ref(false)
 const batchGenBusy = ref(false)
 const batchGenDone = ref(0)
@@ -752,7 +755,7 @@ function setBindingVariant(payload: { panelId: string; assetId: string; variantI
         ...cell,
         assetBindings: cell.assetBindings.map((binding) =>
           binding.assetId === payload.assetId || (!binding.assetId && binding.assetName.trim() === asset.name)
-            ? { ...binding, visualVersionId: variant.id, visualVersionName: variant.name }
+            ? { ...binding, visualVersionId: variant.id, visualVersionName: variant.name, matchSource: 'manual' as const, referenceImageIds: [...variant.referenceImageIds] }
             : binding),
       }
     })
@@ -814,12 +817,26 @@ async function runStoryboardFromEditor(prompt: string) {
 
 const storyboardImportVisible = ref(false)
 
-/** 分镜导入解析预览：返回标题与每镜摘要（解析失败抛错，由弹窗展示红字）。 */
+/**
+ * 分镜导入解析预览：返回标题与每镜摘要（解析失败抛错，由弹窗展示红字）。
+ * 每镜摘要带上资产绑定体检结果——导入前就能看出「哪一镜没声明出场资产 / 资产没匹配 / 状态没确定」。
+ */
 function parseStoryboardPreview(content: string): { title: string; items: string[] } {
-  const panels = parseStoryboardResponse(content, assets.value, currentChapter.value?.id ?? '', chapterOrders.value)
+  const panels = parseStoryboardResponse(content, assets.value, currentChapter.value?.id ?? '', chapterOrders.value, buildVariantCodeMap(chapterAssetContexts.value))
+  const healths = panels.map((panel) => summarizePanelBindingHealth(panel, assets.value))
+  const boundCount = healths.filter((item) => item.bindingCount > 0).length
+  const head = panels.length === boundCount
+    ? `解析到 ${panels.length} 个分镜，资产绑定就绪`
+    : `解析到 ${panels.length} 个分镜（${panels.length - boundCount} 个未声明出场资产）`
   return {
-    title: `解析到 ${panels.length} 个分镜`,
-    items: panels.map((panel) => `分镜 ${panel.order}：${panel.content.slice(0, 40)}${panel.content.length > 40 ? '…' : ''}`),
+    title: head,
+    items: panels.map((panel, index) => {
+      const health = healths[index]
+      const bindings = health.bindingCount ? health.summary : '无绑定'
+      const risk = health.risk ? ` ⚠ ${health.risk}` : ''
+      const text = panel.content.slice(0, 30)
+      return `分镜 ${panel.order}｜${bindings}${risk}｜${text}${panel.content.length > 30 ? '…' : ''}`
+    }),
   }
 }
 
@@ -828,9 +845,16 @@ async function confirmStoryboardImport(content: string) {
   if (!currentChapter.value) return
   if (panels.value.length && !window.confirm('本章已有分镜，导入将生成新一版分镜并自动对位迁移已推导描述与成图，是否继续？')) return
   try {
-    await importStoryboard(content)
+    const imported = await importStoryboard(content)
     storyboardImportVisible.value = false
-    toast.success(`已导入分镜`)
+    // 体检：绑定为零的镜数是「资产视觉状态没绑上」的最直接信号，直接报给用户，不必等生图阶段才发现
+    const health = summarizePanelsBindingHealth(imported, assets.value)
+    const risks: string[] = []
+    if (health.missingPanelCount) risks.push(`${health.missingPanelCount} 镜未声明出场资产`)
+    if (health.unmatchedCount) risks.push(`${health.unmatchedCount} 项资产未匹配`)
+    if (health.missingVariantCount) risks.push(`${health.missingVariantCount} 项状态未确定`)
+    if (risks.length) toast.warning(`已导入 ${imported.length} 个分镜，${risks.join('，')}，请在中栏资产 tab 核对`)
+    else toast.success(`已导入 ${imported.length} 个分镜，共 ${health.bindingCount} 条资产绑定`)
   } catch (error) {
     toast.error(error instanceof Error ? error.message : '分镜解析失败')
   }
@@ -1279,7 +1303,7 @@ function savePromptEdit(prompt: string) {
 }
 
 /**
- * 自动绑定同步：扫描当前分镜文本（画面/对白/旁白 + 最新提示词），
+ * 自动绑定同步：扫描当前分镜视觉字段（画面/人物/动作/表情/备注 + 最新画面描述），
  * 出现资产名且未绑定 → 自动添加（延续上一镜同资产视觉状态，否则章节范围默认）；
  * auto-text 绑定且名称消失 → 自动移除；其余来源绑定不动。
  */
@@ -1288,24 +1312,74 @@ function syncCurrentPanelBindings(prompt?: string) {
   const panel = currentPanel.value
   const chapter = currentChapter.value
   if (!runId || !panel || !chapter) return
-  const index = buildAssetNameIndex(assets.value)
-  const chapterOrders = Object.fromEntries(chapters.value.map((item) => [item.id, item.order]))
-  const prevPanel = panels.value.find((item) => item.order === panel.order - 1)
-  const prevVariants = new Map(
-    (prevPanel?.assetBindings ?? []).filter((binding) => binding.assetId && binding.visualVersionId).map((binding) => [binding.assetId!, binding.visualVersionId!]),
-  )
-  const scanPanel = prompt === undefined ? toRaw(panel) : { ...toRaw(panel), imagePrompt: prompt }
-  const next = computeAutoBindings(scanPanel, index, (asset) => {
-    const continued = prevVariants.get(asset.id)
-    return asset.variants.find((variant) => variant.id === continued) ?? defaultVariant(asset, chapter.id, chapterOrders)
-  })
-  if (!next) return
+  // 画面描述编辑也必须走全章逐格同步；只重扫当前页级文本会漏掉格内「人物 / 动作 / 备注」里的资产。
+  const scanPanels = (currentRun.value?.panels ?? []).map((item) => item.id === panel.id && prompt !== undefined ? { ...item, imagePrompt: prompt } : item)
+  const nextPanels = autoSyncBindings(scanPanels, chapter.id)
+  const next = nextPanels.find((item) => item.id === panel.id)
+  if (!next || (next.assetBindings === panel.assetBindings && next.cells === panel.cells)) return
   void props.mutateLongProjectData((data) => {
     const run = (data.storyboardRuns ?? []).find((item) => item.id === runId)
     if (!run) return
-    run.panels = run.panels.map((item) => (item.id === panel.id ? { ...item, assetBindings: next } : item))
+    run.panels = run.panels.map((item) => item.id === panel.id ? { ...item, assetBindings: next.assetBindings, cells: next.cells } : item)
     run.updatedAt = Date.now()
   })
+}
+
+/**
+ * 对本章重新执行确定性资产扫描，并写回自动补齐后的格级、页级绑定。
+ * 扫描时带上画面描述；当前镜优先使用输入框草稿，避免自动保存窗口造成漏扫。
+ */
+async function repairCurrentPanelBindings(prompt: string) {
+  const run = currentRun.value
+  const panel = currentPanel.value
+  const chapter = currentChapter.value
+  if (!run || !panel || !chapter || repairBindingsBusy.value) return
+
+  repairBindingsBusy.value = true
+  try {
+    const scanPanels = run.panels.map((item) => ({
+      ...item,
+      imagePrompt: item.id === panel.id
+        ? prompt
+        : artworkMap.value.get(item.id)?.imagePrompt ?? item.imagePrompt,
+    }))
+    const syncedPanels = autoSyncBindings(scanPanels, chapter.id)
+    const nextPanels = run.panels.map((original, index) => {
+      const synced = syncedPanels[index]
+      if (synced.assetBindings === scanPanels[index].assetBindings && synced.cells === scanPanels[index].cells) return original
+      return { ...original, assetBindings: synced.assetBindings, cells: synced.cells }
+    })
+    if (nextPanels.some((item, index) => item !== run.panels[index])) {
+      await props.mutateLongProjectData((data) => {
+        const targetRun = (data.storyboardRuns ?? []).find((item) => item.id === run.id)
+        if (!targetRun) return
+        targetRun.panels = nextPanels
+        targetRun.updatedAt = Date.now()
+      })
+    }
+
+    const repairedPanel = nextPanels.find((item) => item.id === panel.id)
+    const issues = repairedPanel
+      ? auditPanelAssetBindings({ ...repairedPanel, imagePrompt: prompt }, buildAssetNameIndex(assets.value))
+      : []
+    if (!issues.length) {
+      toast.success('资产绑定已重新检查并补齐')
+      return
+    }
+
+    const labels = formatPanelBindingAuditIssues(issues).join('、')
+    const needsVariant = issues.some((issue) => issue.reason === 'missing-variant')
+    toast.warning(
+      needsVariant
+        ? `重新检查后仍需确认：${labels}。请在中间资产绑定区选择具体视觉状态`
+        : `重新检查后仍需确认：${labels}`,
+    )
+  } catch (error) {
+    console.error('[资产绑定] 重新检查失败:', error)
+    toast.error(error instanceof Error ? error.message : '资产绑定重新检查失败')
+  } finally {
+    repairBindingsBusy.value = false
+  }
 }
 
 // ========== 生图 ==========
@@ -1315,13 +1389,42 @@ async function generatePanelImage(
   panel: LongProjectStoryboardPanel,
   options: { manifest?: PanelRefManifest; extras?: Array<{ image: string; label: string }> } = {},
 ): Promise<boolean> {
+  // 生图前最后一次确定性补绑，防止旧分镜或外部导入绕过保存事件留下漏绑。
+  let effectivePanel = panel
+  const chapter = currentChapter.value
+  const run = currentRun.value
+  if (chapter && run) {
+    const syncedPanels = autoSyncBindings(run.panels, chapter.id)
+    const syncedPanel = syncedPanels.find((item) => item.id === panel.id)
+    if (syncedPanel) {
+      effectivePanel = syncedPanel
+      if (syncedPanels.some((item, index) => item !== run.panels[index])) {
+        await props.mutateLongProjectData((data) => {
+          const targetRun = (data.storyboardRuns ?? []).find((item) => item.id === run.id)
+          if (targetRun) {
+            targetRun.panels = syncedPanels
+            targetRun.updatedAt = Date.now()
+          }
+        })
+      }
+    }
+  }
   const artwork = artworkMap.value.get(panel.id)
+  const bindingIssues = auditPanelAssetBindings(
+    { ...effectivePanel, imagePrompt: artwork?.imagePrompt },
+    buildAssetNameIndex(assets.value),
+  )
+  if (bindingIssues.length) {
+    const labels = formatPanelBindingAuditIssues(bindingIssues).join('、')
+    toast.warning(`本镜资产绑定需要确认：${labels}`)
+    return false
+  }
   const description = artwork?.imagePrompt?.trim()
   if (!description) {
     toast.warning('请先推导或编辑画面描述')
     return false
   }
-  const manifest = options.manifest ?? refManifestOf(panel)
+  const manifest = options.manifest && effectivePanel === panel ? options.manifest : refManifestOf(effectivePanel)
   const extras = options.extras ?? []
   // 图片顺序、图号定义与最终提示词在同一步生成，资产/共用属性变化后自动同步。
   const prompt = composeFinalPrompt(description, sharedBlocks.value, manifest, extras)

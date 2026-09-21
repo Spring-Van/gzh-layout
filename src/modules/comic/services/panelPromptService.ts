@@ -138,6 +138,14 @@ export interface RuntimeExtraReference {
   label: string
 }
 
+/** 最终生图提示词的四段结构；界面预览与实际发送必须共用这一结果。 */
+export interface FinalPromptSections {
+  front: string
+  references: string
+  content: string
+  back: string
+}
+
 /**
  * 镜内资产状态展开（页级 ∪ 格级，生图参考图与工作台引用统计共用）：
  * - 以页级 `resolvePanelBindings` 为资产清单基座；
@@ -157,12 +165,17 @@ export function resolvePanelAssetStates(panel: LongProjectStoryboardPanel, asset
   return resolvePanelBindings(panel, assets).flatMap(({ asset, variant, binding }) => {
     const variantEntries = [...(byAsset.get(asset.id)?.values() ?? [])]
     if (!variantEntries.length) return [{ asset, variant, cellIndexes: [], binding }]
-    return variantEntries.map((entry) => ({
+    const entries: PanelAssetStateEntry[] = variantEntries.map((entry) => ({
       asset,
       variant: entry.variant,
       cellIndexes: entry.cellIndexes,
       binding: entry.variant.id === binding.visualVersionId ? binding : undefined,
     }))
+    // 画面描述可能补充同一资产的另一状态；若格级尚未声明该状态，也要把页级状态带入参考图清单。
+    if (!variantEntries.some((entry) => entry.variant.id === variant.id)) {
+      entries.push({ asset, variant, cellIndexes: [], binding })
+    }
+    return entries
   })
 }
 
@@ -209,6 +222,20 @@ export function composeFinalPrompt(
   manifest?: RuntimeRefManifest,
   extraReferences: RuntimeExtraReference[] = [],
 ): string {
+  const sections = buildFinalPromptSections(imagePrompt, blocks, manifest, extraReferences)
+  return [sections.front, sections.references, sections.content, sections.back].filter(Boolean).join('\n\n')
+}
+
+/**
+ * 构建最终提示词的可展示区段：前置共用属性 → 参考图定义 → 画面内容 → 后置共用属性。
+ * 固定区段只在运行时计算，不写入可编辑的画面描述字段。
+ */
+export function buildFinalPromptSections(
+  imagePrompt: string,
+  blocks: SharedPromptBlock[] | undefined | null,
+  manifest?: RuntimeRefManifest,
+  extraReferences: RuntimeExtraReference[] = [],
+): FinalPromptSections {
   const front = buildSharedBlockSection(blocks, 'front', manifest)
   const back = buildSharedBlockSection(blocks, 'back', manifest)
   const assetLines = (manifest?.entries ?? [])
@@ -228,7 +255,7 @@ export function composeFinalPrompt(
   const referenceSection = [...assetLines, ...extraLines].length
     ? `【动态参考图】\n${[...assetLines, ...extraLines].join('\n')}`
     : ''
-  return [front, referenceSection, imagePrompt.trim(), back].filter(Boolean).join('\n\n')
+  return { front, references: referenceSection, content: imagePrompt.trim(), back }
 }
 
 /** 单镜信息文本（逐镜与全章两种模式共用同一拼法）。 */

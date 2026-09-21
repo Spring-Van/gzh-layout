@@ -13,13 +13,59 @@ export interface ChapterAssetContext {
   variants: LongProjectAssetVariant[]
 }
 
+/** 视觉状态编号表条目：提示词编号 → 该编号对应的资产与视觉状态。 */
+export interface VariantCodeEntry {
+  /** 提示词编号（如 A1）：资产在本章清单中的次序字母 + 状态在资产内的次序数字。 */
+  code: string
+  assetId: string
+  variantId: string
+}
+
+/** 清单次序序号 → 字母（0→A、25→Z、26→AA），资产多于 26 个时继续扩展。 */
+function assetCodeLetter(index: number): string {
+  let rest = index
+  let letter = ''
+  do {
+    letter = String.fromCharCode(65 + (rest % 26)) + letter
+    rest = Math.floor(rest / 26) - 1
+  } while (rest >= 0)
+  return letter
+}
+
 /**
- * 本章资产清单 → 提示词文本：每行 `- 资产名（人物/场景/道具）：状态A（锚点一句话）｜状态B（…）`。
+ * 本章资产状态的提示词编号表（**唯一来源**：`renderChapterAssetsText` 渲染与 `bindingsFromValue` 解析必须同源）。
+ *
+ * 编号只是「名字匹配之外的第二证据通道」，不是名字的替代：
+ * - 名字来自资产库、跨章稳定，是**第一证据**；
+ * - 编号依赖「当次清单」，本章资产变化后旧文本里的编号会漂移，故只作**救场用**；
+ * - 判定时名字优先、冲突以名字为准（见 `bindingsFromValue`），因此编号漂移不会导致错绑。
+ *
+ * 纯函数：只要本章资产上下文的内容与顺序一致，渲染侧与解析侧算出的编号必然相同。
+ */
+export function buildVariantCodeMap(chapterAssets: ChapterAssetContext[]): Map<string, VariantCodeEntry> {
+  const codes = new Map<string, VariantCodeEntry>()
+  let letterIndex = 0
+  for (const { asset, variants } of chapterAssets) {
+    // 无状态资产不占字母位，清单里的编号保持连续
+    if (!variants.length) continue
+    const letter = assetCodeLetter(letterIndex)
+    letterIndex += 1
+    variants.forEach((variant, variantIndex) => {
+      const code = `${letter}${variantIndex + 1}`
+      codes.set(code, { code, assetId: asset.id, variantId: variant.id })
+    })
+  }
+  return codes
+}
+
+/**
+ * 本章资产清单 → 提示词文本：每行 `- 资产名（人物/场景/道具）：A1 状态A（锚点一句话）｜A2 状态B（…）`。
  * 状态一句话 = 剧情锚点优先，否则视觉描述截断（约 30 字）；无状态时标「无视觉状态」。
- * 供分镜模型逐格声明「出场资产」时对号入座（资产名 + 状态名必须与这里一字不差）。
+ * 编号由 `buildVariantCodeMap` 统一分配，供分镜模型逐格声明「出场资产」时照抄（编号 + 资产名 + 状态名）。
  */
 export function renderChapterAssetsText(chapterAssets: ChapterAssetContext[]): string | undefined {
   if (!chapterAssets.length) return undefined
+  const codeByVariantId = new Map([...buildVariantCodeMap(chapterAssets).values()].map((entry) => [entry.variantId, entry.code]))
   const briefOf = (variant: LongProjectAssetVariant): string => {
     const oneLiner = variant.anchor || variant.description || ''
     return oneLiner.length > 30 ? `${oneLiner.slice(0, 30)}…` : oneLiner
@@ -29,7 +75,9 @@ export function renderChapterAssetsText(chapterAssets: ChapterAssetContext[]): s
     const stateText = variants.length
       ? variants.map((variant) => {
           const brief = briefOf(variant)
-          return brief ? `${variant.name}（${brief}）` : variant.name
+          const code = codeByVariantId.get(variant.id)
+          const label = code ? `${code} ${variant.name}` : variant.name
+          return brief ? `${label}（${brief}）` : label
         }).join('｜')
       : '无视觉状态'
     return `- ${asset.name}（${typeLabel}）：${stateText}`
@@ -62,7 +110,8 @@ export function buildStoryboardPrompt(templateContent: string, scriptContent: st
 function normalizeAssetName(name: string): string { return name.trim().replace(/[\s　]+/g, '').toLocaleLowerCase() }
 function findAsset(name: string, assets: LongProjectAsset[]) {
   const target = normalizeAssetName(name)
-  return assets.find((asset) => [asset.name, ...asset.aliases].some((item) => normalizeAssetName(item) === target))
+  const matches = assets.filter((asset) => [asset.name, ...asset.aliases].some((item) => normalizeAssetName(item) === target))
+  return matches.length === 1 ? matches[0] : undefined
 }
 
 /** 资产默认视觉状态：按章节范围（晚于当前章节出现的往后排）选最近一个已生效状态。 */
@@ -75,36 +124,97 @@ export function defaultVariant(asset: LongProjectAsset | undefined, chapterId: s
       const end = variant.chapterRange?.endChapterId ? chapterOrders[variant.chapterRange.endChapterId] : undefined
       return start <= currentOrder && (end === undefined || currentOrder <= end)
     })
-    .sort((a, b) => (chapterOrders[b.chapterRange?.startChapterId ?? b.firstAppearanceChapterId ?? ''] ?? -1) - (chapterOrders[a.chapterRange?.startChapterId ?? a.firstAppearanceChapterId ?? ''] ?? -1))[0]
-  if (active) return active
+    .sort((a, b) => (chapterOrders[b.chapterRange?.startChapterId ?? b.firstAppearanceChapterId ?? ''] ?? -1) - (chapterOrders[a.chapterRange?.startChapterId ?? a.firstAppearanceChapterId ?? ''] ?? -1))
+  if (active.length) {
+    const latestStart = chapterOrders[active[0].chapterRange?.startChapterId ?? active[0].firstAppearanceChapterId ?? ''] ?? -1
+    const latest = active.filter((variant) => (chapterOrders[variant.chapterRange?.startChapterId ?? variant.firstAppearanceChapterId ?? ''] ?? -1) === latestStart)
+    if (latest.length === 1) return latest[0]
+    const defaults = latest.filter((variant) => /全章默认|默认|初始|常态/.test(`${variant.name}\n${variant.anchor ?? ''}`))
+    if (defaults.length === 1) return defaults[0]
+    // 同一时间点有多个可用状态却没有唯一默认，不能靠数组顺序静默猜测。
+    return undefined
+  }
   // 没有任何适用于当前章节的范围时，仅允许无范围状态兜底，避免使用已经结束或尚未开始的状态。
   return asset.variants.find((variant) => !variant.chapterRange && !variant.firstAppearanceChapterId)
 }
 
+/** 「出场资产」单项的编号前缀：`A1 林小雨（礼服）` → code `A1`、rest `林小雨（礼服）`。 */
+const VARIANT_CODE_PREFIX_RE = /^([A-Z]{1,2}\d{1,2})[ \t　]*(.*)$/
+
 /**
- * 「出场资产」字段值（`资产名（状态名）、…`）→ 绑定数组：解析 / 编辑保存共用。
- * 状态三级匹配（精确 → 双向包含模糊 → 章节范围默认）；资产未命中时 assetId 为空、matchSource 'unmatched'。
+ * 剥离「出场资产」单项的编号前缀，返回编号与剩余声明文本。
+ *
+ * ⚠️ **剥离必须无条件生效**（不依赖编号表是否存在）：分镜内容编辑器解析时没有资产上下文
+ * （`parsePanelBlock` 以空 assets 调用），若不剥离，`A1 林小雨` 会被整体当成资产名存下来，
+ * 用户保存后名字匹配失效 —— 这是引入编号后最容易踩的回归。
+ * 无编号表时用「剩余部分是中文」作为安全闸，避免误伤「R2D2」这类以字母数字开头的资产名。
  */
-export function bindingsFromValue(value: string, assets: LongProjectAsset[], chapterId: string, chapterOrders: Record<string, number>): LongProjectStoryboardAssetBinding[] {
+function splitVariantCode(part: string, codes?: Map<string, VariantCodeEntry>): { code?: string; rest: string } {
+  const match = part.match(VARIANT_CODE_PREFIX_RE)
+  if (!match) return { rest: part }
+  const code = match[1]
+  const rest = match[2].trim()
+  const looksLikeDeclaration = rest === '' || /^[\u4e00-\u9fff]/.test(rest)
+  if (!codes?.has(code) && !looksLikeDeclaration) return { rest: part }
+  return { code, rest }
+}
+
+/**
+ * 「出场资产」字段值（`编号 资产名（状态名）、…`）→ 绑定数组：解析 / 编辑保存共用。
+ *
+ * 双证据通道：**名字优先，编号救场，冲突以名字为准**。
+ * - 名字命中且与编号一致 / 名字未命中而编号命中 → 采用（`model`）；
+ * - 名字与编号指向不同状态 → 以名字为准（名字来自资产库、跨章稳定，采用编号反而会引入新错绑）；
+ * - 编号缺失、编号悬空（状态已被删）或两者都未命中 → 回落名字三级匹配（精确 → 双向包含模糊）→ 章节范围默认。
+ * 资产未命中时 assetId 为空、matchSource 'unmatched'，且**保留文本原样的状态名**（保证编辑器往返不丢信息）。
+ *
+ * @param variantCodes 本章资产状态编号表（`buildVariantCodeMap`）；缺省时退化为纯名字匹配（存量模板 / 编辑器路径）。
+ */
+export function bindingsFromValue(value: string, assets: LongProjectAsset[], chapterId: string, chapterOrders: Record<string, number>, variantCodes?: Map<string, VariantCodeEntry>): LongProjectStoryboardAssetBinding[] {
   return value.split(/[、,，]/).map((part) => part.trim()).filter(Boolean).map((part) => {
-    const match = part.match(/^(.+?)(?:[（(](.+?)[)）])?$/)
-    const assetName = match?.[1]?.trim() || part
-    const visualVersionName = match?.[2]?.trim()
+    // 1) 编号通道：直接查表拿 id，不经过任何字符串比对
+    const { code, rest } = splitVariantCode(part, variantCodes)
+    const codedEntry = code ? variantCodes?.get(code) : undefined
+    const codedAsset = codedEntry ? assets.find((asset) => asset.id === codedEntry.assetId) : undefined
+    const codedVariant = codedAsset?.variants.find((variant) => variant.id === codedEntry?.variantId)
+    // 2) 名字通道：现状行为完全保留
+    const nameSource = rest || part
+    const nameMatch = nameSource.match(/^(.+?)(?:[（(](.+?)[)）])?$/)
+    const assetName = nameMatch?.[1]?.trim() || nameSource
+    const visualVersionName = nameMatch?.[2]?.trim()
     const asset = findAsset(assetName, assets)
     // 状态三级匹配：精确名 → 双向包含模糊（模型微调措辞，如「少年」↔「少年期」）→ 章节范围默认
     const variants = asset?.variants ?? []
     const exact = visualVersionName ? variants.find((item) => item.name === visualVersionName) : undefined
-    const fuzzy = !exact && visualVersionName
-      ? variants.find((item) => item.name.includes(visualVersionName) || visualVersionName.includes(item.name))
-      : undefined
-    const variant = exact ?? fuzzy ?? defaultVariant(asset, chapterId, chapterOrders)
+    const fuzzyMatches = !exact && visualVersionName
+      ? variants.filter((item) => item.name.includes(visualVersionName) || visualVersionName.includes(item.name))
+      : []
+    const fuzzy = fuzzyMatches.length === 1 ? fuzzyMatches[0] : undefined
+    const nameVariant = exact ?? fuzzy
     const matchedModelState = Boolean(exact || fuzzy)
+    // 3) 判定：名字与编号冲突时以名字为准（不劣化现状），一致或名字失败时才采用编号
+    const conflicts = Boolean(codedVariant && nameVariant && nameVariant.id !== codedVariant.id)
+    if (codedAsset && codedVariant && !conflicts) {
+      return {
+        assetId: codedAsset.id,
+        assetName: codedAsset.name,
+        visualVersionId: codedVariant.id,
+        visualVersionName: codedVariant.name,
+        matchSource: 'model',
+        referenceImageIds: codedVariant.referenceImageIds ?? [],
+      }
+    }
+    const variant = nameVariant ?? defaultVariant(asset, chapterId, chapterOrders)
     return {
       assetId: asset?.id,
       assetName: asset?.name ?? assetName,
       visualVersionId: variant?.id,
-      // 始终保存实际匹配到的状态名，避免“显示状态”和“发送图片”不是同一个状态。
-      visualVersionName: variant?.name,
+      // 资产命中时只保存实际匹配到的状态名，避免“显示状态”和“发送图片”不是同一个状态；
+      // 资产整体未命中（无资产上下文的编辑器解析路径）时**必须保留文本原样的状态名** ——
+      // 这是文本往返不丢信息的唯一依据：编辑器「打开 → 保存」若在此丢掉状态名，
+      // `serializeBindings` 只能写回资产名，输入框会被悄悄改写，且保存时状态只能靠
+      // `defaultVariant()` 猜，同章多状态资产（无唯一默认）会直接丢状态 → 取图/中栏消失。
+      visualVersionName: variant?.name ?? (asset ? undefined : visualVersionName),
       matchSource: asset ? (matchedModelState ? 'model' : 'chapter-range') : 'unmatched',
       referenceImageIds: variant?.referenceImageIds ?? [],
     }
@@ -241,9 +351,11 @@ function splitSpeech(value: string): [string | undefined, string] {
  * @param assets 项目资产库，用于解析出场资产绑定
  * @param chapterId 当前章节 ID，用于资产默认视觉状态推断
  * @param chapterOrders 章节顺序表（章节 ID → 序号）
+ * @param variantCodes 本章资产状态编号表（`buildVariantCodeMap`），用于解析「出场资产」的编号前缀；
+ *   缺省时退化为纯名字匹配（存量模板、编辑器解析路径、旧数据）
  * @returns 解析后的分镜数组；无有效分镜时抛错
  */
-export function parseStoryboardResponse(content: string, assets: LongProjectAsset[], chapterId: string, chapterOrders: Record<string, number>): LongProjectStoryboardPanel[] {
+export function parseStoryboardResponse(content: string, assets: LongProjectAsset[], chapterId: string, chapterOrders: Record<string, number>, variantCodes?: Map<string, VariantCodeEntry>): LongProjectStoryboardPanel[] {
   const panels: LongProjectStoryboardPanel[] = []
   let current: LongProjectStoryboardPanel | undefined
   /** 当前页的分格列表（页块格式） */
@@ -334,7 +446,7 @@ export function parseStoryboardResponse(content: string, assets: LongProjectAsse
 
   /** 写入格级出场资产（v4「出场资产」字段，值 `资产名（状态名）、…`）：同资产去重取首个声明；无格结构退化为页级合并。 */
   const pushCellAssets = (value: string) => {
-    const bindings = bindingsFromValue(value, assets, chapterId, chapterOrders)
+    const bindings = bindingsFromValue(value, assets, chapterId, chapterOrders, variantCodes)
     const cell = lastCell()
     if (cell) { cell.assetBindings = mergeCellBindings(cell.assetBindings, bindings); lastCellKey = null }
     else if (current) current.assetBindings = mergeCellBindings(current.assetBindings, bindings)
@@ -426,7 +538,7 @@ export function parseStoryboardResponse(content: string, assets: LongProjectAsse
       else if (key === '光效') pushCellField('lighting', value)
       else if (key === '备注') pushCellField('note', value)
       else if (key === '绘画提示词') { if (current) current.imagePrompt = value; lastField = 'imagePrompt' }
-      else if (key === '出场资产') { if (cell) pushCellAssets(value); else if (current) current.assetBindings = bindingsFromValue(value, assets, chapterId, chapterOrders); lastField = null }
+      else if (key === '出场资产') { if (cell) pushCellAssets(value); else if (current) current.assetBindings = bindingsFromValue(value, assets, chapterId, chapterOrders, variantCodes); lastField = null }
       else lastField = null
         continue
       }
@@ -702,13 +814,14 @@ export function parsePanelBlock(text: string): LongProjectStoryboardCell[] {
 /**
  * 生成分镜：剧本为主输入，本章资产（状态级绑定依据）+ 原文分析与章节原文为辅。
  * prompt 为 PromptRunBar 组装好的最终提示词（优先）；未提供时用 template + 输入现场组装（注入本章资产清单）。
- * chapterAssets 注入 {{本章资产}} 变量（模板没写该变量时自动退化）；assets 用于解析格级/页级「出场资产」声明的绑定回填。
+ * chapterAssets 注入 {{本章资产}} 变量（模板没写该变量时自动退化）；assets 用于解析格级/页级「出场资产」声明的绑定回填；
+ * chapterAssets 同时用于生成状态编号表，渲染清单与解析编号共用同一份（`buildVariantCodeMap`）。
  */
 export async function generateStoryboard(options: { model: ModelConfig; template?: PromptTemplate; scriptContent: string; analysis?: string; chapterContent?: string; assets?: LongProjectAsset[]; chapterAssets?: ChapterAssetContext[]; chapterId: string; chapterOrders: Record<string, number>; prompt?: string }) {
   const prompt = options.prompt ?? buildStoryboardPrompt(options.template?.content ?? '', options.scriptContent, options.analysis, options.chapterContent, options.chapterAssets)
   const result = await llmService.call({ modelConfig: options.model, userMessage: prompt })
   if (!result.success || !result.content) throw new Error(result.error || '模型没有返回内容')
-  return { rawResponse: result.content, panels: parseStoryboardResponse(result.content, options.assets ?? [], options.chapterId, options.chapterOrders) }
+  return { rawResponse: result.content, panels: parseStoryboardResponse(result.content, options.assets ?? [], options.chapterId, options.chapterOrders, options.chapterAssets?.length ? buildVariantCodeMap(options.chapterAssets) : undefined) }
 }
 
 /**

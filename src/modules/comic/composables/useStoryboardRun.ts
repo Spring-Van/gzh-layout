@@ -1,7 +1,9 @@
 import { ref, type Ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
-import { generateStoryboard, parseStoryboardResponse, type ChapterAssetContext } from '@comic/services/storyboardService'
+import { buildVariantCodeMap, generateStoryboard, parseStoryboardResponse, type ChapterAssetContext } from '@comic/services/storyboardService'
 import { migratePanelArtworks } from '@comic/services/panelPromptService'
+import { buildAssetNameIndex, syncPanelsAutoBindings } from '@comic/services/promptAssetService'
+import { defaultVariant } from '@comic/services/storyboardService'
 import { LONG_CHAPTER_STAGE_ORDER } from '@comic/types'
 import type { ComicProject, LongProjectAsset, LongProjectNode, LongProjectStoryboardRun, ModelConfig, PromptTemplate } from '@comic/types'
 
@@ -85,11 +87,17 @@ export function useStoryboardRun(options: {
         chapterOrders: options.getChapterOrders(),
         prompt: params.prompt,
       })
+      // 模型声明是显式证据，逐格文本扫描是确定性兜底；两者合并后再落库，避免模型漏写「出场资产」导致整格漏绑。
+      const generatedPanels = syncPanelsAutoBindings(
+        result.panels,
+        buildAssetNameIndex(options.getAssets?.() ?? []),
+        (asset) => defaultVariant(asset, chapter.id, options.getChapterOrders()),
+      )
       await options.mutateLongProjectData((data) => {
         data.storyboardRuns = (data.storyboardRuns ?? []).map((item) =>
-          item.id === run.id ? { ...item, status: 'completed' as const, panels: result.panels, rawResponse: result.rawResponse, updatedAt: Date.now() } : item)
+          item.id === run.id ? { ...item, status: 'completed' as const, panels: generatedPanels, rawResponse: result.rawResponse, updatedAt: Date.now() } : item)
         data.nodes = (data.nodes ?? []).map((node) => node.id === chapter.id ? advanceStoryboardStage(node) : node)
-        data.panelArtworks = migratePanelArtworks(data.panelArtworks ?? [], previousPanels, result.panels, chapter.id)
+        data.panelArtworks = migratePanelArtworks(data.panelArtworks ?? [], previousPanels, generatedPanels, chapter.id)
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : '分镜生成失败，请重试'
@@ -117,13 +125,18 @@ export function useStoryboardRun(options: {
    * 手动导入分镜（外部 AI 代跑）：解析粘贴的 Markdown 文本为分镜数组，跳过模型调用。
    * 与 runStoryboard 同语义：记录旧分镜 → 对位迁移已推导描述与成图（panelArtworks）。
    * 解析失败抛错（调用方在弹窗内展示），不落库。
+   * @returns 落库的分镜数组（调用方据此做绑定体检提示）
    */
   async function importStoryboard(content: string) {
     const chapter = options.getCurrentChapter()
-    if (!chapter) return
+    if (!chapter) return []
     const now = Date.now()
     const previousPanels = latestCompletedRun(chapter.id)?.panels ?? []
-    const panels = parseStoryboardResponse(content, options.getAssets?.() ?? [], chapter.id, options.getChapterOrders())
+    const panels = syncPanelsAutoBindings(
+      parseStoryboardResponse(content, options.getAssets?.() ?? [], chapter.id, options.getChapterOrders(), buildVariantCodeMap(options.getChapterAssets())),
+      buildAssetNameIndex(options.getAssets?.() ?? []),
+      (asset) => defaultVariant(asset, chapter.id, options.getChapterOrders()),
+    )
     const run: LongProjectStoryboardRun = {
       id: uuidv4(), chapterId: chapter.id, sourceContent: chapter.content ?? '',
       modelId: '', templateId: '', prompt: '',
@@ -135,6 +148,7 @@ export function useStoryboardRun(options: {
       data.nodes = (data.nodes ?? []).map((node) => node.id === chapter.id ? advanceStoryboardStage(node) : node)
       data.panelArtworks = migratePanelArtworks(data.panelArtworks ?? [], previousPanels, panels, chapter.id)
     })
+    return panels
   }
 
   return { selectedModelId, selectedTemplateId, initDefaults, runStoryboard, importStoryboard, recoverInterrupted }

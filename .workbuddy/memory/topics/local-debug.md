@@ -17,3 +17,22 @@
 
 - 构建产物必须写 **Windows 绝对路径**（Git Bash 的 `$TEMP` 会被解析到 D:\tmp）。
 - **必须带 `--max-old-space-size=6144`**：不带时 `vite build` 会被 SIGTERM 静默杀掉、**一行日志都没有** → 判断成败看 **exit code**，别只看日志。
+
+## 先读真实落库数据，再决定查哪一层（省一轮来回）
+
+用户报「导入没绑定成功」这类主观描述时，**第一步直接读磁盘上的真实数据**，别先猜 UI：
+
+```
+C:\Users\admin\AppData\Roaming\gzh-layout\comic-gen.json     # 真实数据（另有 .bak / assets-clear-backup）
+  └ projects[] → 找有 longProjectData 的那条（本项目是 projects[2]，name "22"）
+      ├ longProjectData.storyboardRuns[].panels[].assetBindings   # 绑定是否真的落了库
+      ├ longProjectData.assets[].variants[].referenceImageIds / generatedImageIds
+      └ longProjectData.chapterAssets[]                          # 本章引用（决定 {{本章资产}} 与编号表）
+```
+
+判定顺序：**数据层正确 → 问题在解析/UI；数据层错误 → 问题在写入链路**。
+读法用 `node -e`（PowerShell 工具不返 stdout，所以脚本里 `fs.writeFileSync('.t.txt', ...)` 再 Read，收尾记得删）。
+
+**拿真实样本做对照实验**：把某个 run 的 `rawResponse` + 当时的 `assets` / `chapterAssets` dump 成 JSON 夹具，
+临时写一个 vitest 跑「预览路径（裸解析）」vs「导入路径（解析 + `syncPanelsAutoBindings`）」逐镜 diff ——
+比读代码猜快得多。临时文件（`tests/tmp-*.test.ts` / `.probe*.txt` / `.diag-report.txt`）用完即删。

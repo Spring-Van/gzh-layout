@@ -8,7 +8,7 @@ import {
   resolvePanelAssetStates,
   resolvePanelRefImage,
 } from '../../src/modules/comic/services/panelPromptService';
-import { bindingsFromValue, defaultVariant, parseStoryboardResponse } from '../../src/modules/comic/services/storyboardService';
+import { bindingsFromValue, buildVariantCodeMap, defaultVariant, parseStoryboardResponse, renderChapterAssetsText } from '../../src/modules/comic/services/storyboardService';
 import type { LongProjectAsset, LongProjectStoryboardPanel, LongProjectStoryboardRun } from '../../src/modules/comic/types';
 
 /**
@@ -115,6 +115,25 @@ describe('分镜视觉状态绑定全链路', () => {
     expect(defaultVariant(rangedAsset, 'c3', orders)?.id).toBe('v2');
   });
 
+  it('同一章节同时有多个状态且没有唯一默认时不按数组顺序猜测', () => {
+    expect(defaultVariant(character, 'c1', chapterOrders)).toBeUndefined();
+    const withDefault = {
+      ...character,
+      variants: [
+        { ...character.variants[0], name: '全章默认' },
+        character.variants[1],
+      ],
+    } as LongProjectAsset;
+    expect(defaultVariant(withDefault, 'c1', chapterOrders)?.id).toBe('v1');
+  });
+
+  it('同一个别名指向多个资产时不静默绑定到首个资产', () => {
+    const first = { ...character, aliases: ['小雨'] } as LongProjectAsset;
+    const other = { ...character, id: 'a3', name: '周小雨', aliases: ['小雨'] } as LongProjectAsset;
+    const [binding] = bindingsFromValue('小雨（便装）', [first, other], 'c1', chapterOrders);
+    expect(binding).toMatchObject({ assetId: undefined, assetName: '小雨', visualVersionId: undefined, matchSource: 'unmatched' });
+  });
+
   it('解析：格级「出场资产」各自保存状态，页级汇总取镜末状态', () => {
     const panels = parse();
     expect(panels).toHaveLength(2);
@@ -209,5 +228,110 @@ describe('分镜视觉状态绑定全链路', () => {
     });
     expect(index.variants.get('v1')?.imagePanelCount).toEqual({ 'casual-1': 1 });
     expect(index.variants.get('v2')).toBeUndefined();
+  });
+});
+
+/**
+ * 状态编号通道：清单渲染给编号、模型照抄编号、解析直接查表得 id。
+ *
+ * 编号是**名字匹配之外的第二证据通道**，不取代名字：
+ * 名字来自资产库、跨章稳定是第一证据；编号依赖当次清单会漂移，故冲突时以名字为准。
+ * 这一组用例同时锁死「不劣化」：无编号的旧文本、无编号表的编辑器路径，行为必须与改造前一致。
+ */
+describe('状态编号通道', () => {
+  const chapterContext = [
+    { asset: character, variants: character.variants },
+    { asset: scene, variants: scene.variants },
+  ];
+  const codes = buildVariantCodeMap(chapterContext);
+
+  it('编号规则：资产按清单次序取字母、状态按资产内次序取数字，无状态资产不占字母位', () => {
+    expect([...codes.keys()]).toEqual(['A1', 'A2', 'B1']);
+    expect(codes.get('A1')).toMatchObject({ assetId: 'a1', variantId: 'v1' });
+    expect(codes.get('A2')).toMatchObject({ assetId: 'a1', variantId: 'v2' });
+    expect(codes.get('B1')).toMatchObject({ assetId: 'a2', variantId: 'v3' });
+
+    const noStateAsset = { id: 'a4', name: '空资产', type: 'prop', aliases: [], variants: [] } as unknown as LongProjectAsset;
+    const shifted = buildVariantCodeMap([{ asset: noStateAsset, variants: [] }, ...chapterContext]);
+    expect([...shifted.keys()]).toEqual(['A1', 'A2', 'B1']);
+  });
+
+  it('清单渲染带上编号，模型按「编号 资产名（状态名）」照抄', () => {
+    const text = renderChapterAssetsText(chapterContext)!;
+    expect(text).toContain('- 林小雨（人物）：A1 便装（日常便装）｜A2 战斗服（战斗装备）');
+    expect(text).toContain('- 训练场（场景）：B1 全章默认（露天训练场）');
+  });
+
+  it('编号救场：状态名措辞不一致导致名字通道全断时仍能精确命中', () => {
+    // 无编号：模型把「便装」写成「便服」，模糊匹配不上、同章多状态又无唯一默认 → 状态丢失
+    const [bare] = bindingsFromValue('林小雨（便服）', assets, 'c1', chapterOrders);
+    expect(bare).toMatchObject({ assetId: 'a1', visualVersionId: undefined });
+    // 带编号：编号直接命中，不再依赖字符串比对
+    const [coded] = bindingsFromValue('A1 林小雨（便服）', assets, 'c1', chapterOrders, codes);
+    expect(coded).toMatchObject({ assetId: 'a1', visualVersionId: 'v1', visualVersionName: '便装', matchSource: 'model' });
+  });
+
+  it('编号救场：资产名写错/写别名之外时仍能命中资产与状态', () => {
+    const [bare] = bindingsFromValue('小雨（战斗服）', assets, 'c1', chapterOrders);
+    expect(bare).toMatchObject({ assetId: undefined, matchSource: 'unmatched' });
+    const [coded] = bindingsFromValue('A2 小雨', assets, 'c1', chapterOrders, codes);
+    expect(coded).toMatchObject({ assetId: 'a1', visualVersionId: 'v2', visualVersionName: '战斗服', matchSource: 'model' });
+  });
+
+  it('编号与名字冲突时以名字为准（不引入新错绑）', () => {
+    const [binding] = bindingsFromValue('A1 林小雨（战斗服）', assets, 'c1', chapterOrders, codes);
+    expect(binding).toMatchObject({ assetId: 'a1', visualVersionId: 'v2', visualVersionName: '战斗服' });
+  });
+
+  it('编号悬空（状态已被删）时回落名字通道', () => {
+    const stale = new Map([['A1', { code: 'A1', assetId: 'a1', variantId: 'v-deleted' }]]);
+    const [binding] = bindingsFromValue('A1 林小雨（便装）', assets, 'c1', chapterOrders, stale);
+    expect(binding).toMatchObject({ assetId: 'a1', visualVersionId: 'v1', visualVersionName: '便装' });
+  });
+
+  it('模型只写编号不写资产名时同样命中', () => {
+    const [binding] = bindingsFromValue('B1', assets, 'c1', chapterOrders, codes);
+    expect(binding).toMatchObject({ assetId: 'a2', visualVersionId: 'v3', visualVersionName: '全章默认', matchSource: 'model' });
+  });
+
+  it('无编号表时也剥离编号前缀：编辑器保存路径不因编号污染资产名而回归', () => {
+    const [binding] = bindingsFromValue('A1 林小雨（便装）', assets, 'c1', chapterOrders);
+    expect(binding).toMatchObject({ assetId: 'a1', visualVersionId: 'v1', matchSource: 'model' });
+  });
+
+  it('不误伤以字母数字开头的资产名', () => {
+    const droid = {
+      id: 'a9', name: 'R2D2', type: 'prop', aliases: [],
+      variants: [{ id: 'v9', name: '待机', description: '银白机身', referenceImageIds: ['droid-1'] }],
+    } as unknown as LongProjectAsset;
+    const [binding] = bindingsFromValue('R2D2（待机）', [droid], 'c1', chapterOrders);
+    expect(binding).toMatchObject({ assetId: 'a9', visualVersionId: 'v9', assetName: 'R2D2' });
+  });
+
+  it('端到端：模型按编号声明时格级与页级绑定都精确落到状态', () => {
+    const output = [
+      '## 分镜 1 · 双格',
+      '第1格',
+      '景别：近景',
+      '画面：林小雨穿着便装推开训练场的铁门。',
+      '出场资产：A1 林小雨（便装）、B1 训练场（全章默认）',
+      '第2格',
+      '景别：中景',
+      '画面：林小雨扯紧战斗服的绑带。',
+      '出场资产：A2 林小雨（战斗服）',
+    ].join('\n');
+    const [panel] = parseStoryboardResponse(output, assets, 'c1', chapterOrders, codes);
+    expect(panel.cells?.[0].assetBindings).toMatchObject([
+      { assetId: 'a1', visualVersionId: 'v1', visualVersionName: '便装', matchSource: 'model' },
+      { assetId: 'a2', visualVersionId: 'v3', visualVersionName: '全章默认', matchSource: 'model' },
+    ]);
+    expect(panel.cells?.[1].assetBindings).toMatchObject([
+      { assetId: 'a1', visualVersionId: 'v2', visualVersionName: '战斗服', matchSource: 'model' },
+    ]);
+    // 页级 = 镜末状态
+    expect(panel.assetBindings).toMatchObject([
+      { assetId: 'a1', visualVersionId: 'v2' },
+      { assetId: 'a2', visualVersionId: 'v3' },
+    ]);
   });
 });

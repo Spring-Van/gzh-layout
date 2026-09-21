@@ -247,7 +247,8 @@ export interface LongProjectStoryboardCell {
   /**
    * 本格出场资产（v4「出场资产」字段，模型逐格声明 `资产名(状态名)`）。
    * 解析/编辑保存时汇总到页级 `panel.assetBindings`（同资产多格声明取最后一格 = 镜末状态）；
-   * auto-text 回填通道只写页级，两通道在页级合流；生图参考图与画面描述按格级状态并集消费。
+   * 系统还会逐格扫描画面、人物、动作、表情与备注，补齐模型漏写的 auto-text 绑定；
+   * 两条通道在页级汇总，生图参考图与画面描述按格级状态并集消费。
    */
   assetBindings?: LongProjectStoryboardAssetBinding[]
 }

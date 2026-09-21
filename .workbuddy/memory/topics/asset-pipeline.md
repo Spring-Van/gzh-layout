@@ -176,3 +176,30 @@
   - 高亮判定 = **名字命中资产库**（不按 `assetBindings` 过滤）。
   - 分镜内容框**不接** `onPick`（点资产名弹大图会打断定位光标的编辑操作）；提示词框保留。
 
+### 7.6 编辑器往返必须无损（2026-09-21 定稿，**别再踩**）
+
+**铁律：文本里写了什么，`serialize → parse` 往返后还得是什么。**
+
+右栏「分镜内容」输入框走 `parsePanelBlock`（`storyboardService.ts`），它**不带资产上下文**——内部就是
+`parseStoryboardResponse('## 分镜 1\n' + text, [], '', {})`，空 assets / 空 chapterId / 空 chapterOrders。
+所以编辑器解析出的绑定**必然是 `unmatched`**（`assetId` 空）。此时**必须保留文本原样的状态名**：
+
+```ts
+visualVersionName: variant?.name ?? (asset ? undefined : visualVersionName)
+```
+
+- 资产**未命中** → 保留原文状态名（唯一依据：让 `serializeBindings` 能原样写回 `资产名（状态名）`）。
+- 资产**命中** → 口径不变，只存实际匹配到的状态名（保证「显示状态」与「发送图片」是同一个状态）。
+
+**踩坑后果（2026-09-21 实修）**：丢了状态名 → `serializeBindings` 只写回资产名 →
+① 输入框里 `出场资产：测验魔石碑（萧炎测验·三段显示）` 被**悄悄改写成** `出场资产：测验魔石碑`（用户报「输入了之后变成了另外的样子」）；
+② `savePanelEdit` 重解析只剩名字 → 状态落到 `defaultVariant()`，而它**同章多状态且无唯一默认时返回 `undefined`**
+（判据只有章节级 `chapterRange`/`firstAppearanceChapterId`，同章内切换无法区分）→ `visualVersionId` 为空 →
+`resolvePanelBindings` 直接 `continue` → 取图清单 / 中栏里该资产**消失**（表现为「导入没绑定成功」）。
+留了名字后，`resolvePanelBindings` 里 `find(item => item.name === visualVersionName)` 的兜底也能救回来。
+
+- 回归测试：`tests/modules/panelEditRoundTrip.test.ts`（7 例，锁死往返无损 + 不悄悄改写文本 + 重解析还原同一 id）。
+- **编号不参与持久化**：编辑器保存后 `A1` 前缀会被 `splitVariantCode` 剥掉，这是**预期行为**（落库的始终是资产 id + 状态 id），别当 bug 修。
+- 排查同类问题的顺手工具：真实数据在 `%APPDATA%/gzh-layout/comic-gen.json`（project → `longProjectData`），
+  可直接读 `storyboardRuns[].panels[].assetBindings` 判定「数据层」是否有责，再决定查 UI 还是查解析。
+
