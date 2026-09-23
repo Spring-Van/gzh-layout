@@ -79,6 +79,19 @@
       >去提取资产 <ArrowRight :size="13" /></button>
     </div>
 
+    <!-- 资产变更提示条：本章资产在分镜生成之后重新确认过 → 现有分镜引用的是旧设定，给一键重推入口 -->
+    <div
+      v-if="assetsChangedAfterStoryboard"
+      class="flex shrink-0 items-center justify-between gap-3 border-b border-amber-500/30 bg-amber-500/5 px-4 py-2"
+    >
+      <p class="min-w-0 truncate text-xs text-amber-700 dark:text-amber-300">本章资产在分镜生成后重新确认过，现有分镜可能未反映新增的资产或视觉状态 —— 建议重推一次分镜</p>
+      <button
+        class="flex shrink-0 items-center gap-1 rounded-lg border border-amber-500/40 px-2.5 py-1 text-xs text-amber-700 transition-colors hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-300"
+        :disabled="opsLocked"
+        @click="rerunStoryboardAfterAssetChange"
+      >重新生成分镜 <ArrowRight :size="13" /></button>
+    </div>
+
     <!-- 分镜视图：左列表 + 中预览 + 右（分镜内容 = 页块文本编辑 + 本页操作 / 提示词 = 画面描述 + 单镜操作） -->
     <div class="flex min-h-0 flex-1 gap-3 p-3">
       <!-- 左：分镜列表（右键合并/拆分/复制） -->
@@ -102,7 +115,8 @@
               :panel="currentPanel"
               :artwork="currentArtwork"
               :is-generating="currentArtwork?.genStatus === 'running'"
-              @generate="generatePanelImage(currentPanel)"
+              :prompt-ready="Boolean(currentActiveSlot.text?.trim())"
+              @generate="generateCurrentFromActiveSlot"
               @switch-image="switchPanelImage"
               @delete-image="deleteCurrentGenImage"
               @preview="openPreview"
@@ -112,10 +126,13 @@
             <PanelAssetTabs
               :panel="currentPanel"
               :assets="assets"
+              :chapter-id="chapterId"
               :chapter-orders="chapterOrders"
-              :ref-manifest="currentRefManifest"
+              :ref-manifest="currentSlotRefManifest"
+              :binding-fixes="currentPanelBindingFixes"
               @set-binding-images="setBindingImages"
               @set-binding-variant="setBindingVariant"
+              @fix-binding="applyBindingFix"
               @preview="openPreview"
             />
           </div>
@@ -149,11 +166,12 @@
           </div>
         </div>
 
-        <div class="min-h-0 flex-1">
+        <!-- 阶段内容：分镜内容 / 绘画提示词 互斥。用 TabPanel 包一层 —— 任一阶段渲染出错
+             不会中断父页面补丁（否则会出现内容空白、页签藏不住、下拉浮层关不掉） -->
+        <TabPanel>
           <PanelContentEditor
             v-if="stage === 'storyboard'"
             :panel="currentPanel"
-            :assets="assets"
             :run-status="latestChapterRun?.status"
             :ops-locked="opsLocked"
             :optimize-busy="currentPanel ? polishBusyIds.has(currentPanel.id) : false"
@@ -174,12 +192,12 @@
             :generated-image="currentArtwork?.selectedImageId ?? currentArtwork?.generatedImageIds?.at(-1) ?? null"
             @infer="singleModalVisible = true"
             @save="savePromptEdit"
-            @reorder-reference="setReferenceOrder"
+            @update-slots="updatePanelGenSlots"
             @repair-bindings="repairCurrentPanelBindings"
             @single-generate="runSingleGenerate"
           />
           <div v-else class="flex h-full items-center justify-center text-xs text-text-muted">请先生成分镜</div>
-        </div>
+        </TabPanel>
       </div>
     </div>
 
@@ -269,12 +287,13 @@
       @confirm="runSinglePrompt"
     />
 
-    <!-- 大图预览 -->
+    <!-- 大图预览：分镜成图可删；查看**资产图**（中栏底部）时 removable=false，不提供删除 -->
     <AssetImagePreviewModal
       v-model="previewVisible"
       :images="previewImages"
       :image-index="previewIndex"
       :alt="previewAlt"
+      :removable="previewRemovable"
       @remove="requestRemovePreviewImage"
     />
 
@@ -348,23 +367,28 @@ import { imageGenerationService } from '@comic/services/imageGenerationService'
 import { RECOMMENDED_TEMPLATES } from '@comic/services/promptTemplateRegistry'
 import {
   DEFAULT_PREV_PANEL_WINDOW,
+  bindingScanPrompt,
   buildChapterOutline,
   buildChapterPanelPromptPrompt,
   buildPanelPromptPrompt,
   composeFinalPrompt,
   inferPanelPrompt,
   parseChapterPanelPrompts,
+  slotRefManifest,
   type PrevPanelContextEntry,
+  type RuntimeRefManifest,
 } from '@comic/services/panelPromptService'
-import { buildPanelRefManifest, groupManifestByType, type PanelRefManifest } from '@comic/services/panelRefManifest'
-import { auditPanelAssetBindings, buildAssetNameIndex, formatPanelBindingAuditIssues, reapplyVariantContinuation, summarizePanelBindingHealth, summarizePanelsBindingHealth } from '@comic/services/promptAssetService'
-import { bindingsFromValue, buildStoryboardPrompt, buildVariantCodeMap, cellCountLabel, parseStoryboardResponse, polishPanelBlock, serializeBindings, summarizeCellBindings, summarizeCells, type ChapterAssetContext } from '@comic/services/storyboardService'
+import { buildPanelRefManifest, groupManifestByType } from '@comic/services/panelRefManifest'
+import { resolveActiveGenSlot, slotAttachShared, slotUseAssetRefs } from '@comic/utils/genPromptSlots'
+import { auditPanelAssetBindings, bindingIdentityKey, buildAssetNameIndex, buildPanelBindingFixes, formatPanelBindingAuditIssues, reapplyVariantContinuation, summarizePanelBindingHealth, summarizePanelsBindingHealth, type PanelBindingFix } from '@comic/services/promptAssetService'
+import { bindingsFromValue, buildStoryboardPrompt, buildVariantCodeMap, cellCountLabel, parseStoryboardResponse, patchBlockTextAssetLines, polishPanelBlock, serializeBindings, serializePanelBlock, summarizeCellBindings, summarizeCells, type ChapterAssetContext } from '@comic/services/storyboardService'
 import { useStoryboardRun } from '@comic/composables/useStoryboardRun'
 import { useStoryboardOps } from '@comic/composables/useStoryboardOps'
 import PanelListSidebar from '@comic/components/panel-gen/PanelListSidebar.vue'
 import PanelPreview from '@comic/components/panel-gen/PanelPreview.vue'
 import PanelAssetTabs from '@comic/components/panel-gen/PanelAssetTabs.vue'
 import PanelContentEditor, { type PanelEditPayload } from '@comic/components/panel-gen/PanelContentEditor.vue'
+import TabPanel from '@comic/components/common/TabPanel.vue'
 import PanelPromptPanel, { type PanelRefConfig, type TypedRefGroup } from '@comic/components/panel-gen/PanelPromptPanel.vue'
 import PanelPromptGenerateModal from '@comic/components/panel-gen/PanelPromptGenerateModal.vue'
 import StoryboardContextMenu, { type StoryboardMenuAction } from '@comic/components/StoryboardContextMenu.vue'
@@ -377,6 +401,7 @@ import { migrateLegacyImageGenConfig } from '@comic/utils/sharedBlocks'
 import type { PanelListItem } from '@comic/components/panel-gen/PanelListSidebar.vue'
 import type {
   ComicProject,
+  GenPromptSlot,
   ImageGenConfig,
   LongProjectAsset,
   LongProjectPanelArtwork,
@@ -485,6 +510,8 @@ const chapters = computed(() =>
 )
 const currentChapter = computed(() => chapters.value.find((chapter) => chapter.id === chapterId.value) ?? null)
 const assets = computed(() => project.value?.longProjectData?.assets ?? [])
+/** 资产名称索引（审计 / 自动绑定共用；按资产库变化缓存，避免每次渲染重建）。 */
+const assetNameIndex = computed(() => buildAssetNameIndex(assets.value))
 const panelArtworks = computed(() => project.value?.longProjectData?.panelArtworks ?? [])
 const storyboardRuns = computed(() => project.value?.longProjectData?.storyboardRuns ?? [])
 
@@ -535,6 +562,19 @@ const showAssetHandoff = computed(() =>
   && chapterAssetEntries.value.length === 0
   && latestAssetExtractRun.value?.status !== 'confirmed'
   && latestAssetExtractRun.value?.status !== 'running')
+
+/**
+ * 本章资产在分镜生成之后又被重新确认过 → 现有分镜引用的还是旧资产设定
+ * （新增的资产 / 视觉状态不会被已有分镜引用），提示用户重推一次。
+ *
+ * 判据用 `run.createdAt`（这一版分镜生成的那一刻，永不改写）而不是 `updatedAt`：
+ * 绑定重算、悬空修复、资产覆盖确认都会推 `updatedAt`，拿它比对会把「只是修了绑定」误判成「资产变过」。
+ */
+const assetsChangedAfterStoryboard = computed(() => {
+  const run = currentRun.value
+  if (!run || !chapterAssetEntries.value.length) return false
+  return chapterAssetEntries.value.some((entry) => entry.updatedAt > run.createdAt)
+})
 
 /** 本章最近一次分镜 run（含 running/failed，右栏「分镜内容」状态条数据源）。 */
 const latestChapterRun = computed(() => {
@@ -591,13 +631,19 @@ const storyboardTemplates = computed(() =>
 
 /** 绘图配置的共用属性（前置/后置共用属性的唯一来源）。 */
 const sharedBlocks = computed(() => project.value?.imageGenConfig?.sharedBlocks ?? [])
+/** 项目级「参考图用途描述」模板（按资产类型）；资产自带 refUsage 时在清单层覆盖。 */
+const refUsageByType = computed(() => project.value?.imageGenConfig?.refUsage)
 const imageModelName = computed(() => imageModels.value.find((model) => model.id === config.imageModelId)?.name)
 
-/** 批量生图目标：有描述、未成图、未在生成中。 */
+/** 当前分镜选中的候选提示词条（右栏选中哪条就是哪条；没建过条时回落到 imagePrompt）。 */
+const currentActiveSlot = computed(() => resolveActiveGenSlot(currentArtwork.value))
+
+/** 批量生图目标：当前选中条有正文、未成图、未在生成中。 */
 const genTargets = computed(() =>
   panels.value.filter((panel) => {
     const artwork = artworkMap.value.get(panel.id)
-    return Boolean(artwork?.imagePrompt?.trim()) && !artwork?.selectedImageId && artwork?.genStatus !== 'running'
+    // 「有没有提示词」按当前选中那条判断，与单独生成 / 批量生成实际发送的正文同源。
+    return Boolean(resolveActiveGenSlot(artwork).text?.trim()) && !artwork?.selectedImageId && artwork?.genStatus !== 'running'
   }),
 )
 
@@ -607,12 +653,44 @@ function refManifestOf(panel: LongProjectStoryboardPanel) {
     panel: toRaw(panel),
     assets: assets.value.map(toRaw),
     sharedBlocks: sharedBlocks.value,
-    referenceOrder: artworkMap.value.get(panel.id)?.referenceImageOrder,
+    // 参考图用途描述：资产自带 refUsage 优先，其次项目级按类型的三段配置
+    refUsage: refUsageByType.value,
   })
 }
 
 /** 当前分镜清单（中栏资产绑定的「图N」角标与说明用）。 */
 const currentRefManifest = computed(() => (currentPanel.value ? refManifestOf(currentPanel.value) : undefined))
+
+/**
+ * 中栏资产区用的清单：**按当前选中条的开关裁剪并重编图号**，所以那里的「图N」角标
+ * 与这次实际发送的图片数组同序（关掉「拼接共用属性」就整体前移）。
+ *
+ * 右栏（PanelPromptPanel）拿的仍是**完整清单**，它自己按本地草稿的开关裁剪 ——
+ * 若两边都裁，防抖窗口内会出现「父级已裁、子级再裁一次」的错位。
+ */
+const currentSlotRefManifest = computed(() => {
+  const panel = currentPanel.value
+  if (!panel) return undefined
+  return slotRefManifest(refManifestOf(panel), {
+    attachShared: slotAttachShared(currentActiveSlot.value),
+    useAssetRefs: slotUseAssetRefs(currentActiveSlot.value),
+  })
+})
+
+/**
+ * 当前镜的绑定待核对项：审计问题 → 带候选的一键动作，常驻展示在中间资产区顶部。
+ * 审计文本带上画面描述（描述里提到的资产也是真实出场），否则会漏报；
+ * 但过期描述（stale）不算数，它写的是别的画面。
+ */
+const currentPanelBindingFixes = computed<PanelBindingFix[]>(() => {
+  const panel = currentPanel.value
+  if (!panel) return []
+  const scanPrompt = bindingScanPrompt(artworkMap.value.get(panel.id))
+  return buildPanelBindingFixes(
+    scanPrompt ? { ...panel, imagePrompt: scanPrompt } : panel,
+    assetNameIndex.value,
+  )
+})
 
 /** 当前分镜参考图分组（兼容右栏资产统计；实际发送顺序由 currentRefManifest.entries 决定）。 */
 const currentRefGroups = computed<TypedRefGroup[]>(() => {
@@ -691,10 +769,14 @@ function upsertArtworksBatch(items: Array<{ panelId: string; patch: Partial<Long
  *
  * 视觉状态本身不在这里改：它由分镜文本自动绑定推导（沿用上一镜 → 章节范围默认）。
  */
-function setBindingImages(payload: { panelId: string; assetId: string; imageIds: string[] }) {
+/** 保存某条绑定（资产+状态）的本镜参考图单选；variantId 缺省时作用于该资产全部绑定（兼容旧调用）。 */
+function setBindingImages(payload: { panelId: string; assetId: string; variantId?: string; imageIds: string[] }) {
   const run = currentRun.value
   if (!run) return
   const imageIds = payload.imageIds.slice(0, 1)
+  const hit = (binding: LongProjectStoryboardAssetBinding) =>
+    binding.assetId === payload.assetId
+    && (payload.variantId === undefined || binding.visualVersionId === payload.variantId)
   void props.mutateLongProjectData((data) => {
     data.storyboardRuns = (data.storyboardRuns ?? []).map((item) => item.id === run.id
       ? {
@@ -702,7 +784,7 @@ function setBindingImages(payload: { panelId: string; assetId: string; imageIds:
           panels: item.panels.map((panel) => panel.id === payload.panelId
             ? {
                 ...panel,
-                assetBindings: panel.assetBindings.map((binding) => binding.assetId === payload.assetId
+                assetBindings: panel.assetBindings.map((binding) => hit(binding)
                   ? { ...binding, selectedImageIds: imageIds.length ? [...imageIds] : undefined }
                   : binding),
               }
@@ -713,60 +795,185 @@ function setBindingImages(payload: { panelId: string; assetId: string; imageIds:
   })
 }
 
-/** 保存当前分镜核心参考图的手动顺序。新增图片会由清单构建器自动追加，已删除图片的 key 自动忽略。 */
-function setReferenceOrder(keys: string[]) {
-  const panel = currentPanel.value
-  if (!panel) return
-  void upsertArtwork(panel.id, { referenceImageOrder: [...keys] })
-}
-
 /**
- * 手动切换本镜某资产绑定的视觉状态（绑定卡状态 pill）。
- * 目标镜页级绑定写为 manual 来源（新状态 id/名/参考图；清空单选快照，回落新状态首图），
- * 格级「出场资产」声明同步更新状态（防后续序列化回写旧状态）；
- * 其后各镜的 auto-text 绑定以新状态为起点延续重算（model/manual/chapter-range 不动）。
+ * 本镜绑定变更的统一写库入口：补绑 / 选状态 / 换绑 / 移除（中栏待绑定占位与抽屉手选状态共用）。
+ *
+ * **绑定按「资产 + 状态」定位（多状态语义，2026-09-22）**：同一资产在本镜可以同时持有多个视觉状态，
+ * 改状态只动指定的那一条（`fromVariantId` / `bindingIndex` 定位），**不抹平其他状态/格级**。
+ *
+ * **全部读写都在 mutate 回调内取最新数据** —— 连点/重复触发时，上一次写入已落在同一份 data 上，
+ * 「已存在同资产+状态」的判断必然命中，不会重复添加（幂等兜底再按 identity 去重一次）。
+ *
+ * 补绑与选状态都落成 `manual` 绑定 —— manual 会触发其后各镜的状态延续重算，与抽屉里手选状态的语义完全一致。
+ * 注意 manual 不是「文本扫描删不掉」的豁免：绑定始终以文本为事实来源，文本里没有的资产会被自动同步移除；
+ * 但补绑的前提就是文本已命中该资产名（`missing-binding` 的定义），所以正常路径不会出现「刚补上就没了」。
+ * 反向的移除不重算延续链。
  */
-function setBindingVariant(payload: { panelId: string; assetId: string; variantId: string }) {
-  const run = currentRun.value
-  if (!run) return
-  const asset = assets.value.find((item) => item.id === payload.assetId)
-  const variant = asset?.variants.find((item) => item.id === payload.variantId)
-  if (!asset || !variant) return
-  const target = run.panels.find((panel) => panel.id === payload.panelId)
-  if (!target) return
-  const anchorPanels = run.panels.map((panel) => {
-    if (panel.id !== payload.panelId) return panel
-    // 页级绑定：该资产改 manual + 新状态（含参考图刷新；selectedImageIds 清空 = 未选，回落新状态首图）
-    const assetBindings: LongProjectStoryboardAssetBinding[] = panel.assetBindings.map((binding) =>
-      binding.assetId === payload.assetId
-        ? {
+function applyBindingFix(payload: {
+  panelId: string
+  action: 'add' | 'set-variant' | 'rebind' | 'remove' | 'resolve'
+  assetId?: string
+  /** 目标状态（set-variant / add / resolve） */
+  variantId?: string
+  /** set-variant / remove 的定位状态：要改掉（或删掉）的那条绑定当前的状态；空串 = 无状态那条 */
+  fromVariantId?: string
+  bindingIndex?: number
+}) {
+  const runId = currentRun.value?.id
+  if (!runId) return
+  void props.mutateLongProjectData((data) => {
+    const run = (data.storyboardRuns ?? []).find((item) => item.id === runId)
+    if (!run) return
+    const target = run.panels.find((panel) => panel.id === payload.panelId)
+    if (!target) return
+
+    let changed = false
+    let nextBindings = target.assetBindings
+    let boundVariant: LongProjectAsset['variants'][number] | undefined
+    let boundAssetId: string | undefined
+    /** 换绑时被替换的原写法（格级同名未匹配声明随之修正，「出场资产」行回写为真实资产名） */
+    let rebindOldName: string | undefined
+
+    if (payload.action === 'remove') {
+      // 移除：无主绑定（按页级下标），或指定的「资产+状态」那条
+      if (payload.bindingIndex !== undefined) {
+        nextBindings = target.assetBindings.filter((_, index) => index !== payload.bindingIndex)
+      } else if (payload.assetId) {
+        nextBindings = target.assetBindings.filter((binding) =>
+          !(binding.assetId === payload.assetId && (binding.visualVersionId ?? '') === (payload.fromVariantId ?? '')))
+      } else return
+      changed = nextBindings.length !== target.assetBindings.length
+    } else {
+      const asset = payload.assetId ? assets.value.find((item) => item.id === payload.assetId) : undefined
+      if (!asset) return
+      const variant = payload.variantId ? asset.variants.find((item) => item.id === payload.variantId) : undefined
+      if (payload.variantId && !variant) return
+      boundAssetId = asset.id
+      boundVariant = variant
+      const patch: LongProjectStoryboardAssetBinding = {
+        assetId: asset.id,
+        assetName: asset.name,
+        visualVersionId: variant?.id,
+        visualVersionName: variant?.name,
+        matchSource: 'manual',
+        referenceImageIds: variant ? [...variant.referenceImageIds] : [],
+        selectedImageIds: undefined,
+      }
+      if (payload.action === 'rebind' && payload.bindingIndex !== undefined) {
+        // 换绑：整条替换（原绑定没有 assetId，无法按 id 定位）
+        rebindOldName = target.assetBindings[payload.bindingIndex]?.assetName?.trim()
+        nextBindings = target.assetBindings.map((binding, index) => index === payload.bindingIndex ? patch : binding)
+        changed = true
+      } else if (payload.action === 'set-variant') {
+        // 改指定那条的状态；找不到（格级声明出来的状态还没落到页级）→ 追加一条
+        const index = payload.bindingIndex
+          ?? target.assetBindings.findIndex((binding) =>
+            binding.assetId === asset.id && (binding.visualVersionId ?? '') === (payload.fromVariantId ?? ''))
+        const known = index >= 0 && index < target.assetBindings.length
+        nextBindings = known
+          ? target.assetBindings.map((binding, i) => i === index ? { ...binding, ...patch } : binding)
+          : [...target.assetBindings, patch]
+        changed = true
+      } else if (payload.action === 'resolve') {
+        // 状态落定：把该资产**所有未定状态**的绑定（页级 + 格级）落到目标状态，已有状态的绑定不动。
+        // 只修页级修不掉格级那条无状态绑定 —— 审计会一直报「状态未定」，占位框永远点不掉（实测踩坑）。
+        const fill = (binding: LongProjectStoryboardAssetBinding) => {
+          if (binding.assetId !== asset.id || binding.visualVersionId) return binding
+          changed = true
+          return {
             ...binding,
-            visualVersionId: variant.id,
-            visualVersionName: variant.name,
-            matchSource: 'manual',
-            referenceImageIds: [...variant.referenceImageIds],
+            visualVersionId: variant?.id,
+            visualVersionName: variant?.name,
+            matchSource: 'manual' as const,
+            referenceImageIds: variant ? [...variant.referenceImageIds] : [],
             selectedImageIds: undefined,
           }
-        : binding)
-    // 格级「出场资产」声明同步新状态（无 assetId 的按资产名兜底匹配），防序列化回写旧状态
-    const cells = panel.cells?.map((cell) => {
-      if (!cell.assetBindings?.length) return cell
-      return {
-        ...cell,
-        assetBindings: cell.assetBindings.map((binding) =>
-          binding.assetId === payload.assetId || (!binding.assetId && binding.assetName.trim() === asset.name)
-            ? { ...binding, visualVersionId: variant.id, visualVersionName: variant.name, matchSource: 'manual' as const, referenceImageIds: [...variant.referenceImageIds] }
-            : binding),
+        }
+        nextBindings = target.assetBindings.map(fill)
+      } else {
+        // 补绑 / 新增状态：同「资产+状态」已存在就直接跳过（连点不会重复添加）
+        const exists = target.assetBindings.some((binding) =>
+          binding.assetId === asset.id && (binding.visualVersionId ?? '') === (variant?.id ?? ''))
+        nextBindings = exists ? target.assetBindings : [...target.assetBindings, patch]
+        changed = !exists
       }
-    })
-    return { ...panel, assetBindings, cells }
-  })
-  const nextPanels = reapplyVariantContinuation(anchorPanels, payload.assetId, variant.id, target.order, assets.value)
-  const resolvedPanels = nextPanels ?? anchorPanels
-  void props.mutateLongProjectData((data) => {
+      // 幂等兜底：同一「资产+状态」只保留一条
+      const seen = new Set<string>()
+      const deduped = nextBindings.filter((binding) => {
+        const key = bindingIdentityKey(binding)
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      if (deduped.length !== nextBindings.length) changed = true
+      nextBindings = deduped
+    }
+
+    if (!changed) return
+    let withBindings = run.panels.map((panel) =>
+      panel.id === payload.panelId ? { ...panel, assetBindings: nextBindings } : panel)
+    // 状态落定（resolve）时格级的无状态绑定一并落定，「出场资产」行随之回写出状态
+    if (payload.action === 'resolve' && boundAssetId && boundVariant) {
+      withBindings = withBindings.map((panel) => {
+        if (panel.id !== payload.panelId || !panel.cells?.length) return panel
+        const cells = panel.cells.map((cell) => {
+          if (!cell.assetBindings?.some((binding) => binding.assetId === boundAssetId && !binding.visualVersionId)) return cell
+          return {
+            ...cell,
+            assetBindings: cell.assetBindings.map((binding) =>
+              binding.assetId === boundAssetId && !binding.visualVersionId
+                ? {
+                    ...binding,
+                    visualVersionId: boundVariant!.id,
+                    visualVersionName: boundVariant!.name,
+                    matchSource: 'manual' as const,
+                    referenceImageIds: [...boundVariant!.referenceImageIds],
+                    selectedImageIds: undefined,
+                  }
+                : binding),
+          }
+        })
+        return cells !== panel.cells ? { ...panel, cells } : panel
+      })
+    }
+    // 换绑时同步修正格级同名未匹配声明（「出场资产：错误名（…）」→ 真实资产名），文本随之回写
+    if (rebindOldName && boundAssetId) {
+      const boundAsset = assets.value.find((item) => item.id === boundAssetId)
+      withBindings = withBindings.map((panel) => {
+        if (panel.id !== payload.panelId) return panel
+        const cells = panel.cells?.map((cell) => {
+          if (!cell.assetBindings?.some((binding) => !binding.assetId && binding.assetName.trim() === rebindOldName)) return cell
+          return {
+            ...cell,
+            assetBindings: cell.assetBindings.map((binding) =>
+              !binding.assetId && binding.assetName.trim() === rebindOldName
+                ? {
+                    ...binding,
+                    assetId: boundAsset!.id,
+                    assetName: boundAsset!.name,
+                    visualVersionId: boundVariant?.id,
+                    visualVersionName: boundVariant?.name,
+                    matchSource: 'manual' as const,
+                    referenceImageIds: boundVariant ? [...boundVariant.referenceImageIds] : [],
+                  }
+                : binding),
+          }
+        })
+        return cells && cells !== panel.cells ? { ...panel, cells } : panel
+      })
+    }
+    // 无视觉状态的资产不触发延续重算（延续链以状态为单位）
+    const nextPanels = boundVariant && boundAssetId
+      ? reapplyVariantContinuation(withBindings, boundAssetId, boundVariant.id, target.order, assets.value) ?? withBindings
+      : withBindings
     data.storyboardRuns = (data.storyboardRuns ?? []).map((item) =>
-      item.id === run.id ? { ...item, panels: resolvedPanels, updatedAt: Date.now() } : item)
+      item.id === run.id ? { ...item, panels: nextPanels, updatedAt: Date.now() } : item)
   })
+}
+
+/** 抽屉 / 卡片手选视觉状态：等价于一条「选状态」动作（fromVariantId 定位要改的那条）。 */
+function setBindingVariant(payload: { panelId: string; assetId: string; variantId: string; fromVariantId?: string }) {
+  applyBindingFix({ panelId: payload.panelId, action: 'set-variant', assetId: payload.assetId, variantId: payload.variantId, fromVariantId: payload.fromVariantId })
 }
 
 // ========== 分镜生成（剧本主输入 + 原文分析辅助） ==========
@@ -803,14 +1010,34 @@ function buildStoryboardRunPrompt(): string {
   )
 }
 
+/**
+ * 重导入 / 重新生成分镜后，正文已变的页不再继承旧画面描述（那份描述写的是别的画面）。
+ * 这里只回执一句：描述不会自己回来，需要用户重推 —— 否则整章描述「凭空消失」无从解释。
+ */
+function notifyDroppedPrompts(count: number) {
+  if (count <= 0) return
+  toast.warning(`${count} 页画面描述因分镜正文已变而未继承，需要重新推导画面描述`)
+}
+
+/**
+ * 资产变更提示条上的「重新生成分镜」：与顶栏「分镜」按钮走**同一条链路**
+ * （同一个提示词构建函数 + 同一个执行函数），只是省去先点顶栏那一步。
+ * 生成会覆盖现有分镜与画面描述，所以先 confirm。
+ */
+async function rerunStoryboardAfterAssetChange() {
+  if (opsLocked.value) return
+  if (panels.value.length && !window.confirm('将按当前资产与剧本重新生成本章分镜，现有分镜与已推导的画面描述会被替换，是否继续？')) return
+  await runStoryboardFromEditor(buildStoryboardRunPrompt())
+}
+
 /** 顶栏「分镜」阶段触发生成：PromptRunBar 已完成发送前确认，prompt 为最终版。 */
-async function runStoryboardFromEditor(prompt: string) {
-  const model = llmModels.value.find((item) => item.id === storyboardModelId.value)
+async function runStoryboardFromEditor(prompt: string) {  const model = llmModels.value.find((item) => item.id === storyboardModelId.value)
   if (!model) {
     toast.error('请选择分镜生成模型')
     return
   }
-  await runStoryboard({ model, templateId: storyboardTemplateId.value, prompt })
+  const result = await runStoryboard({ model, templateId: storyboardTemplateId.value, prompt })
+  notifyDroppedPrompts(result.droppedPromptCount)
 }
 
 // ========== 分镜手动导入（外部 AI 代跑） ==========
@@ -845,7 +1072,7 @@ async function confirmStoryboardImport(content: string) {
   if (!currentChapter.value) return
   if (panels.value.length && !window.confirm('本章已有分镜，导入将生成新一版分镜并自动对位迁移已推导描述与成图，是否继续？')) return
   try {
-    const imported = await importStoryboard(content)
+    const { panels: imported, droppedPromptCount } = await importStoryboard(content)
     storyboardImportVisible.value = false
     // 体检：绑定为零的镜数是「资产视觉状态没绑上」的最直接信号，直接报给用户，不必等生图阶段才发现
     const health = summarizePanelsBindingHealth(imported, assets.value)
@@ -855,6 +1082,7 @@ async function confirmStoryboardImport(content: string) {
     if (health.missingVariantCount) risks.push(`${health.missingVariantCount} 项状态未确定`)
     if (risks.length) toast.warning(`已导入 ${imported.length} 个分镜，${risks.join('，')}，请在中栏资产 tab 核对`)
     else toast.success(`已导入 ${imported.length} 个分镜，共 ${health.bindingCount} 条资产绑定`)
+    notifyDroppedPrompts(droppedPromptCount)
   } catch (error) {
     toast.error(error instanceof Error ? error.message : '分镜解析失败')
   }
@@ -885,6 +1113,8 @@ async function confirmPromptImport(content: string) {
   promptImportBusy.value = true
   try {
     await upsertArtworksBatch(parsed.entries.map((entry) => ({ panelId: entry.panelId, patch: { imagePrompt: entry.prompt, promptSource: 'manual' as const, promptStatus: 'done' as const } })))
+    // 导入的外部描述同样是绑定依据（与推导路径同一口径）
+    syncBindingsAfterPromptWrite(new Map(parsed.entries.map((entry) => [entry.panelId, entry.prompt])))
   } finally {
     promptImportBusy.value = false
   }
@@ -972,7 +1202,8 @@ async function polishCurrentPanel(text: string) {
   polishBusyIds.add(panel.id)
   try {
     const cells = await polishPanelBlock({ model: toRaw(model), blockText, scriptContext: scriptDoc.value?.content ?? '' })
-    savePanelEdit({ panelId: panel.id, cells })
+    // AI 优化本就以「规整这一页」为目的，这里用规整结果重排原文（用户手改的原文不参与此路径）
+    savePanelEdit({ panelId: panel.id, text: serializePanelBlock({ ...toRaw(panel), cells }), cells })
     toast.success('已按分镜协议优化本页')
   } catch (error) {
     console.error('[分镜优化] 失败:', error)
@@ -1001,13 +1232,12 @@ function savePanelEdit(payload: PanelEditPayload) {
   // 页级绑定基线：格级声明汇总（文本「出场资产」行增删即声明增删）+ manual（绑定卡手选，同资产优先于文本声明）
   // + auto-text（保留旧项，交给 autoSyncBindings 按文本重算增删与状态延续）
   const declaredBindings = summarizeCellBindings(cells)
-  const keyOf = (binding: LongProjectStoryboardAssetBinding) => binding.assetId ?? binding.assetName.trim()
   const manualBindings = (target.assetBindings ?? []).filter((binding) => binding.matchSource === 'manual')
-  const manualKeys = new Set(manualBindings.map(keyOf))
+  const manualKeys = new Set(manualBindings.map(bindingIdentityKey))
   const autoTextBindings = cells.length ? (target.assetBindings ?? []).filter((binding) => binding.matchSource === 'auto-text') : []
   const mergedBindings = [
     ...manualBindings,
-    ...declaredBindings.filter((binding) => !manualKeys.has(keyOf(binding))),
+    ...declaredBindings.filter((binding) => !manualKeys.has(bindingIdentityKey(binding))),
     ...autoTextBindings,
   ]
   const contentChanged = summary.content !== target.content
@@ -1024,14 +1254,22 @@ function savePanelEdit(payload: PanelEditPayload) {
             dialogue: summary.dialogue,
             narration: summary.narration,
             assetBindings: mergedBindings,
+            // 原文逐字保存：解析结果只作派生数据，不回写成文本
+            blockText: payload.text,
           }
         : panel,
     ),
     chapter.id,
   )
+  // 同步扫描可能又改了绑定 → 把这一页的「出场资产」行按最终绑定回写一次，让文本与数据立即一致
+  const syncedPanels = nextPanels.map((panel) =>
+    panel.id === payload.panelId
+      ? { ...panel, blockText: patchBlockTextAssetLines(panel.blockText ?? payload.text, panel) }
+      : panel,
+  )
   void props.mutateLongProjectData((data) => {
     data.storyboardRuns = (data.storyboardRuns ?? []).map((item) =>
-      item.id === run.id ? { ...item, panels: nextPanels, updatedAt: Date.now() } : item,
+      item.id === run.id ? { ...item, panels: syncedPanels, updatedAt: Date.now() } : item,
     )
     if (contentChanged && (data.panelArtworks ?? []).some((item) => item.panelId === payload.panelId && item.imagePrompt?.trim())) {
       data.panelArtworks = (data.panelArtworks ?? []).map((item) =>
@@ -1252,6 +1490,8 @@ async function runChapterPrompts(options: { modelId: string; templateId: string 
         .filter((id): id is string => Boolean(id))
         .map((panelId) => ({ panelId, patch: { promptStatus: 'failed' as const } })),
     ])
+    // 描述写完立刻回填绑定：描述里提到的资产才是真实出场，否则它们不进参考图清单
+    syncBindingsAfterPromptWrite(new Map(parsed.entries.map((entry) => [entry.panelId, entry.prompt])))
     const ok = parsed.entries.length
     if (parsed.mode === 'sequential' && ok) {
       toast.info('模型未输出分镜标记，已按顺序对位，请逐镜核对')
@@ -1284,6 +1524,8 @@ async function runSinglePrompt(options: { modelId: string; templateId: string; p
       options.prompt?.trim() || buildPromptForPanel(panel, currentIndex.value, resolvePanelTemplate(options.templateId))
     const result = await inferPanelPrompt({ model: toRaw(model), prompt })
     await upsertArtwork(panel.id, { imagePrompt: result, promptSource: 'inferred', promptStatus: 'done' })
+    // 描述写完立刻回填绑定（与整章推导同一口径）
+    syncBindingsAfterPromptWrite(new Map([[panel.id, result]]))
     toast.success('画面描述已生成')
   } catch (error) {
     console.error('[分镜推导] 单镜失败:', error)
@@ -1294,34 +1536,63 @@ async function runSinglePrompt(options: { modelId: string; templateId: string; p
   }
 }
 
-/** 人工编辑画面描述。 */
-function savePromptEdit(prompt: string) {
+/**
+ * 保存候选提示词条。`prompt` 为 null 表示改的不是第 1 条（描述没变），
+ * 只写候选条，**不动 imagePrompt** —— 否则切到一条空白候选会把描述清空。
+ */
+function savePromptEdit(prompt: string | null, slots: GenPromptSlot[], activeId: string) {
   const panel = currentPanel.value
   if (!panel) return
-  void upsertArtwork(panel.id, { imagePrompt: prompt, promptSource: 'manual', promptStatus: 'done' })
-  syncCurrentPanelBindings(prompt)
+  const patch: Partial<LongProjectPanelArtwork> = { genPrompts: slots, activeGenPromptId: activeId }
+  if (prompt !== null) {
+    patch.imagePrompt = prompt
+    patch.promptSource = 'manual'
+    patch.promptStatus = 'done'
+    // 描述变了 → 必须并入绑定扫描（「描述里提到的资产就是出场的资产」）。
+    // 只改候选条开关 / 上传图时不能触发，那不是描述变更。
+    syncBindingsAfterPromptWrite(new Map([[panel.id, prompt]]))
+  }
+  void upsertArtwork(panel.id, patch)
+}
+
+/** 候选条的结构变化（开关 / 增删条 / 上传图 / 切换选中）：只写候选条，**不动 imagePrompt**。 */
+function updatePanelGenSlots(slots: GenPromptSlot[], activeId: string) {
+  const panel = currentPanel.value
+  if (!panel) return
+  void upsertArtwork(panel.id, { genPrompts: slots, activeGenPromptId: activeId })
 }
 
 /**
- * 自动绑定同步：扫描当前分镜视觉字段（画面/人物/动作/表情/备注 + 最新画面描述），
- * 出现资产名且未绑定 → 自动添加（延续上一镜同资产视觉状态，否则章节范围默认）；
- * auto-text 绑定且名称消失 → 自动移除；其余来源绑定不动。
+ * 画面描述写入后的绑定同步：把最新描述并入扫描文本，重算整章绑定并一次性写回。
+ *
+ * 「描述里出现的资产就是画面上出场的资产」—— 推导（整章 / 单镜）、导入外部结果、人工编辑
+ * 三条写描述的路径都必须走这里；否则这些资产只活在描述文本里，不进绑定、不进参考图清单，
+ * 取图时凭空消失（左栏也看不到）。
+ * 之所以同步**整章**而不是当前镜：绑定按镜顺序做状态延续，前一镜的变更会影响其后各镜。
+ *
+ * @param promptOverrides 本批刚写入的描述（panelId → imagePrompt）；artworkMap 刷新前也要能扫到
  */
-function syncCurrentPanelBindings(prompt?: string) {
-  const runId = currentRun.value?.id
-  const panel = currentPanel.value
+function syncBindingsAfterPromptWrite(promptOverrides: Map<string, string>) {
+  const run = currentRun.value
   const chapter = currentChapter.value
-  if (!runId || !panel || !chapter) return
-  // 画面描述编辑也必须走全章逐格同步；只重扫当前页级文本会漏掉格内「人物 / 动作 / 备注」里的资产。
-  const scanPanels = (currentRun.value?.panels ?? []).map((item) => item.id === panel.id && prompt !== undefined ? { ...item, imagePrompt: prompt } : item)
-  const nextPanels = autoSyncBindings(scanPanels, chapter.id)
-  const next = nextPanels.find((item) => item.id === panel.id)
-  if (!next || (next.assetBindings === panel.assetBindings && next.cells === panel.cells)) return
+  if (!run || !chapter) return
+  const scanPanels = run.panels.map((panel) => {
+    // promptOverrides 是本批刚写入的最新描述（必然有效），优先级高于库里的；
+    // 库里那一路必须过 bindingScanPrompt，过期描述不得进入绑定依据。
+    const imagePrompt = promptOverrides.get(panel.id) ?? bindingScanPrompt(artworkMap.value.get(panel.id)) ?? panel.imagePrompt
+    return imagePrompt === panel.imagePrompt ? panel : { ...panel, imagePrompt }
+  })
+  const syncedPanels = autoSyncBindings(scanPanels, chapter.id)
+  const nextPanels = run.panels.map((original, index) => {
+    const synced = syncedPanels[index]
+    if (synced.assetBindings === scanPanels[index].assetBindings && synced.cells === scanPanels[index].cells) return original
+    // imagePrompt 属于 panelArtworks：扫描时临时注入，落库只取绑定与格，避免双份存储
+    return { ...original, assetBindings: synced.assetBindings, cells: synced.cells }
+  })
+  if (!nextPanels.some((panel, index) => panel !== run.panels[index])) return
   void props.mutateLongProjectData((data) => {
-    const run = (data.storyboardRuns ?? []).find((item) => item.id === runId)
-    if (!run) return
-    run.panels = run.panels.map((item) => item.id === panel.id ? { ...item, assetBindings: next.assetBindings, cells: next.cells } : item)
-    run.updatedAt = Date.now()
+    data.storyboardRuns = (data.storyboardRuns ?? []).map((item) =>
+      item.id === run.id ? { ...item, panels: nextPanels, updatedAt: Date.now() } : item)
   })
 }
 
@@ -1341,7 +1612,7 @@ async function repairCurrentPanelBindings(prompt: string) {
       ...item,
       imagePrompt: item.id === panel.id
         ? prompt
-        : artworkMap.value.get(item.id)?.imagePrompt ?? item.imagePrompt,
+        : bindingScanPrompt(artworkMap.value.get(item.id)) ?? item.imagePrompt,
     }))
     const syncedPanels = autoSyncBindings(scanPanels, chapter.id)
     const nextPanels = run.panels.map((original, index) => {
@@ -1360,7 +1631,7 @@ async function repairCurrentPanelBindings(prompt: string) {
 
     const repairedPanel = nextPanels.find((item) => item.id === panel.id)
     const issues = repairedPanel
-      ? auditPanelAssetBindings({ ...repairedPanel, imagePrompt: prompt }, buildAssetNameIndex(assets.value))
+      ? auditPanelAssetBindings({ ...repairedPanel, imagePrompt: prompt }, assetNameIndex.value)
       : []
     if (!issues.length) {
       toast.success('资产绑定已重新检查并补齐')
@@ -1371,8 +1642,8 @@ async function repairCurrentPanelBindings(prompt: string) {
     const needsVariant = issues.some((issue) => issue.reason === 'missing-variant')
     toast.warning(
       needsVariant
-        ? `重新检查后仍需确认：${labels}。请在中间资产绑定区选择具体视觉状态`
-        : `重新检查后仍需确认：${labels}`,
+        ? `重新检查后仍需确认：${labels}。中栏资产区已列出待核对项，点一下即可补绑`
+        : `重新检查后仍需确认：${labels}。中栏资产区可逐项处理`,
     )
   } catch (error) {
     console.error('[资产绑定] 重新检查失败:', error)
@@ -1387,7 +1658,9 @@ async function repairCurrentPanelBindings(prompt: string) {
 /** 单镜生图：运行时动态拼接共用属性、参考图定义与纯画面描述。 */
 async function generatePanelImage(
   panel: LongProjectStoryboardPanel,
-  options: { manifest?: PanelRefManifest; extras?: Array<{ image: string; label: string }> } = {},
+  // 用运行时结构而非完整清单：按某条提示词裁剪过的是 RuntimeRefManifest（少 key / image 两个字段）。
+  // `description` 是本次要发的候选条正文；不传才回落到 `imagePrompt`（第 1 条）。
+  options: { manifest?: RuntimeRefManifest; extras?: Array<{ image: string; label: string }>; attachShared?: boolean; description?: string } = {},
 ): Promise<boolean> {
   // 生图前最后一次确定性补绑，防止旧分镜或外部导入绕过保存事件留下漏绑。
   let effectivePanel = panel
@@ -1410,16 +1683,19 @@ async function generatePanelImage(
     }
   }
   const artwork = artworkMap.value.get(panel.id)
+  const scanPrompt = bindingScanPrompt(artwork)
+  // 实际要发的正文优先：候选条正文不等于 imagePrompt（imagePrompt 只承载第 1 条）。
+  const scanText = options.description ?? scanPrompt
   const bindingIssues = auditPanelAssetBindings(
-    { ...effectivePanel, imagePrompt: artwork?.imagePrompt },
-    buildAssetNameIndex(assets.value),
+    scanText ? { ...effectivePanel, imagePrompt: scanText } : effectivePanel,
+    assetNameIndex.value,
   )
   if (bindingIssues.length) {
     const labels = formatPanelBindingAuditIssues(bindingIssues).join('、')
-    toast.warning(`本镜资产绑定需要确认：${labels}`)
+    toast.warning(`本镜资产绑定需要确认：${labels}。中栏资产区可逐项处理`)
     return false
   }
-  const description = artwork?.imagePrompt?.trim()
+  const description = (options.description ?? artwork?.imagePrompt)?.trim()
   if (!description) {
     toast.warning('请先推导或编辑画面描述')
     return false
@@ -1427,7 +1703,9 @@ async function generatePanelImage(
   const manifest = options.manifest && effectivePanel === panel ? options.manifest : refManifestOf(effectivePanel)
   const extras = options.extras ?? []
   // 图片顺序、图号定义与最终提示词在同一步生成，资产/共用属性变化后自动同步。
-  const prompt = composeFinalPrompt(description, sharedBlocks.value, manifest, extras)
+  // attachShared=false 时清单里已没有共用属性图，这里也**不能**再拼前置/后置文字，否则提示词会
+  // 指向一批根本没发出去的图。
+  const prompt = composeFinalPrompt(description, sharedBlocks.value, manifest, extras, { attachShared: options.attachShared })
   const referenceImages = [...manifest.images, ...extras.map((entry) => entry.image)]
   const model = imageModels.value.find((item) => item.id === config.imageModelId)
   if (!model) {
@@ -1479,7 +1757,17 @@ async function runBatchGen() {
   let failed = 0
   for (const panel of genTargets.value) {
     if (batchGenCancelled) break
-    const ok = await generatePanelImage(panel)
+    // 每镜各用**它自己记住的那条**提示词（开关与正文），不在批量弹窗里再统一选一次。
+    const slot = resolveActiveGenSlot(artworkMap.value.get(panel.id))
+    const manifest = slotRefManifest(refManifestOf(panel), {
+      attachShared: slotAttachShared(slot),
+      useAssetRefs: slotUseAssetRefs(slot),
+    })
+    const ok = await generatePanelImage(panel, {
+      manifest,
+      attachShared: slotAttachShared(slot),
+      description: slot.text,
+    })
     if (!ok) failed += 1
     batchGenDone.value += 1
   }
@@ -1492,16 +1780,43 @@ function cancelBatchGen() {
   batchGenCancelled = true
 }
 
-/** 右栏「单独生成」：核心清单固定携带，上一版结果图与自定义图只追加在末尾。 */
+/** 右栏「单独生成」：按当前选中条的正文与开关发送，正文来自候选条本身。 */
 async function runSingleGenerate(prompt: string, refConfig: PanelRefConfig) {
   const panel = currentPanel.value
   if (!panel) return
-  await upsertArtwork(panel.id, { imagePrompt: prompt, promptSource: 'manual', promptStatus: 'done' })
   const extras: Array<{ image: string; label: string }> = []
   const generatedImage = currentArtwork.value?.selectedImageId ?? currentArtwork.value?.generatedImageIds?.at(-1)
   if (refConfig.useGeneratedImage && generatedImage) extras.push({ image: generatedImage, label: '本镜上一版结果图，用于构图与连续性参考' })
   refConfig.customImages.forEach((image, index) => extras.push({ image, label: `自定义参考图 ${index + 1}` }))
-  await generatePanelImage(panel, { manifest: refManifestOf(panel), extras })
+  // 按这条提示词自己的开关裁剪清单并重编图号，保证「预览看到的」与「这次真发的」完全一致。
+  const manifest = slotRefManifest(refManifestOf(panel), {
+    attachShared: refConfig.attachShared,
+    useAssetRefs: refConfig.useAssetRefs,
+  })
+  // ⚠️ 这里**不回写 imagePrompt**：它恒等于第 1 条，用候选条 2 生成时回写会把描述替换掉。
+  // 候选条正文在右栏编辑时就已落库，直接用传进来的正文拼即可。
+  await generatePanelImage(panel, {
+    manifest,
+    extras,
+    attachShared: refConfig.attachShared,
+    description: prompt,
+  })
+}
+
+/** 预览区「生成」：与右栏单镜生成同一口径 —— 用当前选中那条的正文与开关。 */
+async function generateCurrentFromActiveSlot() {
+  const panel = currentPanel.value
+  if (!panel) return
+  const slot = resolveActiveGenSlot(artworkMap.value.get(panel.id))
+  const manifest = slotRefManifest(refManifestOf(panel), {
+    attachShared: slotAttachShared(slot),
+    useAssetRefs: slotUseAssetRefs(slot),
+  })
+  await generatePanelImage(panel, {
+    manifest,
+    attachShared: slotAttachShared(slot),
+    description: slot.text,
+  })
 }
 
 /** 导出发布：按分镜顺序下载本章所有已采纳成图到本地。 */
@@ -1570,10 +1885,14 @@ function removeGenImage(index: number) {
 
 // ========== 大图预览 ==========
 
-function openPreview(payload: { images: string[]; index: number }) {
+/** 预览里是否提供「删除」：分镜自己的成图可删；中栏底部只是**查看资产图**（图由资产页维护），不给删。 */
+const previewRemovable = ref(true)
+
+function openPreview(payload: { images: string[]; index: number; removable?: boolean }) {
   previewImages.value = [...payload.images]
   previewIndex.value = payload.index
   previewAlt.value = `分镜 ${currentPanel.value?.order ?? ''} · 图片`
+  previewRemovable.value = payload.removable !== false
   previewVisible.value = true
 }
 

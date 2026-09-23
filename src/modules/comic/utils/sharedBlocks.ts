@@ -159,7 +159,7 @@ export function computeBlockImageNumbers(
 }
 
 /**
- * 共用属性的中文拼装文本：`属性名` → `图N、图M：属性名。` → 用户填写的描述正文。
+ * 共用属性的中文拼装文本：`属性名` → `图N、图M = 属性名。` → 用户填写的描述正文。
  *
  * 三段各自独立、互不覆盖：图号行由代码实时算（不落库），描述正文永远是用户手填内容。
  *
@@ -180,7 +180,7 @@ export function buildBlockText(
   if (!name && !description) return "";
   if (name) lines.push(name);
   if (position === "front" && imageNumbers.length > 0) {
-    lines.push(`${imageNumbers.map((n) => `图${n}`).join("、")}：${name}。`);
+    lines.push(`${imageNumbers.map((n) => `图${n}`).join("、")} = ${name}。`);
   }
   if (description) lines.push(description);
   return lines.join("\n");
@@ -312,6 +312,7 @@ export function migrateLegacyImageGenConfig(
     resolution: old.resolution || "",
     quality: old.quality || "",
     sharedBlocks: blocks,
+    refUsage: old.refUsage,
   };
 }
 
@@ -350,6 +351,7 @@ export function normalizeImageGenConfig(
     resolution: config.resolution || "",
     quality: config.quality || "",
     sharedBlocks: blocks,
+    refUsage: config.refUsage,
   };
 }
 

@@ -109,11 +109,16 @@ function applyCandidatesToAsset(
       updatedAt: now,
     })
   }
+  // 别名以本次提取结果为准（覆盖），而不是与旧别名求并集 ——
+  // 并集会让改过名 / 已不再使用的旧别名永久累积，一旦撞上别的资产名字或别名，
+  // `buildAssetNameIndex` 就会把该资产判为「歧义」并让它整个退出自动绑定识别。
+  // 本次候选完全没给别名时保留原值，避免把资产清空。
+  const candidateAliases = uniqueStrings(candidates.flatMap((candidate) => candidate.aliases))
   const merged = candidates.reduce<LongProjectAsset>((acc, candidate) => ({
     ...acc,
     content: candidate.content || acc.content || candidate.description,
     description: candidate.description || acc.description,
-    aliases: uniqueStrings([...candidate.aliases, ...acc.aliases]),
+    aliases: candidateAliases.length ? candidateAliases : acc.aliases,
     attributes: { ...acc.attributes, ...candidate.attributes },
     sourceChapterIds: uniqueStrings([...acc.sourceChapterIds, chapterId]),
   }), asset)
@@ -180,6 +185,43 @@ export function findOrphanEntries(assets: LongProjectAsset[], chapterAssets: Lon
   return result
 }
 
+/**
+ * 修复章节资产引用（`LongProjectChapterAsset`）上的悬空指针。
+ *
+ * 为什么必须单独做：覆盖式确认只重建**当前章节**的引用（`buildExtractionConfirmResult` 里
+ * `filter(entry => entry.chapterId !== chapterId)`），被删掉的视觉状态如果正被**别的章节**引用，
+ * 那些引用会留下悬空 `variantId` —— 章节资产面板会显示一个不存在的状态，且不会再被任何清理逻辑发现。
+ *
+ * 口径与分镜绑定的悬空修复一致（`repairDanglingBindings`）：
+ * - 状态悬空 → 回落到该**引用方章节**适用的默认状态；连默认状态都推不出时退化为「引用该资产全部状态」；
+ * - 资产整条已不存在 → 引用本身没有意义，直接丢弃。
+ */
+export function repairDanglingChapterAssets(
+  chapterAssets: LongProjectChapterAsset[],
+  assets: LongProjectAsset[],
+  chapterOrders: Record<string, number>,
+): { chapterAssets: LongProjectChapterAsset[]; reassigned: number; dropped: number } {
+  const assetById = new Map(assets.map((asset) => [asset.id, asset]))
+  let reassigned = 0
+  let dropped = 0
+  const next: LongProjectChapterAsset[] = []
+  for (const entry of chapterAssets) {
+    const asset = assetById.get(entry.assetId)
+    if (!asset) {
+      dropped += 1
+      continue
+    }
+    if (!entry.variantId || asset.variants.some((variant) => variant.id === entry.variantId)) {
+      next.push(entry)
+      continue
+    }
+    reassigned += 1
+    const fallback = defaultVariant(asset, entry.chapterId, chapterOrders)
+    next.push({ ...entry, variantId: fallback?.id, updatedAt: Date.now() })
+  }
+  return { chapterAssets: next, reassigned, dropped }
+}
+
 /** 按孤儿扫描结果剔除视觉状态与章节资产，返回新的 assets（无变化时返回原引用）。 */
 export function pruneOrphanEntries(assets: LongProjectAsset[], scan: OrphanScanResult): LongProjectAsset[] {
   if (!scan.variants.length && !scan.assets.length) return assets
@@ -195,7 +237,7 @@ export function pruneOrphanEntries(assets: LongProjectAsset[], scan: OrphanScanR
 
 /**
  * 资产提取确认的纯数据变换：以本次审核结果作为当前章节唯一生效版本（唯一行为，无模式选择）。
- * 每次确认前移除本章旧章节引用与未被引用的章节资产，再按候选生成或覆盖：
+ * 每次确认前移除本章旧章节引用（**手工引用 `origin: 'manual'` 除外**）与未被引用的章节资产，再按候选生成或覆盖：
  * 命中已有资产 → 整表重建视觉状态（同名状态复用原 id 保住已生成的图），本次未出现的旧状态删除；
  * 同一资产同一视觉状态只保留一条章节引用。历史提取任务仍保留，由调用方标记 confirmed。
  *
@@ -218,7 +260,9 @@ export function buildExtractionConfirmResult(
   const nextAssets = currentAssets
     .filter((asset) => asset.scope !== 'chapter' || !currentChapterAssetIds.has(asset.id) || referencedByOtherChapters.has(asset.id) || suggestedAssetIds.has(asset.id))
     .map((asset) => ({ ...asset, variants: [...asset.variants] }))
-  const nextChapterAssets = currentChapterAssets.filter((entry) => entry.chapterId !== chapterId)
+  // 手工引用（`origin: 'manual'`，用户在生图工作台「引用其他章节的图」建的）**保留**：
+  // 这次重建只重做本次提取来源的引用，否则用户关联好的跨章节引用会在下次提取后凭空消失。
+  const nextChapterAssets = currentChapterAssets.filter((entry) => entry.chapterId !== chapterId || entry.origin === 'manual')
 
   const active = run.candidates.filter((candidate) => candidate.decision !== 'ignore' && candidate.decision !== 'pending')
 
@@ -293,7 +337,8 @@ export function backfillPanelAutoBindings(
  * 修复分镜上指向已被删除视觉状态的悬空绑定（覆盖模式专用兜底）：
  * auto-text 绑定会被 backfillPanelAutoBindings 重算，但 model / manual / chapter-range 来源的绑定
  * 只做增删不改内容，覆盖删掉视觉状态后其 visualVersionId 会悬空 → 回落到章节范围默认状态；
- * 顺带同步资产改名后的 assetName。assetId 不存在（unmatched 或资产已删除）的绑定不处理。
+ * 顺带同步资产改名后的 assetName。**资产已被整条删除的绑定直接移除**（留下就是幽灵资产）；
+ * 没有 assetId 的绑定（文本写了名字但没匹配到资产）保持原样，交给待核对区换绑。
  *
  * ⚠️ **页级与格级「出场资产」声明必须同一口径修复**：生图取图与画面描述都按
  * `resolvePanelAssetStates`（页级 ∪ 格级）消费，若只修页级，会出现
@@ -306,10 +351,16 @@ export function repairDanglingBindings(
   chapterOrders: Record<string, number>,
 ): LongProjectStoryboardPanel[] {
   const assetById = new Map(assets.map((asset) => [asset.id, asset]))
-  /** 修一条绑定：资产改名 → 同步 assetName；状态悬空 → 回落默认状态。返回原对象 = 无需改动。 */
-  const repairBinding = (binding: LongProjectStoryboardAssetBinding): LongProjectStoryboardAssetBinding => {
-    const asset = binding.assetId ? assetById.get(binding.assetId) : undefined
-    if (!asset) return binding
+  /**
+   * 修一条绑定：资产改名 → 同步 assetName；状态悬空 → 回落默认状态；资产已删除 → 移除整条。
+   * 返回 `null` 表示该绑定应当被剔除。返回原对象 = 无需改动。
+   */
+  const repairBinding = (binding: LongProjectStoryboardAssetBinding): LongProjectStoryboardAssetBinding | null => {
+    // 没有 assetId 的绑定是「文本里写了名字但没匹配到资产」，留着交给中栏待核对区换绑，不能删
+    if (!binding.assetId) return binding
+    const asset = assetById.get(binding.assetId)
+    // 资产已被删除：这条绑定指向的资产已经不存在，留着只会让界面显示幽灵资产、取图时取不到东西
+    if (!asset) return null
     const nameChanged = binding.assetName !== asset.name
     // 无视觉状态绑定时不主动补，只同步资产名
     const dangling = Boolean(binding.visualVersionId) && !asset.variants.some((variant) => variant.id === binding.visualVersionId)
@@ -325,18 +376,18 @@ export function repairDanglingBindings(
   }
   return panels.map((panel) => {
     let changed = false
-    const assetBindings = panel.assetBindings.map((binding) => {
+    const assetBindings = panel.assetBindings.flatMap((binding) => {
       const next = repairBinding(binding)
       if (next !== binding) changed = true
-      return next
+      return next ? [next] : []
     })
     const cells = panel.cells?.map((cell) => {
       if (!cell.assetBindings?.length) return cell
       let cellChanged = false
-      const nextBindings = cell.assetBindings.map((binding) => {
+      const nextBindings = cell.assetBindings.flatMap((binding) => {
         const next = repairBinding(binding)
         if (next !== binding) cellChanged = true
-        return next
+        return next ? [next] : []
       })
       if (!cellChanged) return cell
       changed = true

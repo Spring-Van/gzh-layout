@@ -95,12 +95,35 @@
       :templates="templates"
       :asset-gen-config="assetGenConfig"
       :painting-style="paintingStyle"
-      :shared-blocks="sharedBlocks"
       :orphan-count="orphanCount"
       :usage="assetUsage"
+      :chapter-id="chapter.id"
+      :chapter-assets="chapterAssets"
+      :chapter-names="chapterNames"
       @update:asset="updateAssetVariant"
       @update:gen-config="updateAssetGenConfig"
       @clear-orphans="clearOrphans"
+      @link-chapter="openLinkModal"
+      @detach-chapter="requestDetach"
+    />
+
+    <!-- 引用其他章节已生成的图：选章节 → 选该章有图的视觉状态 → 写一条 origin='manual' 的章节引用 -->
+    <ChapterAssetLinkModal
+      v-model="linkModalVisible"
+      :chapters="chapterOptions"
+      :current-chapter-id="chapter.id"
+      :assets="assets"
+      :chapter-assets="chapterAssets"
+      @confirm="confirmLink"
+    />
+
+    <!-- 移出本章：只删本章的引用条目，不动原章节的图 -->
+    <ConfirmDialog
+      v-model="detachVisible"
+      title="移出本章"
+      :content="detachContent"
+      confirm-text="确认移出"
+      @confirm="confirmDetach"
     />
   </div>
 </template>
@@ -121,13 +144,16 @@
  * 生图工作台额外显示引用情况（状态级「被 N 章 · M 镜引用」+ 图片级「N 镜」在用标记），数据由 buildAssetUsageIndex 统一算出。
  */
 import { computed, ref } from "vue";
+import { v4 as uuidv4 } from "uuid";
 import { FileText, Images, Info, LoaderCircle, MapPin, Package, Palette, ScanText, UserRound } from "lucide-vue-next";
 import LongProjectAssetExtractionReview from "@comic/components/LongProjectAssetExtractionReview.vue";
 import LongProjectChapterAssets from "@comic/components/LongProjectChapterAssets.vue";
 import LongProjectAssetWorkbench from "@comic/components/LongProjectAssetWorkbench.vue";
+import ChapterAssetLinkModal from "@comic/components/ChapterAssetLinkModal.vue";
+import ConfirmDialog from "@comic/components/ConfirmDialog.vue";
 import { useToast } from "@comic/composables/useToast";
 import { countCandidatesAppearances, sortAssetsByExtractionOrder } from "@comic/services/assetExtractionService";
-import { backfillPanelAutoBindings, buildExtractionConfirmResult, findOrphanEntries, pruneOrphanEntries, repairDanglingBindings } from "@comic/services/assetExtractionConfirm";
+import { backfillPanelAutoBindings, buildExtractionConfirmResult, findOrphanEntries, pruneOrphanEntries, repairDanglingBindings, repairDanglingChapterAssets } from "@comic/services/assetExtractionConfirm";
 import { buildAssetUsageIndex } from "@comic/services/assetUsageService";
 import { LONG_CHAPTER_STAGE_ORDER } from "@comic/types";
 import type {
@@ -142,7 +168,6 @@ import type {
   LongProjectStoryboardRun,
   ModelConfig,
   PromptTemplate,
-  SharedPromptBlock,
 } from "@comic/types";
 
 /** 资产子 tab 类型。 */
@@ -167,7 +192,6 @@ const props = defineProps<{
   chapterNames?: Record<string, string>;
   assetGenConfig?: AssetGenConfig;
   paintingStyle?: string;
-  sharedBlocks?: SharedPromptBlock[];
   /** 资产接力定位目标（透传给生图工作台，选中具体资产/视觉状态）。 */
   focusTarget?: { assetId: string; variantId?: string } | null;
   mutateLongProjectData: (mutate: (data: NonNullable<ComicProject["longProjectData"]>) => void) => Promise<void>;
@@ -181,6 +205,72 @@ const emit = defineEmits<{
 
 const toast = useToast();
 const workbenchRef = ref<InstanceType<typeof LongProjectAssetWorkbench> | null>(null);
+
+// ========== 跨章节引用：引用其他章节已生成的图 ==========
+
+const linkModalVisible = ref(false);
+/** 可选章节（弹窗自己排除当前章节）。 */
+const chapterOptions = computed(() => Object.entries(props.chapterNames ?? {}).map(([id, name]) => ({ id, name })));
+
+function openLinkModal() {
+  linkModalVisible.value = true;
+}
+
+/**
+ * 确认引用：写一条 `chapterAssets`（`appearance: 'reused'` + `origin: 'manual'`）。
+ * ⚠️ 引用的仍是**同一条视觉状态记录** —— 图片天然共享、不复制；删除也仍只在原章节；
+ * `origin: 'manual'` 让它在「重新提取确认」时被保留（那次重建只重做 extraction 来源的引用）。
+ */
+function confirmLink(payload: { chapterId: string; assetId: string; variantId: string }) {
+  const exists = props.chapterAssets.some((entry) => entry.chapterId === payload.chapterId
+    && entry.assetId === payload.assetId && entry.variantId === payload.variantId);
+  if (exists) {
+    toast.success("本章已引用这条视觉状态");
+    return;
+  }
+  void props.mutateLongProjectData((data) => {
+    data.chapterAssets ??= [];
+    data.chapterAssets.push({
+      id: uuidv4(),
+      chapterId: payload.chapterId,
+      assetId: payload.assetId,
+      variantId: payload.variantId,
+      appearance: "reused",
+      evidence: [],
+      origin: "manual",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  });
+  toast.success("已引用，本章生图工作台可见");
+}
+
+// ========== 移出本章：只删本章引用，不动原章节的资产与图 ==========
+
+const detachVisible = ref(false);
+const detachTarget = ref<{ asset: LongProjectAsset; variant: LongProjectAssetVariant } | null>(null);
+const detachContent = computed(() => {
+  const target = detachTarget.value;
+  if (!target) return "";
+  return `将把「${target.asset.name} · ${target.variant.name}」移出本章：只删除本章对它的引用，原章节的资产与图片不受影响。是否确认？`;
+});
+
+function requestDetach(payload: { asset: LongProjectAsset; variant: LongProjectAssetVariant }) {
+  detachTarget.value = payload;
+  detachVisible.value = true;
+}
+
+function confirmDetach() {
+  const target = detachTarget.value;
+  if (!target) return;
+  const chapterId = props.chapter.id;
+  void props.mutateLongProjectData((data) => {
+    data.chapterAssets = (data.chapterAssets ?? []).filter((entry) => !(entry.chapterId === chapterId
+      && entry.assetId === target.asset.id
+      && (!entry.variantId || entry.variantId === target.variant.id)));
+  });
+  detachTarget.value = null;
+}
 
 const assetTabs: Array<{ id: AssetView; label: string; icon: typeof FileText }> = [
   { id: "info", label: "信息", icon: FileText },
@@ -270,8 +360,10 @@ async function clearOrphans() {
   await props.mutateLongProjectData((data) => {
     // 以队列内的最新数据重算，避免用弹窗打开前的快照误删
     const latest = findOrphanEntries(data.assets ?? [], data.chapterAssets ?? []);
-    data.assets = pruneOrphanEntries(data.assets ?? [], latest);
     const chapterOrders = chapterOrderMap(data);
+    data.assets = pruneOrphanEntries(data.assets ?? [], latest);
+    // 状态被剔除后，章节引用里指向它的悬空 variantId 一并修掉
+    data.chapterAssets = repairDanglingChapterAssets(data.chapterAssets ?? [], data.assets ?? [], chapterOrders).chapterAssets;
     data.storyboardRuns = (data.storyboardRuns ?? []).map((item) => {
       const repaired = repairDanglingBindings(item.panels, data.assets ?? [], item.chapterId, chapterOrders);
       return repaired === item.panels ? item : { ...item, panels: repaired, updatedAt: Date.now() };
@@ -310,8 +402,11 @@ async function confirmExtraction() {
   const chapterId = props.chapter.id;
   await props.mutateLongProjectData((data) => {
     const result = buildExtractionConfirmResult(run, chapterId, data.assets ?? [], data.chapterAssets ?? []);
+    const chapterOrders = chapterOrderMap(data);
+    // 覆盖只重建本章引用；其他章节引用了被删状态的话会留下悬空 variantId，这里一并修掉
+    const repairedChapterAssets = repairDanglingChapterAssets(result.chapterAssets, result.assets, chapterOrders);
     data.assets = result.assets;
-    data.chapterAssets = result.chapterAssets;
+    data.chapterAssets = repairedChapterAssets.chapterAssets;
     data.assetExtractionRuns = (data.assetExtractionRuns ?? []).map((item) => item.id === run.id ? { ...item, status: "confirmed" as const, updatedAt: Date.now() } : item);
     data.nodes = (data.nodes ?? []).map((node) => {
       if (node.id !== chapterId) return node;
@@ -321,7 +416,6 @@ async function confirmExtraction() {
         ? { ...node, stage: "assets-ready" as const, updatedAt: Date.now() }
         : { ...node, updatedAt: Date.now() };
     });
-    const chapterOrders = chapterOrderMap(data);
     data.storyboardRuns = (data.storyboardRuns ?? []).map((item) => {
       // 本章已完成分镜：按文本重算 auto-text 绑定
       const panels = item.chapterId === chapterId && item.status === "completed"
@@ -390,7 +484,10 @@ function updateAssetVariant(payload: { assetId: string; variantId: string; patch
   });
 }
 
-/** 保存资产生图配置（项目级默认）。 */
+/**
+ * 保存资产生图配置（项目级，存在 longProjectData.assetGenConfig）。
+ * 绘画模型与共用属性都在这一份里，与分镜 imageGenConfig 不互通。
+ */
 function updateAssetGenConfig(config: AssetGenConfig) {
   void props.mutateLongProjectData((data) => {
     data.assetGenConfig = JSON.parse(JSON.stringify(config));

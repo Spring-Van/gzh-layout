@@ -9,6 +9,7 @@ import {
   buildPanelPromptPrompt,
   composeFinalPrompt,
   parseChapterPanelPrompts,
+  slotRefManifest,
 } from '../../src/modules/comic/services/panelPromptService';
 import { buildBlockText, computeBlockImageNumbers, getSharedRefImages } from '../../src/modules/comic/utils/sharedBlocks';
 import { findUnknownVariables, getTemplateVariables } from '../../src/modules/comic/services/promptTemplateRegistry';
@@ -16,7 +17,8 @@ import type { LongProjectAsset, LongProjectStoryboardAssetBinding, LongProjectSt
 
 /**
  * 参考图清单（唯一图号来源）与共用属性拼装的核心口径单测：
- * 编号顺序、手动排序、back 组排除、不截断、实时性、最终拼接、整章解析。
+ * 编号顺序、back 组排除、不截断、实时性、最终拼接、整章解析。
+ * （手动排序 referenceOrder 已下线，顺序恒定为默认规则。）
  */
 
 const character = {
@@ -26,8 +28,8 @@ const character = {
   aliases: [],
   fixedTraits: [],
   variants: [
-    { id: 'v1', name: '便装', description: '日常便装', referenceImageIds: ['casual-1'] },
-    { id: 'v2', name: '战斗服', description: '战斗装备', referenceImageIds: ['battle-1', 'battle-2'] },
+    { id: 'v1', name: '便装', description: '日常便装', generatedImageIds: ['casual-1'] },
+    { id: 'v2', name: '战斗服', description: '战斗装备', generatedImageIds: ['battle-1', 'battle-2'] },
   ],
 } as unknown as LongProjectAsset;
 
@@ -37,7 +39,7 @@ const scene = {
   type: 'scene',
   aliases: [],
   fixedTraits: [],
-  variants: [{ id: 'v3', name: '白天', description: '广场', referenceImageIds: ['plaza-1'] }],
+  variants: [{ id: 'v3', name: '白天', description: '广场', generatedImageIds: ['plaza-1'] }],
 } as unknown as LongProjectAsset;
 
 const prop = {
@@ -46,7 +48,7 @@ const prop = {
   type: 'prop',
   aliases: [],
   fixedTraits: [],
-  variants: [{ id: 'v4', name: '常态', description: '石碑', referenceImageIds: ['stone-1'] }],
+  variants: [{ id: 'v4', name: '常态', description: '石碑', generatedImageIds: ['stone-1'] }],
 } as unknown as LongProjectAsset;
 
 const assets = [character, scene, prop];
@@ -123,7 +125,7 @@ describe('buildPanelRefManifest — 图号顺序', () => {
   it('实时性：改资产视觉状态的图顺序后，图号立刻变化（无缓存）', () => {
     const before = buildPanelRefManifest({ panel, assets, sharedBlocks: blocks });
     const swapped = [
-      { ...character, variants: [{ ...character.variants[0], referenceImageIds: ['casual-new'] }, character.variants[1]] },
+      { ...character, variants: [{ ...character.variants[0], generatedImageIds: ['casual-new'] }, character.variants[1]] },
       scene,
       prop,
     ] as unknown as LongProjectAsset[];
@@ -133,28 +135,17 @@ describe('buildPanelRefManifest — 图号顺序', () => {
     expect(after.images[0]).toBe('style-1'); // 其他图号不受影响
   });
 
-  it('手动顺序优先；无效 key 被忽略，新参考图按默认顺序追加并重新编号', () => {
-    const initial = buildPanelRefManifest({ panel, assets, sharedBlocks: blocks });
-    const propKey = initial.entries.find((entry) => entry.assetId === 'a3')!.key;
-    const styleKey = initial.entries[0].key;
-    const ordered = buildPanelRefManifest({
-      panel,
-      assets,
-      sharedBlocks: blocks,
-      referenceOrder: ['deleted:key', propKey, styleKey],
-    });
-    expect(ordered.images.slice(0, 2)).toEqual(['stone-1', 'style-1']);
-    expect(ordered.entries.map((entry) => entry.index)).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(ordered.entries.map((entry) => entry.key)).not.toContain('deleted:key');
-    expect(ordered.images.slice(2)).toEqual(['style-2', 'casual-1', 'battle-1', 'plaza-1']);
+  it('顺序恒定：手动排序已下线，图号始终按 共用属性 → 人物 → 场景 → 道具', () => {
+    const manifest = buildPanelRefManifest({ panel, assets, sharedBlocks: blocks });
+    // 与「共用属性 → 人物 → 场景 → 道具」的默认顺序一致，且与任何历史手动顺序无关。
+    expect(manifest.images).toEqual(['style-1', 'style-2', 'casual-1', 'battle-1', 'plaza-1', 'stone-1']);
+    expect(manifest.entries.map((entry) => entry.index)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
-  it('共用属性替换图片后，旧图片 key 自动失效，新图片按默认顺序追加', () => {
-    const before = buildPanelRefManifest({ panel, assets, sharedBlocks: blocks });
-    const oldStyleKey = before.entries[0].key;
+  it('共用属性替换图片后，按默认顺序重新编号（无手动顺序残留）', () => {
     const changedBlocks = blocks.map((block) => block.id === 'b2' ? { ...block, referenceImages: ['style-new', 'style-2'] } : block)
-    const after = buildPanelRefManifest({ panel, assets, sharedBlocks: changedBlocks, referenceOrder: [oldStyleKey] });
-    expect(after.images).toContain('style-new');
+    const after = buildPanelRefManifest({ panel, assets, sharedBlocks: changedBlocks });
+    expect(after.images[0]).toBe('style-new');
     expect(after.entries[0].image).toBe('style-new');
     expect(after.entries.at(-1)?.image).toBe('stone-1');
   });
@@ -169,6 +160,55 @@ describe('buildPanelRefManifest — 图号顺序', () => {
     expect(manifest.images).not.toContain('battle-1');
     // 第1格的便装无页级 binding → 取状态第一张
     expect(manifest.images).toContain('casual-1');
+  });
+});
+
+describe('slotRefManifest — 按提示词条的开关裁剪并重编图号', () => {
+  const base = () => buildPanelRefManifest({ panel, assets, sharedBlocks: blocks });
+
+  it('开关都开：与原始清单完全一致', () => {
+    const manifest = base();
+    const slot = slotRefManifest(manifest, { attachShared: true, useAssetRefs: true });
+    expect(slot.images).toEqual(manifest.images);
+    expect(slot.entries.map((entry) => entry.index)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it('省略开关按「都开」处理（旧数据不会变成什么都不发）', () => {
+    expect(slotRefManifest(base()).images).toEqual(base().images);
+  });
+
+  it('关掉「拼接共用属性」：共用属性图剔除，资产图从图1重编', () => {
+    const slot = slotRefManifest(base(), { attachShared: false, useAssetRefs: true });
+    expect(slot.images).toEqual(['casual-1', 'battle-1', 'plaza-1', 'stone-1']);
+    expect(slot.entries.map((entry) => entry.index)).toEqual([1, 2, 3, 4]);
+    expect(slot.entries.every((entry) => entry.source === 'asset')).toBe(true);
+  });
+
+  it('关掉「使用资产参考图」：资产图剔除，共用属性图仍是图1起', () => {
+    const slot = slotRefManifest(base(), { attachShared: true, useAssetRefs: false });
+    expect(slot.images).toEqual(['style-1', 'style-2']);
+    expect(slot.entries.map((entry) => entry.index)).toEqual([1, 2]);
+  });
+
+  it('两个都关：清单为空', () => {
+    const slot = slotRefManifest(base(), { attachShared: false, useAssetRefs: false });
+    expect(slot.images).toEqual([]);
+    expect(slot.entries).toEqual([]);
+  });
+
+  it('不变式：裁剪后 images[i] 依然是「图 i+1」', () => {
+    const slot = slotRefManifest(base(), { attachShared: false, useAssetRefs: true });
+    slot.entries.forEach((entry, index) => expect(entry.index).toBe(index + 1));
+  });
+
+  it('attachShared=false 时最终提示词不再拼前置/后置共用属性', () => {
+    const manifest = base();
+    const withShared = composeFinalPrompt('画面', blocks, slotRefManifest(manifest, { attachShared: true }));
+    const without = composeFinalPrompt('画面', blocks, slotRefManifest(manifest, { attachShared: false }), [], { attachShared: false });
+    expect(withShared).toContain('保持画面干净'); // 前置属性
+    expect(withShared).toContain('不要出现水印'); // 后置属性
+    expect(without).not.toContain('保持画面干净');
+    expect(without).not.toContain('不要出现水印');
   });
 });
 
@@ -189,7 +229,7 @@ describe('composeFinalPrompt — 运行时最终拼接', () => {
     const manifest = buildPanelRefManifest({ panel, assets, sharedBlocks: blocks });
     const result = composeFinalPrompt('第1格：她缓缓走向石碑。', blocks, manifest);
     expect(result).toContain('前置条件');
-    expect(result).toContain('图1、图2：绘画风格参考图。');
+    expect(result).toContain('图1、图2 = 绘画风格参考图。');
     expect(result).toContain('【动态参考图】');
     expect(result).toContain('图3 = 萧薰儿（便装）人物参考，仅用于第1格的人物身份、脸部、发型、服装与外貌特征。');
     expect(result).toContain('图6 = 测验魔石碑（常态）道具参考，仅用于第2格的道具外观与材质。');
@@ -242,7 +282,7 @@ describe('composeFinalPrompt — 运行时最终拼接', () => {
 describe('buildBlockText', () => {
   it('三段式：属性名 / 图号行 / 描述正文，互不覆盖', () => {
     const block = blocks[1];
-    expect(buildBlockText(block, [1, 2], 'front')).toBe('绘画风格参考图\n图1、图2：绘画风格参考图。\n综合参考图像的画风');
+    expect(buildBlockText(block, [1, 2], 'front')).toBe('绘画风格参考图\n图1、图2 = 绘画风格参考图。\n综合参考图像的画风');
   });
 
   it('back 组不产生图号行', () => {

@@ -1,7 +1,8 @@
 import { computed, onBeforeUnmount, ref, type Ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
 import { buildAssetNameIndex, syncPanelsAutoBindings } from '@comic/services/promptAssetService'
-import { cellCountLabel, defaultVariant, serializePanelBlock } from '@comic/services/storyboardService'
+import { bindingScanPrompt } from '@comic/services/panelPromptService'
+import { cellCountLabel, defaultVariant, panelBlockText } from '@comic/services/storyboardService'
 import type { StoryboardMenuAction } from '@comic/components/StoryboardContextMenu.vue'
 import type {
   ComicProject,
@@ -119,7 +120,7 @@ export function useStoryboardOps(options: {
 
   /** 复制分镜内容到剪贴板（页块文本，含镜头与说话人）。 */
   function copyPanel(panel: LongProjectStoryboardPanel) {
-    const text = serializePanelBlock(panel)
+    const text = panelBlockText(panel)
     if (!text.trim()) { options.notify('info', '这一页还是空的'); return }
     void navigator.clipboard?.writeText(text)
       .then(() => options.notify('success', '已复制分镜内容'))
@@ -254,8 +255,8 @@ export function useStoryboardOps(options: {
       cells: undefined, cellLabel: undefined,
       assetBindings: parent.assetBindings.map((binding) => ({ ...binding })),
     })
-    /** 保留父 ID 的那一段：继承成图与描述，但分格结构作废。 */
-    const keepParent = (content: string): LongProjectStoryboardPanel => ({ ...parent, content, cells: undefined, cellLabel: undefined })
+    /** 保留父 ID 的那一段：继承成图与描述，但分格结构作废（原文随之作废，改按新内容重拼）。 */
+    const keepParent = (content: string): LongProjectStoryboardPanel => ({ ...parent, content, cells: undefined, cellLabel: undefined, blockText: undefined })
     const children: LongProjectStoryboardPanel[] =
       mode === 'multi'
         ? parts.map((content, index) => index === 0 ? keepParent(content) : { ...makeChild(content), order: parent.order + index })
@@ -351,11 +352,14 @@ export function useStoryboardOps(options: {
    * 分镜文本自动绑定同步：编辑/合并/拆分后逐格重扫画面、人物、动作、表情与备注，
    * 出现资产名且未绑定 → 自动添加（明确状态名优先，其次延续上一格/镜状态，否则章节范围默认）；
    * auto-text 绑定且名称消失 → 自动移除；其余来源绑定不动。
+   *
+   * 画面描述只在 `bindingScanPrompt` 放行时并入扫描文本 —— 过期描述（stale）写的是别的画面，
+   * 拿它当绑定依据会把不属于这一页的资产绑进来。
    */
   function autoSyncBindings(panels: LongProjectStoryboardPanel[], chapterId: string): LongProjectStoryboardPanel[] {
     const scanPanels = panels.map((panel) => ({
       ...panel,
-      imagePrompt: panel.imagePrompt ?? options.artworkMap.value.get(panel.id)?.imagePrompt,
+      imagePrompt: panel.imagePrompt ?? bindingScanPrompt(options.artworkMap.value.get(panel.id)),
     }))
     const synced = syncPanelsAutoBindings(scanPanels, buildAssetNameIndex(options.assets.value), (asset) => defaultVariant(asset, chapterId, options.chapterOrders.value))
     // imagePrompt 属于 panelArtworks；这里只把扫描所得绑定写回 storyboard panel，避免双份存储。

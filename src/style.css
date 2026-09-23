@@ -45,9 +45,6 @@
   .asset-tag--prop { border-color: color-mix(in srgb, var(--asset-prop) 45%, transparent); background: color-mix(in srgb, var(--asset-prop) 12%, transparent); color: var(--asset-prop); }
   .asset-tag--unmatched { border-style: dashed; border-color: rgba(217, 119, 6, 0.45); background: rgba(217, 119, 6, 0.1); color: #b45309; }
   html.dark .asset-tag--unmatched { border-color: rgba(251, 191, 36, 0.35); background: rgba(245, 158, 11, 0.15); color: #fde68a; }
-
-  /* 输入框内资产名高亮：底色由令牌派生，明暗主题共用一套变量 */
-  .asset-highlight { border-radius: 0.25rem; }
 }
 
 @layer utilities {

@@ -12,7 +12,7 @@
             <h3 class="text-base font-semibold text-text-primary">{{ append ? '从资产库选择参考图' : '更换资产图片' }}</h3>
             <button class="rounded-md p-1 text-text-muted transition-colors hover:text-text-primary" @click="close"><X :size="16" /></button>
           </div>
-          <p class="mt-1 shrink-0 text-xs text-text-muted">{{ append ? '从资产库勾选图片（含 AI 生成图），确认后追加为当前视觉状态的参考图。' : '从资产库勾选参考图，确认后替换该视觉状态的参考图列表（对所有引用此资产的分镜生效）。' }}</p>
+          <p class="mt-1 shrink-0 text-xs text-text-muted">只列 AI 生成图：资产上传的参考图只是发给模型的输入，不作为可挑选的资产图{{ append ? '；确认后追加为当前视觉状态的参考图。' : '；确认后替换该视觉状态的参考图列表。' }}</p>
 
           <!-- 资产来源 tab（指定 assetId 时仅展示该资产，隐藏分类）；章节资产在前且默认 -->
           <div class="mt-3 flex shrink-0 items-center gap-4 border-b border-border-subtle">
@@ -57,15 +57,14 @@
                   :key="image"
                   class="group relative mb-2.5 block w-full break-inside-avoid overflow-hidden rounded-lg border transition-colors"
                   :class="selected.includes(image) ? 'border-cyan-500 ring-1 ring-cyan-500/40' : 'border-border-subtle hover:border-border-strong'"
-                  :title="generatedSet.has(image) ? `${group.name} · AI 生成图` : group.name"
+                  :title="group.name"
                   @click="toggleSelect(image)"
                 >
-                  <img :src="image" class="block w-full" loading="lazy" :alt="`${group.name}参考图`" />
-                  <span v-if="generatedSet.has(image)" class="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1 py-0.5 text-[9px] text-cyan-300">生成</span>
+                  <img :src="image" class="block w-full" loading="lazy" :alt="`${group.name}生成图`" />
                   <span v-if="selected.includes(image)" class="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-cyan-500 text-white shadow"><Check :size="12" /></span>
                 </button>
               </div>
-              <p v-else class="py-2 text-[11px] text-text-muted">暂无参考图</p>
+              <p v-else class="py-2 text-[11px] text-text-muted">暂无生成图</p>
             </div>
             <p v-if="!imageGroups.length" class="flex h-[280px] items-center justify-center text-xs text-text-muted">{{ assetId ? '该资产暂无视觉状态' : '该分类下暂无资产' }}</p>
           </div>
@@ -90,29 +89,32 @@
 
 <script setup lang="ts">
 /**
- * 资产图片选择弹窗：从项目资产库（章节/公共分类，章节在前且默认）勾选各资产视觉状态的参考图，多选后确认。
+ * 资产图片选择弹窗：从项目资产库（章节/公共分类，章节在前且默认）勾选**各视觉状态的 AI 生成图**，多选后确认。
+ *
+ * ⚠️ 图源**只有生成图**：资产上传的参考图（`referenceImageIds`）只是「发给生图模型的输入参数」，
+ * 不是可供挑选的资产图，因此不进这个列表（2026-09-23 用户口径）。
+ *
  * 全库模式下通过资产按钮 tab 切换查看单个资产的图片（不平铺全部资产）；
  * 图片按原始比例瀑布流展示，图片区随内容增高、达到弹窗上限后内部滚动；
  * 已选图片跨资产/scope 累积，确认时一次性提交。
  * - 默认「替换」模式：确认后替换目标视觉状态的参考图列表；
- * - 「追加」模式（append）：确认后追加到现有参考图（去重），并可包含 AI 生成图。
+ * - 「追加」模式（append）：确认后追加到现有参考图（去重）。
  */
 import { computed, ref, watch } from 'vue'
 import { Check, X } from 'lucide-vue-next'
 import type { LongProjectAsset } from '@comic/types'
+import { effectiveVariantRefImages } from '@comic/services/panelPromptService'
 
 const props = defineProps<{
   modelValue: boolean
-  /** 项目全部资产（含各视觉状态参考图）。 */
+  /** 项目全部资产（含各视觉状态生成图）。 */
   assets: LongProjectAsset[]
-  /** 指定资产 id 时进入单资产模式：只展示该资产的各视觉状态参考图。 */
+  /** 指定资产 id 时进入单资产模式：只展示该资产的各视觉状态图片。 */
   assetId?: string
   /** 当前已用的参考图（打开时预勾选；追加模式下不预勾选）。 */
   currentImages?: string[]
   /** 追加模式：确认后追加到现有参考图（不替换）。 */
   append?: boolean
-  /** 是否包含各视觉状态的 AI 生成图（追加场景常用）。 */
-  includeGenerated?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -149,15 +151,13 @@ const activeAsset = computed(() => scopedAssets.value.find((asset) => asset.id =
 // 切换 scope 时重置资产选中
 watch(activeTab, () => { activeAssetId.value = null })
 
-/** AI 生成图集合（角标标识用）。 */
-const generatedSet = computed(() => new Set(
-  props.assets.flatMap((asset) => asset.variants.flatMap((variant) => variant.generatedImageIds ?? [])),
-))
-
-/** 某视觉状态可展示的图片：参考图（默认）+ 生成图（includeGenerated 时），去重。 */
+/**
+ * 某视觉状态可挑选的图片 = **AI 生成图**。
+ * 直接复用全项目取图口径 `effectiveVariantRefImages`（= `generatedImageIds`）：
+ * 上传的参考图（`referenceImageIds`）只是「发给生图模型的输入参数」，不是可供挑选的资产图。
+ */
 function variantImages(variant: LongProjectAsset['variants'][number]): string[] {
-  const images = [...variant.referenceImageIds, ...(props.includeGenerated ? variant.generatedImageIds ?? [] : [])]
-  return [...new Set(images)]
+  return effectiveVariantRefImages(variant)
 }
 
 /** 资产可选图片总数（资产按钮 tab 角标）。 */

@@ -22,6 +22,7 @@
 
 import { getBlocksByPosition } from '@comic/utils/sharedBlocks'
 import { resolvePanelAssetStates, resolvePanelRefImage } from './panelPromptService'
+import { resolveRefUsageTemplate } from './refUsage'
 import type { LongProjectAsset, LongProjectAssetType, LongProjectStoryboardPanel, SharedPromptBlock } from '@comic/types'
 
 /** 资产类型的图号顺序：人物 → 场景 → 道具。 */
@@ -29,8 +30,6 @@ export const ASSET_REF_ORDER: LongProjectAssetType[] = ['character', 'scene', 'p
 
 /** 清单中的一条参考图。 */
 export interface PanelRefEntry {
-  /** 手动排序使用的稳定键。 */
-  key: string
   /** 全局 1-based 图号 = 传给生图模型的数组下标 + 1。 */
   index: number
   /** 来源：共用属性 / 资产。 */
@@ -49,6 +48,11 @@ export interface PanelRefEntry {
   variantId?: string
   /** 资产条目：该状态出现的格序（0 起）；页级绑定（无格级声明）时为空数组。 */
   cellIndexes?: number[]
+  /**
+   * 资产条目：用途描述模板（资产级覆盖 → 项目级配置 → 内置默认，已在清单层解析好）。
+   * `图N`、资产名、格号由代码算，这里只承载「资产名（状态）」之后那整句。
+   */
+  usageTemplate?: string
   /** 图片地址。 */
   image: string
 }
@@ -65,23 +69,24 @@ export interface PanelRefManifest {
  * @param args.panel - 分镜
  * @param args.assets - 项目资产库
  * @param args.sharedBlocks - 绘图配置的共用属性（只取「插入最前」组）
+ *
+ * **不再接受手动排序**（`referenceOrder` 已下线）：右栏取消上移/下移后，一个界面上看不见
+ * 也改不了的顺序会让图号变得无法预测，因此顺序恒定按上面的默认规则。
  */
 export function buildPanelRefManifest(args: {
   panel: LongProjectStoryboardPanel
   assets: LongProjectAsset[]
   sharedBlocks?: SharedPromptBlock[] | null
-  /** 当前分镜保存的手动顺序；无效 key 自动丢弃，新条目按默认顺序追加。 */
-  referenceOrder?: string[]
+  /** 项目级参考图用途描述模板（按资产类型）；资产自带 `refUsage` 时优先用资产的。 */
+  refUsage?: Partial<Record<LongProjectAssetType, string>>
 }): PanelRefManifest {
   const entries: PanelRefEntry[] = []
 
   // ① 插入最前的共用属性图
   for (const block of getBlocksByPosition(args.sharedBlocks, 'front')) {
     if (!block.enableRefImages) continue
-    for (const [imageIndex, image] of (block.referenceImages ?? []).entries()) {
-      const duplicateSuffix = (block.referenceImages ?? []).slice(0, imageIndex).filter((item) => item === image).length
+    for (const image of block.referenceImages ?? []) {
       entries.push({
-        key: `shared:${block.id}:${image}:${duplicateSuffix}`,
         index: 0,
         source: 'shared',
         label: block.name,
@@ -98,7 +103,6 @@ export function buildPanelRefManifest(args: {
       const image = resolvePanelRefImage(variant, binding ?? {})
       if (!image) continue
       entries.push({
-        key: `asset:${asset.id}:${variant.id}`,
         index: 0,
         source: 'asset',
         label: asset.name,
@@ -107,25 +111,14 @@ export function buildPanelRefManifest(args: {
         variantName: variant.name,
         variantId: variant.id,
         cellIndexes,
+        usageTemplate: resolveRefUsageTemplate(type, asset.refUsage, args.refUsage),
         image,
       })
     }
   }
 
-  const byKey = new Map(entries.map((entry) => [entry.key, entry]))
-  const ordered: PanelRefEntry[] = []
-  const seen = new Set<string>()
-  for (const key of args.referenceOrder ?? []) {
-    const entry = byKey.get(key)
-    if (!entry || seen.has(key)) continue
-    ordered.push(entry)
-    seen.add(key)
-  }
-  for (const entry of entries) {
-    if (seen.has(entry.key)) continue
-    ordered.push(entry)
-  }
-  const indexed = ordered.map((entry, index) => ({ ...entry, index: index + 1 }))
+  // 默认顺序即最终顺序（手动排序已下线），直接编号：entries[i] 就是「图 i+1」。
+  const indexed = entries.map((entry, index) => ({ ...entry, index: index + 1 }))
   return { images: indexed.map((entry) => entry.image), entries: indexed }
 }
 

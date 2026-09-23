@@ -2,7 +2,7 @@
   <div class="flex h-full flex-col overflow-hidden">
     <div class="flex shrink-0 items-center justify-between border-b border-border-subtle px-3 py-2.5">
       <p class="text-xs text-text-secondary">分镜 · {{ items.length }}</p>
-      <p class="text-[11px] text-text-muted">{{ describedCount }} 已描述 · {{ completedCount }} 已成图</p>
+      <p class="text-[11px] text-text-muted">已成图 {{ completedCount }} / {{ items.length }}</p>
     </div>
 
     <div class="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-2">
@@ -41,6 +41,8 @@
 <script setup lang="ts">
 /**
  * 分镜生图工作台左栏：分镜列表（缩略图 + `P01` 页号 + 状态 + 格数标签）。
+ * 状态只反映**生图**维度四态：生图中 / 生图失败 / 已成图 / 未生图——
+ * 推导维度（推导中 / 推导失败 / 描述过期 / 已描述）不在列表显示，避免一栏塞两套状态。
  * 第二行显示本页格数（页头声明的「单格 / 双格 / 三格 / 四格」，旧数据按实际格数推导），
  * 不再占位显示内容描述——内容预览收进 hover tooltip 备查。
  * 右键分镜触发 contextmenu 事件（合并/拆分/复制/删除等操作由父级菜单承载）。
@@ -62,7 +64,6 @@ defineEmits<{
   (e: 'contextmenu', payload: { event: MouseEvent; panel: LongProjectStoryboardPanel }): void
 }>()
 
-const describedCount = computed(() => props.items.filter((item) => item.artwork?.imagePrompt?.trim()).length)
 const completedCount = computed(() => props.items.filter((item) => item.artwork?.selectedImageId).length)
 
 /** 内容预览（仅作 hover tooltip）：优先本页第一句台词（带说话人），无台词取首格画面；空页给占位文案。 */
@@ -81,39 +82,28 @@ function cellLabel(item: PanelListItem): string {
   return resolvePanelCellLabel(item.panel)
 }
 
-function dotClass(item: PanelListItem): string {
-  const status = item.artwork?.promptStatus
-  const gen = item.artwork?.genStatus
-  if (gen === 'running') return 'bg-cyan-400 animate-pulse'
-  if (status === 'running') return 'bg-cyan-400 animate-pulse'
-  if (gen === 'failed') return 'bg-red-400'
-  if (status === 'failed') return 'bg-red-400'
-  if (status === 'stale') return 'bg-amber-400'
-  if (item.artwork?.selectedImageId) return 'bg-emerald-400'
-  if (item.artwork?.imagePrompt?.trim()) return 'bg-violet-400'
-  return 'bg-zinc-600'
-}
-
+/** 只反映生图维度，四态：生图中 / 生图失败 / 已成图 / 未生图。 */
 function statusLabel(item: PanelListItem): string {
   const artwork = item.artwork
-  if (!artwork) return '未推导'
-  if (artwork.genStatus === 'running') return '生图中'
-  if (artwork.promptStatus === 'running') return '推导中'
-  if (artwork.promptStatus === 'failed') return '推导失败'
-  if (artwork.genStatus === 'failed') return '生图失败'
-  if (artwork.promptStatus === 'stale') return '描述过期'
-  if (artwork.selectedImageId) return '已成图'
-  if (artwork.imagePrompt?.trim()) return '已描述'
-  return '未推导'
+  if (artwork?.genStatus === 'running') return '生图中'
+  if (artwork?.genStatus === 'failed') return '生图失败'
+  if (artwork?.selectedImageId) return '已成图'
+  return '未生图'
+}
+
+function dotClass(item: PanelListItem): string {
+  const label = statusLabel(item)
+  if (label === '生图中') return 'bg-cyan-400 animate-pulse'
+  if (label === '生图失败') return 'bg-red-400'
+  if (label === '已成图') return 'bg-emerald-400'
+  return 'bg-zinc-600'
 }
 
 function statusTextClass(item: PanelListItem): string {
   const label = statusLabel(item)
   if (label === '已成图') return 'text-emerald-400'
-  if (label === '已描述') return 'text-violet-300'
-  if (label === '描述过期') return 'text-amber-300'
-  if (label === '推导失败' || label === '生图失败') return 'text-red-400'
-  if (label === '推导中' || label === '生图中') return 'text-cyan-400'
+  if (label === '生图失败') return 'text-red-400'
+  if (label === '生图中') return 'text-cyan-400'
   return 'text-text-muted'
 }
 </script>

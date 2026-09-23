@@ -88,8 +88,9 @@
 `backfillPanelAutoBindings` → `promptAssetService.syncPanelsAutoBindings`（分镜编辑/合并/拆分也跑同一引擎）：
 
 - 扫描每页 `content + dialogue + narration + imagePrompt`，出现资产名（≥2 字、含别名、长名优先）且未绑定 → 新增 `matchSource:'auto-text'`（视觉状态优先延续上一镜，否则章节范围默认）。
-- `auto-text` 绑定但名字从文本消失 → 移除；`model/manual/chapter-range/unmatched` 来源**永不动**。
-- 所以：**分镜画面写"她"而不是角色名的不会被绑上** —— 设计意图（防误绑），不是 bug。
+- `auto-text` / `manual` 绑定但名字从文本消失 → 移除（**文本是绑定的事实来源**）；`model/chapter-range/unmatched` 不参与增删。注意 `manual` **不是**「删不掉的豁免」—— 它只表示用户指定过状态（不改状态 + 触发其后各镜延续重算）。
+- 所以：**分镜画面写"她"而不是角色名的不会被绑上** —— 设计意图（防误绑），不是 bug。这也是「描述即事实」口径的代价：描述里语义提及但画面上不出现的资产（如「向下方广场人群高喊」）同样会被绑上、进参考图清单。
+- **画面描述写完必须回填绑定（2026-09-22 修根因）**：`LongProjectStoryboardTab.syncBindingsAfterPromptWrite(promptOverrides)` 是唯一入口（描述并入扫描文本 → 重算整章 → 一次性写回；只取 assetBindings/cells，`imagePrompt` 不落 panel）。四条路径全接：整章推导 `runChapterPrompts` / 单镜推导 `runSinglePrompt` / 导入外部描述 / 人工编辑 `savePromptEdit`。**新增任何写描述的路径都必须接上**，否则描述里提到的资产不进绑定也不进参考图清单（表现：中栏里该资产消失、取图凭空少图）。分镜生成与重新导入另需在 `migratePanelArtworks` **之后**再同步一次（`useStoryboardRun.syncBindingsWithArtworkPrompts`），否则迁移过来的旧描述会漏。实测某章 13 镜 18 条描述：待核对项 13 → 0。
 
 ## 五、资产提示词回填（协议 · 解析器）
 
@@ -129,12 +130,13 @@
 
 ### 7.2 视觉状态完全自动（手动切换已移除）
 
-状态由 `syncPanelsAutoBindings` / `syncCurrentPanelBindings` 推导，三档回退：
+状态由 `syncPanelsAutoBindings` 推导（描述写入后由 `syncBindingsAfterPromptWrite` 触发），三档回退：
 1. **延续上一镜**（`lastVariantByAsset`，按 order 边扫边累积，不是全局一次算）；
 2. **章节范围默认**（`defaultVariant`：`chapterRange.startChapterId` 不晚于当前章的状态里取最晚的那个）；
 3. 筛不出 → `variants[0]`。
 
-- 提示词框保存（500ms 防抖 → `syncCurrentPanelBindings`）与分镜内容框保存（失焦 → `savePanelEdit` → `autoSyncBindings`）都会重扫，绑定跟着文本走。
+- 提示词框保存（500ms 防抖）与分镜内容框保存（失焦 → `savePanelEdit` → `autoSyncBindings`）都会重扫，绑定跟着文本走；**推导 / 导入画面描述**写库后同样重扫（`syncBindingsAfterPromptWrite`，2026-09-22 补上）。
+- 审计与一键补绑见 `MEMORY.md`「绑定审计与一键补绑 = 待核对区唯一呈现位」段。
 - `matchSource` 五态：`model`（字段写了 `资产名（状态名）`）/ `chapter-range`（字段只有名字）/ `auto-text`（文本扫名字，**只有它会被自动增删**）/ `manual` / `unmatched`。
 - **已删除**：`setBindingState`、`PanelAssetTabs` 的「切换状态」按钮与状态菜单、作用域 chips、`stateSource` 标记。原先"直接写受影响分镜、不做运行时轨道"的设计随之不再需要。
 
@@ -172,7 +174,7 @@
 
 - `PanelAssetTabs`（中栏底部）：三 tab 展示绑定；**唯一手动干预 = 点缩略图选本镜用哪张图**（单选，已选那张带青色边框 + ✓，右上角放大镜看大图不改变选择）。状态 > 1 时不再有切换入口；「无参考图」按钮跳资产生图工作台；「更换图片」写回资产库（对所有引用分镜生效），与"本镜选哪张"是两件事。
 - `PanelPromptPanel` / `PanelContentEditor`：文本内资产名按类型着色高亮 + 悬停出资产卡（**纯展示**：资产名 + 类型 tag + 当前状态名 + 参考图网格，青色框标出本镜实际用的那张，点图看大图）。
-  - 实现见 `composables/useAssetHighlight.ts` + `components/AssetHoverCard.vue`；**叠层方案**（高亮层在下、textarea `text-transparent` 在上）与坐标反查命中详见 `MEMORY.md`「输入框内资产名高亮」。
+  - **已废弃（2026-09-22）**：输入框高亮整套移除（`useAssetHighlight.ts` 已删），此处仅存历史记录。
   - 高亮判定 = **名字命中资产库**（不按 `assetBindings` 过滤）。
   - 分镜内容框**不接** `onPick`（点资产名弹大图会打断定位光标的编辑操作）；提示词框保留。
 

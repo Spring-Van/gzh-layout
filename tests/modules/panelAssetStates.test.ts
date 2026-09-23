@@ -134,12 +134,12 @@ describe('resolvePanelAssetStates（镜内状态展开：页级 ∪ 格级）', 
 });
 
 describe('summarizeCellBindings（格级 → 页级汇总）', () => {
-  it('同资产多格声明取最后一格（镜末状态 = 延续链起点）', () => {
+  it('同资产多格不同状态 → 页级各留一条（多状态语义，2026-09-22）', () => {
     const cells = multiStatePanel.cells!;
     const summarized = summarizeCellBindings(cells);
-    expect(summarized).toHaveLength(1);
-    expect(summarized[0].visualVersionId).toBe('v2');
-    expect(summarized[0].visualVersionName).toBe('战斗服');
+    expect(summarized).toHaveLength(2);
+    expect(summarized.map((item) => item.visualVersionId)).toEqual(['v1', 'v2']);
+    expect(summarized.map((item) => item.visualVersionName)).toEqual(['便装', '战斗服']);
   });
 
   it('顺序 = 首次出现顺序（后格新资产排在后面）', () => {

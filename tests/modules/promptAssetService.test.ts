@@ -76,7 +76,8 @@ describe('promptAssetService · 逐格自动绑定', () => {
     const [synced] = syncPanelsAutoBindings([panel], buildAssetNameIndex(assets), fallback)
     expect(synced.cells?.[0].assetBindings?.[0]).toMatchObject({ visualVersionId: 'v1' })
     expect(synced.cells?.[1].assetBindings?.[0]).toMatchObject({ visualVersionId: 'v2', visualVersionName: '战斗服' })
-    expect(synced.assetBindings[0]).toMatchObject({ visualVersionId: 'v2' })
+    // 多状态语义：格级声明的两个状态在页级各留一条（不再折叠成「镜末状态」一条）
+    expect(synced.assetBindings.map((item) => item.visualVersionId)).toEqual(['v1', 'v2'])
   })
 
   it('审计能指出文本出现但格级没有绑定的资产', () => {
@@ -160,15 +161,18 @@ describe('promptAssetService · 逐格自动绑定', () => {
     } as unknown as LongProjectStoryboardPanel
     const [synced] = syncPanelsAutoBindings([panel], buildAssetNameIndex(assets), fallback)
     expect(synced.cells?.[0].assetBindings?.[0]).toMatchObject({ visualVersionId: 'v1' })
-    expect(synced.assetBindings[0]).toMatchObject({ visualVersionId: 'v2', matchSource: 'auto-text' })
+    // 格级已声明 便装(model)，画面描述又提到 战斗服 → 页级两条并存（多状态）
+    expect(synced.assetBindings.map((item) => [item.visualVersionId, item.matchSource]))
+      .toEqual([['v1', 'model'], ['v2', 'auto-text']])
   })
 
-  it('画面描述写视觉状态标签时也能切换同一资产状态', () => {
+  it('画面描述写视觉状态标签时与手选状态并存（manual 是锚点，不被自动覆盖）', () => {
     const panel = {
       id: 'p1', order: 1, content: '', imagePrompt: '林小雨进入作战姿态',
       assetBindings: [{ assetId: 'a1', assetName: '林小雨', visualVersionId: 'v1', visualVersionName: '便装', matchSource: 'manual' }],
     } as unknown as LongProjectStoryboardPanel
     const [synced] = syncPanelsAutoBindings([panel], buildAssetNameIndex(assets), fallback)
-    expect(synced.assetBindings[0]).toMatchObject({ visualVersionId: 'v2', visualVersionName: '战斗服', matchSource: 'auto-text' })
+    expect(synced.assetBindings.map((item) => [item.visualVersionId, item.matchSource]))
+      .toEqual([['v1', 'manual'], ['v2', 'auto-text']])
   })
 })

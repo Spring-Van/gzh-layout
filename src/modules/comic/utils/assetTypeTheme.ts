@@ -45,18 +45,6 @@ export function assetTokenVar(type?: LongProjectAssetType | null): string | unde
 }
 
 /**
- * 输入框内高亮该资产名用的内联样式。
- * 文字取令牌本色，底色由同一令牌派生（`color-mix` 需要 Chromium ≥111，Electron 30 已满足）。
- */
-export function assetHighlightStyle(type: LongProjectAssetType): Record<string, string> {
-  const { token } = ASSET_TYPE_THEME[type]
-  return {
-    color: `var(${token})`,
-    background: `color-mix(in srgb, var(${token}) 14%, transparent)`,
-  }
-}
-
-/**
  * 资产 Tag 的样式类（定义在 `src/style.css`，同样由令牌驱动）。
  * 未匹配资产用琥珀虚线，与类型无关 —— 那是状态而不是类型。
  */

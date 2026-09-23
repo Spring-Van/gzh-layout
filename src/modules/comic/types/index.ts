@@ -32,6 +32,13 @@ export interface ImageGenConfig {
   resolution: string
   quality?: string
   sharedBlocks?: SharedPromptBlock[]
+  /**
+   * 「动态参考图」清单的用途描述模板，按资产类型三段（人物 / 场景 / 道具）。
+   * `图N`、资产名、`（状态名）`、格号由代码算；这里只写 `资产名（状态）` 之后那整句，
+   * 可用 `{类型}`（人物/场景/道具）与 `{格号}`（第1、3格 / 整镜）占位符。
+   * 留空 = 用内置默认文案（见 `services/refUsage.ts` 的 `DEFAULT_REF_USAGE`）。
+   */
+  refUsage?: Partial<Record<LongProjectAssetType, string>>
   /** @deprecated 兼容旧数据 */
   paintingStyle?: string
   /** @deprecated 兼容旧数据 */
@@ -71,6 +78,35 @@ export interface AssetCustomFieldDefinition {
   showInSummary?: boolean
 }
 
+/**
+ * 一条可切换的候选提示词（资产生图 / 分镜绘图的输入框共用）。
+ *
+ * 「有多个输入框、选哪个就发哪个」：每条自带正文与开关，互不干扰。
+ * 图号按**这一条实际会发出的图片数组**实时重编（见 `slotRefManifest`），
+ * 因此关掉某个开关后剩下的图会重新从「图1」开始编号。
+ */
+export interface GenPromptSlot {
+  id: string
+  /** 提示词正文。 */
+  text: string
+  /**
+   * 是否拼接共用属性（前置 + 后置）。
+   * 关掉 = 共用属性的文字不拼、共用属性的图也不进这次请求。
+   */
+  attachShared: boolean
+  /**
+   * 仅分镜：是否使用资产参考图。
+   * 关掉 = 资产生成图不进这次请求，「动态参考图」里也不写资产行。
+   * 资产侧不读这个字段（资产的参考图就是它自己，没有「别人家的资产图」可用）。
+   */
+  useAssetRefs?: boolean
+  /**
+   * 仅分镜：本条自己上传的参考图，**不限张**。
+   * 资产侧不读这个字段 —— 资产的上传参考图挂在视觉状态上（`referenceImageIds`），各条共用。
+   */
+  uploadedRefs?: string[]
+}
+
 export interface LongProjectAssetVariant {
   id: string
   name: string
@@ -82,9 +118,29 @@ export interface LongProjectAssetVariant {
   chapterRange?: { startChapterId: string; endChapterId?: string }
   tags?: string[]
   imagePrompt?: string
-  /** 生图工作台暂存：生成的图片与上传待选图，采纳后移入 referenceImageIds。 */
+  /**
+   * AI 生成的图片。分镜绑定、分镜参考图清单、缩略图候选只认「生成图 + 自上传图」
+   * （见 `panelPromptService.effectiveVariantRefImages`）：没有这两份 = 分镜侧无参考图。
+   */
   generatedImageIds?: string[]
+  /**
+   * 本视觉状态**自行上传**的成品图（2026-09-23）。
+   * 与生成图一起构成「当前资产」区，同样可被分镜取用 —— 它是这一状态的成品，不是给模型看的输入。
+   * 与 `referenceImageIds`（参考图，只发给模型生图）语义不同，别混用。
+   */
+  uploadedImageIds?: string[]
+  /**
+   * 用户上传的参考图，只作为「给这个视觉状态自己生图」的参数发给模型，
+   * 不进入分镜参考图清单，也不算「被分镜取用」。
+   */
   referenceImageIds: string[]
+  /**
+   * 可切换的多条候选提示词；选中哪条（`activeGenPromptId`）就发哪条。
+   * 为空表示还没建过条 —— 界面按「一条默认槽」展示，正文取 `imagePrompt`。
+   */
+  genPrompts?: GenPromptSlot[]
+  /** 当前选中用于生图的提示词条 id。 */
+  activeGenPromptId?: string
   sourceChapterIds: string[]
   createdAt: number
   updatedAt: number
@@ -99,6 +155,12 @@ export interface LongProjectAsset {
   aliases: string[]
   description?: string
   fixedTraits: string[]
+  /**
+   * 参考图用途描述（可选，覆盖项目级 `ImageGenConfig.refUsage`）。
+   * 「动态参考图」清单里 `图N = 资产名（状态）` 之后那整句；可用 `{类型}` / `{格号}` 占位符。
+   * 留空表示沿用项目级按类型的默认文案。
+   */
+  refUsage?: string
   /** 由提取工作流定义的扩展信息，例如门派、职业、身份谜团。 */
   attributes?: Record<string, string | string[] | number>
   attributeSchema?: AssetCustomFieldDefinition[]
@@ -121,6 +183,12 @@ export interface LongProjectChapterAsset {
   evidence: string[]
   chapterNote?: string
   sourceExtractionRunId?: string
+  /**
+   * 引用来源（2026-09-23）：`manual` = 用户手工「引用其他章节的图」建立，
+   * **重新提取确认时会被保留**（默认只重建 extraction 来源的引用，手工引用会被清掉）。
+   * 缺省（旧数据）一律按 `extraction` 处理。
+   */
+  origin?: 'extraction' | 'manual'
   createdAt: number
   updatedAt: number
 }
@@ -270,6 +338,17 @@ export interface LongProjectStoryboardPanel {
   cells?: LongProjectStoryboardCell[]
   /** 页头声明的格数标签（`## 分镜 1 · 双格` 里的「双格」）；旧数据缺省，展示时按 cells 长度推导 */
   cellLabel?: string
+  /**
+   * 页块**原文**（用户/模型写下的那一段文本本身）。
+   *
+   * `cells` 是解析结果、供绑定与格数消费；`blockText` 是文本的事实来源。
+   * 编辑框显示与保存都走它 —— 用户怎么改就怎么存，不再按字段顺序重排。
+   * 缺省（尚未编辑过的旧数据 / 模型刚生成的页）时回落 `serializePanelBlock` 拼一份初始草稿。
+   *
+   * 唯一的例外：程序改动资产绑定时会**定点重写「出场资产：」行**（见 `patchBlockTextAssetLines`），
+   * 因为那一行是绑定的文本载体，其余文本一字不动。
+   */
+  blockText?: string
   assetBindings: LongProjectStoryboardAssetBinding[]
 }
 
@@ -310,23 +389,6 @@ export interface LongProjectAssetExtractionRun {
   updatedAt: number
 }
 
-/** 资产提示词批量生成任务：记录模型与模板选择及原始返回，便于追溯重跑。 */
-export interface AssetPromptRun {
-  id: string
-  chapterId: string
-  modelId: string
-  templateId: string
-  /** 实际发送的最终提示词，发送前可临时修改。 */
-  prompt: string
-  /** 生成目标：资产 id → 视觉状态 id 列表；为空表示整章全部状态。 */
-  targets?: Record<string, string[]>
-  status: 'running' | 'completed' | 'failed'
-  rawResponse?: string
-  error?: string
-  createdAt: number
-  updatedAt: number
-}
-
 export type PanelPromptStatus = 'none' | 'pending' | 'running' | 'done' | 'failed' | 'stale'
 export type PanelGenStatus = 'none' | 'running' | 'done' | 'failed'
 
@@ -342,8 +404,21 @@ export interface LongProjectPanelArtwork {
   imagePrompt?: string
   promptSource?: 'inferred' | 'manual'
   promptStatus: PanelPromptStatus
-  /** 当前分镜核心参考图的手动顺序（存稳定 key；图片增删后保留仍有效项，其余按默认顺序追加）。 */
+  /**
+   * @deprecated 手动排序已下线（右栏不再提供上移/下移，界面上看不见却会影响图号，出问题难排查）。
+   * 清单已**不再消费**这个值，图号恒定按默认顺序：共用属性 → 人物 → 场景 → 道具。
+   * 保留字段只为兼容旧库读取，`sweepProjectData` 会清掉它。
+   */
   referenceImageOrder?: string[]
+  /**
+   * 可切换的多条候选提示词；选中哪条（`activeGenPromptId`）就发哪条。
+   * 为空表示还没建过条 —— 界面按「一条默认槽」展示，正文取 `imagePrompt`。
+   * **第 1 条的正文与 `imagePrompt` 互为镜像**（推导 / 导入 / 编辑第 1 条都会同时写两处），
+   * 因为绑定扫描与过期判定只认 `imagePrompt`；第 2 条及以后只写自己，不参与绑定。
+   */
+  genPrompts?: GenPromptSlot[]
+  /** 当前选中用于生图的提示词条 id。 */
+  activeGenPromptId?: string
   /** 成图暂存：候选图列表，采纳后写 selectedImageId */
   generatedImageIds?: string[]
   selectedImageId?: string
@@ -370,15 +445,20 @@ export interface AssetGenTask {
 
 /** 资产生图配置：项目级默认值，工作台中可单次覆盖。 */
 export interface AssetGenConfig {
-  /** 生图模型 id */
+  /** 生图模型 id（与分镜绘图配置的 imageModelId 相互独立） */
   imageModelId: string
-  /** 提示词生成用 LLM 模型 id */
+  /** 提示词生成用 LLM 模型 id（批量/单条绘画提示词弹窗记住的上次选择，不在生图配置抽屉里填） */
   promptModelId?: string
-  /** 提示词模板 id */
+  /** 提示词模板 id（同上，只给绘画提示词弹窗用） */
   promptTemplateId?: string
   aspectRatio: string
   resolution: string
   quality?: string
+  /**
+   * 资产生图自己的共用属性（插入最前 / 插入最后）。
+   * 与分镜 `ImageGenConfig.sharedBlocks` **不是同一份数据**：改这边不会动分镜绘图配置，反之亦然。
+   */
+  sharedBlocks?: SharedPromptBlock[]
   /** 批量生图并发数 */
   concurrency?: number
 }
@@ -408,8 +488,6 @@ export interface LongProjectData {
   storyboardRuns?: LongProjectStoryboardRun[]
   /** 分镜画面（描述推导 + 成图），按 panelId 关联分镜 */
   panelArtworks?: LongProjectPanelArtwork[]
-  /** 资产提示词生成任务（按章） */
-  assetPromptRuns?: AssetPromptRun[]
   /** 资产生图配置（项目级默认） */
   assetGenConfig?: AssetGenConfig
   /** 每章一份的原文分析文档（管线第一环节产物） */

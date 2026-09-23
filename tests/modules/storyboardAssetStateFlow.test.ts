@@ -27,8 +27,8 @@ const character = {
   aliases: [],
   fixedTraits: ['银发'],
   variants: [
-    { id: 'v1', name: '便装', description: '日常便装', chapterRange: { startChapterId: 'c1' }, referenceImageIds: ['casual-1'] },
-    { id: 'v2', name: '战斗服', description: '战斗装备', chapterRange: { startChapterId: 'c1' }, referenceImageIds: ['battle-1'] },
+    { id: 'v1', name: '便装', description: '日常便装', chapterRange: { startChapterId: 'c1' }, generatedImageIds: ['casual-1'] },
+    { id: 'v2', name: '战斗服', description: '战斗装备', chapterRange: { startChapterId: 'c1' }, generatedImageIds: ['battle-1'] },
   ],
 } as unknown as LongProjectAsset;
 
@@ -39,7 +39,7 @@ const scene = {
   type: 'scene',
   aliases: [],
   fixedTraits: [],
-  variants: [{ id: 'v3', name: '全章默认', description: '露天训练场', chapterRange: { startChapterId: 'c1' }, referenceImageIds: ['field-1'] }],
+  variants: [{ id: 'v3', name: '全章默认', description: '露天训练场', chapterRange: { startChapterId: 'c1' }, generatedImageIds: ['field-1'] }],
 } as unknown as LongProjectAsset;
 
 const assets = [character, scene];
@@ -147,8 +147,9 @@ describe('分镜视觉状态绑定全链路', () => {
     expect(first.cells?.[1].assetBindings).toMatchObject([
       { assetId: 'a1', visualVersionId: 'v2', visualVersionName: '战斗服', matchSource: 'model' },
     ]);
-    // 页级 = 镜末状态（战斗服），是后续分镜 auto-text 延续链的起点
+    // 页级 = 本镜用到的状态全集（多状态语义：便装与战斗服各留一条，不再折叠成镜末状态）
     expect(first.assetBindings).toMatchObject([
+      { assetId: 'a1', visualVersionId: 'v1', visualVersionName: '便装' },
       { assetId: 'a1', visualVersionId: 'v2', visualVersionName: '战斗服' },
       { assetId: 'a2', visualVersionId: 'v3', visualVersionName: '全章默认' },
     ]);
@@ -302,7 +303,7 @@ describe('状态编号通道', () => {
   it('不误伤以字母数字开头的资产名', () => {
     const droid = {
       id: 'a9', name: 'R2D2', type: 'prop', aliases: [],
-      variants: [{ id: 'v9', name: '待机', description: '银白机身', referenceImageIds: ['droid-1'] }],
+      variants: [{ id: 'v9', name: '待机', description: '银白机身', generatedImageIds: ['droid-1'] }],
     } as unknown as LongProjectAsset;
     const [binding] = bindingsFromValue('R2D2（待机）', [droid], 'c1', chapterOrders);
     expect(binding).toMatchObject({ assetId: 'a9', visualVersionId: 'v9', assetName: 'R2D2' });
@@ -328,8 +329,9 @@ describe('状态编号通道', () => {
     expect(panel.cells?.[1].assetBindings).toMatchObject([
       { assetId: 'a1', visualVersionId: 'v2', visualVersionName: '战斗服', matchSource: 'model' },
     ]);
-    // 页级 = 镜末状态
+    // 页级 = 本镜用到的状态全集（多状态语义：同一资产的多个状态各留一条）
     expect(panel.assetBindings).toMatchObject([
+      { assetId: 'a1', visualVersionId: 'v1' },
       { assetId: 'a1', visualVersionId: 'v2' },
       { assetId: 'a2', visualVersionId: 'v3' },
     ]);

@@ -1,4 +1,3 @@
-import { v4 as uuidv4 } from 'uuid'
 import { llmService } from './llmService'
 import {
   ASSET_PROMPT_FORMAT,
@@ -16,7 +15,6 @@ import {
   type AssetPromptTargetRef,
 } from './assetPromptParser'
 import type {
-  AssetPromptRun,
   LongProjectAsset,
   LongProjectAssetVariant,
   ModelConfig,
@@ -223,23 +221,3 @@ export async function rewriteAssetPrompt(options: {
   return text
 }
 
-/** 新建提示词生成任务记录（调用方持久化后执行）。 */
-export function createAssetPromptRun(options: {
-  chapterId: string
-  modelId: string
-  templateId: string
-  prompt: string
-  targets?: Record<string, string[]>
-}): AssetPromptRun {
-  return {
-    id: uuidv4(),
-    chapterId: options.chapterId,
-    modelId: options.modelId,
-    templateId: options.templateId,
-    prompt: options.prompt,
-    targets: options.targets,
-    status: 'running',
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  }
-}

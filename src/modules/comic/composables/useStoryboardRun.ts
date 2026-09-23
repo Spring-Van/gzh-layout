@@ -1,11 +1,12 @@
 import { ref, type Ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
 import { buildVariantCodeMap, generateStoryboard, parseStoryboardResponse, type ChapterAssetContext } from '@comic/services/storyboardService'
-import { migratePanelArtworks } from '@comic/services/panelPromptService'
+import { bindingScanPrompt, migratePanelArtworks } from '@comic/services/panelPromptService'
+import { sweepProjectData } from '@comic/services/projectDataCleanup'
 import { buildAssetNameIndex, syncPanelsAutoBindings } from '@comic/services/promptAssetService'
 import { defaultVariant } from '@comic/services/storyboardService'
 import { LONG_CHAPTER_STAGE_ORDER } from '@comic/types'
-import type { ComicProject, LongProjectAsset, LongProjectNode, LongProjectStoryboardRun, ModelConfig, PromptTemplate } from '@comic/types'
+import type { ComicProject, LongProjectAsset, LongProjectNode, LongProjectPanelArtwork, LongProjectStoryboardPanel, LongProjectStoryboardRun, ModelConfig, PromptTemplate } from '@comic/types'
 
 /** 分镜完成后章节阶段只升不降（避免重跑分镜把已到资产/生图阶段的章节打回）。 */
 function advanceStoryboardStage(node: LongProjectNode): LongProjectNode {
@@ -56,17 +57,56 @@ export function useStoryboardRun(options: {
   }
 
   /**
+   * 迁移过来的旧描述也是绑定依据：描述里提到的资产必须进绑定，否则取图清单里没有它。
+   *
+   * `syncPanelsAutoBindings` 只扫分镜 panel 的文本，而画面描述存在 `panelArtworks` 里，
+   * 所以这里先把迁移结果里的描述临时并入扫描文本，算完绑定再摘掉（描述不落进 panel，避免双份存储）。
+   * 但只有 `bindingScanPrompt` 放行的描述才算数 —— 搬迁过来的「过期描述」写的是别的画面。
+   */
+  function syncBindingsWithArtworkPrompts(
+    panels: LongProjectStoryboardPanel[],
+    artworks: LongProjectPanelArtwork[],
+    chapterId: string,
+  ): LongProjectStoryboardPanel[] {
+    const promptByPanelId = new Map<string, string>()
+    for (const artwork of artworks) {
+      if (artwork.chapterId !== chapterId) continue
+      const prompt = bindingScanPrompt(artwork)
+      if (prompt) promptByPanelId.set(artwork.panelId, prompt)
+    }
+    if (!promptByPanelId.size) return panels
+    const scanned = panels.map((panel) => {
+      const imagePrompt = promptByPanelId.get(panel.id)
+      return imagePrompt && imagePrompt !== panel.imagePrompt ? { ...panel, imagePrompt } : panel
+    })
+    const synced = syncPanelsAutoBindings(
+      scanned,
+      buildAssetNameIndex(options.getAssets?.() ?? []),
+      (asset) => defaultVariant(asset, chapterId, options.getChapterOrders()),
+    )
+    return synced.map((panel, index) => {
+      const source = panels[index]
+      const scan = scanned[index]
+      return panel.assetBindings === scan.assetBindings && panel.cells === scan.cells
+        ? source
+        : { ...source, assetBindings: panel.assetBindings, cells: panel.cells }
+    })
+  }
+
+  /**
    * 执行分镜生成：先落一份 running run（刷新后可恢复为 failed），
    * 模型返回后写回分镜并迁移 panelArtworks；失败时记录错误信息。
    */
   async function runStoryboard(params: { model: ModelConfig; templateId: string; prompt: string }) {
     const chapter = options.getCurrentChapter()
-    if (!chapter) return
+    if (!chapter) return { droppedPromptCount: 0 }
     const scriptContent = options.getScriptContent()?.trim()
     if (!scriptContent) options.notifyFallback?.('本章尚未生成剧本，将以原文兜底生成分镜')
     const chapterContent = chapter.content ?? ''
     const now = Date.now()
     const previousPanels = latestCompletedRun(chapter.id)?.panels ?? []
+    // 因正文变化而未继承的旧画面描述条数（返回给调用方提示用户重推）
+    let droppedPromptCount = 0
     const run: LongProjectStoryboardRun = {
       id: uuidv4(), chapterId: chapter.id, sourceContent: chapterContent,
       modelId: params.model.id, templateId: params.templateId, prompt: params.prompt,
@@ -94,10 +134,16 @@ export function useStoryboardRun(options: {
         (asset) => defaultVariant(asset, chapter.id, options.getChapterOrders()),
       )
       await options.mutateLongProjectData((data) => {
+        // 先迁移旧描述，再让描述参与绑定扫描 —— 迁移过来的描述里提到的资产同样要进参考图清单
+        const migration = migratePanelArtworks(data.panelArtworks ?? [], previousPanels, generatedPanels, chapter.id)
+        droppedPromptCount = migration.droppedPromptCount
+        const panels = syncBindingsWithArtworkPrompts(generatedPanels, migration.artworks, chapter.id)
         data.storyboardRuns = (data.storyboardRuns ?? []).map((item) =>
-          item.id === run.id ? { ...item, status: 'completed' as const, panels: generatedPanels, rawResponse: result.rawResponse, updatedAt: Date.now() } : item)
+          item.id === run.id ? { ...item, status: 'completed' as const, panels, rawResponse: result.rawResponse, updatedAt: Date.now() } : item)
         data.nodes = (data.nodes ?? []).map((node) => node.id === chapter.id ? advanceStoryboardStage(node) : node)
-        data.panelArtworks = migratePanelArtworks(data.panelArtworks ?? [], previousPanels, generatedPanels, chapter.id)
+        data.panelArtworks = migration.artworks
+        // 写完新版本立刻压掉旧版本：历史分镜版本没有任何界面消费，留着只会撑大库
+        sweepProjectData(data)
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : '分镜生成失败，请重试'
@@ -107,6 +153,7 @@ export function useStoryboardRun(options: {
       })
       options.notifyError?.(message)
     }
+    return { droppedPromptCount }
   }
 
   /** 异常恢复：页面加载时残留 running 的分镜 run 标记为失败，避免界面永远转圈。 */
@@ -125,11 +172,11 @@ export function useStoryboardRun(options: {
    * 手动导入分镜（外部 AI 代跑）：解析粘贴的 Markdown 文本为分镜数组，跳过模型调用。
    * 与 runStoryboard 同语义：记录旧分镜 → 对位迁移已推导描述与成图（panelArtworks）。
    * 解析失败抛错（调用方在弹窗内展示），不落库。
-   * @returns 落库的分镜数组（调用方据此做绑定体检提示）
+   * @returns 落库的分镜数组（调用方据此做绑定体检提示）+ 因正文变化未继承的旧描述条数
    */
   async function importStoryboard(content: string) {
     const chapter = options.getCurrentChapter()
-    if (!chapter) return []
+    if (!chapter) return { panels: [] as LongProjectStoryboardPanel[], droppedPromptCount: 0 }
     const now = Date.now()
     const previousPanels = latestCompletedRun(chapter.id)?.panels ?? []
     const panels = syncPanelsAutoBindings(
@@ -143,12 +190,20 @@ export function useStoryboardRun(options: {
       status: 'completed', panels, rawResponse: content, source: 'manual',
       createdAt: now, updatedAt: now,
     }
+    let syncedPanels: LongProjectStoryboardPanel[] = panels
+    let droppedPromptCount = 0
     await options.mutateLongProjectData((data) => {
-      data.storyboardRuns = [...(data.storyboardRuns ?? []), run]
+      // 先迁移旧描述，再让描述参与绑定扫描（重新导入/生成后描述里提到的资产要留在参考图清单里）
+      const migration = migratePanelArtworks(data.panelArtworks ?? [], previousPanels, panels, chapter.id)
+      droppedPromptCount = migration.droppedPromptCount
+      syncedPanels = syncBindingsWithArtworkPrompts(panels, migration.artworks, chapter.id)
+      data.storyboardRuns = [...(data.storyboardRuns ?? []), { ...run, panels: syncedPanels }]
       data.nodes = (data.nodes ?? []).map((node) => node.id === chapter.id ? advanceStoryboardStage(node) : node)
-      data.panelArtworks = migratePanelArtworks(data.panelArtworks ?? [], previousPanels, panels, chapter.id)
+      data.panelArtworks = migration.artworks
+      // 同上：重新导入后只保留最新一版分镜
+      sweepProjectData(data)
     })
-    return panels
+    return { panels: syncedPanels, droppedPromptCount }
   }
 
   return { selectedModelId, selectedTemplateId, initDefaults, runStoryboard, importStoryboard, recoverInterrupted }

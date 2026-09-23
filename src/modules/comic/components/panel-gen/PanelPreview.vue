@@ -6,8 +6,8 @@
         <span v-if="isGenerating" class="flex items-center gap-1 text-[11px] text-cyan-400"><LoaderCircle :size="12" class="animate-spin" />生成中</span>
         <button
           class="rounded-md border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-1 text-[11px] text-cyan-300 transition-colors hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-40"
-          :disabled="isGenerating || !artwork?.imagePrompt?.trim()"
-          :title="!artwork?.imagePrompt?.trim() ? '请先推导或编辑画面描述' : '使用画面描述 + 资产参考图生图'"
+          :disabled="isGenerating || !readyToGenerate"
+          :title="!readyToGenerate ? '请先推导或编辑画面描述' : '使用画面描述 + 资产参考图生图'"
           @click="$emit('generate')"
         >
           {{ images.length ? '重新生成' : '生成图片' }}
@@ -84,6 +84,11 @@ const props = defineProps<{
   panel: LongProjectStoryboardPanel
   artwork?: LongProjectPanelArtwork
   isGenerating?: boolean
+  /**
+   * 当前选中的候选提示词条是否已有正文。
+   * 不传则回落到 `artwork.imagePrompt`（第 1 条）—— 传了才与「选中哪条发哪条」一致。
+   */
+  promptReady?: boolean
 }>()
 
 defineEmits<{
@@ -97,6 +102,9 @@ defineEmits<{
 
 /** 本镜全部生成图（按生成顺序）。 */
 const images = computed(() => props.artwork?.generatedImageIds ?? [])
+
+/** 能否生图：以当前选中提示词条的正文为准（未传时回落到第 1 条）。 */
+const readyToGenerate = computed(() => props.promptReady ?? Boolean(props.artwork?.imagePrompt?.trim()))
 
 /** 当前显示的下标：以 selectedImageId 定位，悬空（被删/未选）时回落第一张。 */
 const currentIndex = computed(() => {

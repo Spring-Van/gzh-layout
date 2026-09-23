@@ -7,12 +7,13 @@ import type {
 } from '../../src/modules/comic/types';
 import { buildAssetUsageIndex } from '../../src/modules/comic/services/assetUsageService';
 
-/** 视觉状态（可指定参考图）。 */
-function makeVariant(id: string, name: string, referenceImageIds: string[] = []): LongProjectAssetVariant {
+/** 视觉状态（图放在生成图里：分镜只认生成图，上传参考图不进分镜统计）。 */
+function makeVariant(id: string, name: string, generatedImageIds: string[] = []): LongProjectAssetVariant {
   return {
     id,
     name,
-    referenceImageIds,
+    referenceImageIds: [],
+    generatedImageIds,
     sourceChapterIds: [],
     createdAt: 1,
     updatedAt: 1,

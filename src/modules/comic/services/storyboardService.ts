@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import type { LongProjectAsset, LongProjectAssetVariant, LongProjectStoryboardAssetBinding, LongProjectStoryboardCell, LongProjectStoryboardPanel, ModelConfig, PromptTemplate } from '@comic/types'
 import { llmService } from './llmService'
+import { bindingIdentityKey, mergeBindingsByIdentity } from './promptAssetService'
 import { defaultTemplateContent, outputFormatSpec, renderPromptTemplate } from './promptTemplateRegistry'
 
 /**
@@ -222,33 +223,28 @@ export function bindingsFromValue(value: string, assets: LongProjectAsset[], cha
 }
 
 /**
- * 合并格级出场资产：同资产（assetId 优先，否则名称归一）只保留首个声明。
- * 解析器逐格写入与编辑器同步共用，避免同一资产在一格内出现两条绑定。
+ * 合并格级出场资产：按「资产 + 状态」去重（bindingIdentityKey）。
+ * 2026-09-22 起同一格允许同一资产出现多个状态（如「魔石碑（三段）、魔石碑（七段）」），
+ * 只折叠完全相同的 资产+状态 声明，不再按 assetId 抹平。
+ * 解析器逐格写入与编辑器同步共用，避免同一资产同一状态在一格内出现两条绑定。
  */
 export function mergeCellBindings(existing: LongProjectStoryboardAssetBinding[] | undefined, incoming: LongProjectStoryboardAssetBinding[]): LongProjectStoryboardAssetBinding[] {
   const result = [...(existing ?? [])]
-  const keyOf = (binding: LongProjectStoryboardAssetBinding) => binding.assetId ?? binding.assetName.trim()
   for (const binding of incoming) {
-    if (result.some((item) => keyOf(item) === keyOf(binding))) continue
+    if (result.some((item) => bindingIdentityKey(item) === bindingIdentityKey(binding))) continue
     result.push(binding)
   }
   return result
 }
 
 /**
- * 格级出场资产 → 页级绑定汇总：同资产多格声明时取**最后一格**（镜末状态 = 页级主状态与延续链起点），顺序 = 首次出现顺序。
+ * 格级出场资产 → 页级绑定汇总：按「资产 + 状态」去重（bindingIdentityKey），保留首次出现顺序。
+ * 同一资产的多个状态各留一条（`格1 三段 + 格2 七段` → 页级两条），页级即「本镜用到的状态全集」；
+ * 延续链起点由 `syncPanelsAutoBindings` 按格序推进，不在此处决断。
  * 解析 flush 与编辑保存（savePanelEdit）共用同一口径：格级声明为准，auto-text 页级绑定在其后合流。
  */
 export function summarizeCellBindings(cells: LongProjectStoryboardCell[]): LongProjectStoryboardAssetBinding[] {
-  const keyOf = (binding: LongProjectStoryboardAssetBinding) => binding.assetId ?? binding.assetName.trim()
-  const byKey = new Map<string, LongProjectStoryboardAssetBinding>()
-  for (const cell of cells) {
-    for (const binding of cell.assetBindings ?? []) {
-      // 同资产多格声明时取最后一格（镜末状态 = 页级主状态与延续链起点）；Map 保持首次出现顺序
-      byKey.set(keyOf(binding), { ...binding })
-    }
-  }
-  return [...byKey.values()]
+  return mergeBindingsByIdentity(cells.flatMap((cell) => cell.assetBindings ?? []))
 }
 
 /** 绑定列表 → 「出场资产」字段值：`资产名（状态名）` 全角括号、`、` 分隔；无状态名时只写资产名。 */
@@ -353,7 +349,8 @@ function splitSpeech(value: string): [string | undefined, string] {
  * @param chapterOrders 章节顺序表（章节 ID → 序号）
  * @param variantCodes 本章资产状态编号表（`buildVariantCodeMap`），用于解析「出场资产」的编号前缀；
  *   缺省时退化为纯名字匹配（存量模板、编辑器解析路径、旧数据）
- * @returns 解析后的分镜数组；无有效分镜时抛错
+ * @returns 解析后的分镜数组；无有效分镜时抛错。每页同时带上 `blockText`（该页的原始行，
+ *   去掉页头行）—— 编辑器显示与保存的原文，不再由格结构反拼。
  */
 export function parseStoryboardResponse(content: string, assets: LongProjectAsset[], chapterId: string, chapterOrders: Record<string, number>, variantCodes?: Map<string, VariantCodeEntry>): LongProjectStoryboardPanel[] {
   const panels: LongProjectStoryboardPanel[] = []
@@ -476,12 +473,30 @@ export function parseStoryboardResponse(content: string, assets: LongProjectAsse
   /** 起一格并置为当前格。 */
   const pushCell = (cell: LongProjectStoryboardCell) => { cells.push(cell); lastField = null; lastCellKey = null }
 
-  for (const rawLine of content.replace(/\r/g, '').split('\n')) {
+  const allLines = content.replace(/\r/g, '').split('\n')
+  /** 当前处理到的行下标（切出本页原文时用作终止行）。 */
+  let lineCursor = 0
+  /** 当前页首行下标：页头行的下一行；无页头自动开页时为结构行本身。 */
+  let pageStartLine = 0
+
+  /**
+   * 把本页的**原始行**存为 `blockText` —— 文本的事实来源，编辑框显示与保存都走它，
+   * 不再按字段顺序重排回固定格式。空行、字段顺序、模型的自定义写法全部原样保留。
+   */
+  const assignBlockText = () => {
+    if (!current) return
+    const raw = allLines.slice(pageStartLine, lineCursor).join('\n').trim()
+    if (raw) current.blockText = raw
+  }
+
+  for (lineCursor = 0; lineCursor < allLines.length; lineCursor += 1) {
+    const rawLine = allLines[lineCursor]
     const line = rawLine.trim()
     if (!line) continue
 
     if (PAGE_HEADER_RE.test(line)) {
-      flush(); startPage()
+      assignBlockText(); flush(); startPage()
+      pageStartLine = lineCursor + 1
       pendingLabel = line.match(PAGE_LABEL_RE)?.[1]
       continue
     }
@@ -489,6 +504,7 @@ export function parseStoryboardResponse(content: string, assets: LongProjectAsse
     if (!current) {
       if (!STRUCTURAL_RE.test(line)) continue
       startPage()
+      pageStartLine = lineCursor
     }
 
     // 0) 格标题：新格式为普通文本 `第1格`，同时兼容历史 `### 第1格`
@@ -638,6 +654,7 @@ export function parseStoryboardResponse(content: string, assets: LongProjectAsse
     else pushContent(line, true)
   }
 
+  assignBlockText()
   flush()
   if (!panels.length) throw new Error('模型返回中未找到分镜，请检查分镜模板的输出格式。')
   return panels
@@ -768,6 +785,72 @@ function cellHasContent(cell: LongProjectStoryboardCell): boolean {
     cell.shot, cell.camera, cell.content, cell.cast, cell.action,
     cell.expression, cell.dialogue, cell.narration, cell.sfx, cell.lighting, cell.note,
   ].some((value) => Boolean(value?.trim())) || (cell.assetBindings?.length ?? 0) > 0
+}
+
+/** 三种格标题写法（普通文本 / Markdown / 【】）合并成一条判定，供原文切块用。 */
+const ANY_CELL_TITLE_RE = /^(?:#{1,6}\s*)?(?:【\s*)?第\s*[0-9一二三四五六七八九十]+\s*格/
+/** 「出场资产」字段行（可带 `- ` 前缀）：绑定在文本里的载体行。 */
+const BLOCK_ASSET_LINE_RE = /^\s*(?:[-*]\s*)?出场资产\s*[：:]/
+
+/**
+ * 页块**原文**：编辑框显示与保存的唯一文本来源。
+ *
+ * 有 `blockText`（用户编辑过）就是他的原文，一字不改；没有（模型刚生成的页）才按格结构拼一份
+ * 初始草稿。拼接结果仍会过一遍 `patchBlockTextAssetLines`，让刚生成的页也能显示出「出场资产」行。
+ */
+export function panelBlockText(panel: LongProjectStoryboardPanel): string {
+  return patchBlockTextAssetLines(panel.blockText ?? serializePanelBlock(panel), panel)
+}
+
+/**
+ * 定点重写原文里的「出场资产：」行，使其与绑定数据一致 —— 这是原文唯一会被程序改动的地方。
+ *
+ * 为什么必须做：那一行是绑定的**文本载体**（打开→保存会把文本重新解析回绑定），
+ * 若手选状态 / 自动扫描改了绑定却不回写这一行，再次编辑保存时状态就会丢。
+ *
+ * 只替换该行的值，或在块尾补一行 / 删掉多余行；**其余文本一字不动**（字段顺序、自定义字段、
+ * 空行、用户自己的写法全部保留）。文本格数与 `cells` 对不上时（被手工改坏）整体跳过，
+ * 宁可不回写也不误删用户内容。
+ *
+ * 回写一律输出 `资产名（状态名）` 的**无编号**写法：编号（A1/B1…）是生成/导入提示词里的传输层
+ * 协议，解析时已消费成绑定；分镜内容编辑框里不需要再看编号（2026-09-22 用户定稿，曾试过保留后回退）。
+ */
+export function patchBlockTextAssetLines(text: string, panel: LongProjectStoryboardPanel): string {
+  if (!text.trim()) return text
+  const lines = text.replace(/\r/g, '').split('\n')
+  const cells = panel.cells ?? []
+  const titleIndexes = lines.reduce<number[]>((acc, line, index) => {
+    if (ANY_CELL_TITLE_RE.test(line.trim())) acc.push(index)
+    return acc
+  }, [])
+
+  /** 每块：[起行, 止行) + 该块的绑定（无格标题时整段视为页级声明） */
+  const blocks: Array<{ start: number; end: number; bindings: LongProjectStoryboardAssetBinding[] }> = []
+  if (titleIndexes.length) {
+    if (titleIndexes.length !== cells.length) return text
+    titleIndexes.forEach((start, index) => {
+      blocks.push({ start, end: titleIndexes[index + 1] ?? lines.length, bindings: cells[index].assetBindings ?? [] })
+    })
+  } else {
+    blocks.push({ start: 0, end: lines.length, bindings: panel.assetBindings ?? [] })
+  }
+
+  // 从后往前改，避免前面的增删影响后面记录的起止行
+  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+    const { start, end, bindings } = blocks[index]
+    const value = serializeBindings(bindings)
+    const hit = lines.findIndex((line, i) => i >= start && i < end && BLOCK_ASSET_LINE_RE.test(line))
+    if (hit >= 0) {
+      if (value) lines[hit] = `出场资产：${value}`
+      else lines.splice(hit, 1)
+      continue
+    }
+    if (!value) continue
+    let at = end
+    while (at > start + 1 && !lines[at - 1].trim()) at -= 1
+    lines.splice(at, 0, `出场资产：${value}`)
+  }
+  return lines.join('\n')
 }
 
 /**

@@ -81,12 +81,21 @@
             :key="selectedVariant.id"
             :variant="selectedVariant"
             :usage="usage?.variants.get(selectedVariant.id)"
+            :shared-image-count="sharedRefImageCount"
             :prompt-busy="promptBusyIds.has(selectedVariant.id)"
             :gen-busy="genBusyIds.has(selectedVariant.id)"
+            :can-delete-images="selectedCanDeleteImages"
+            :linked-chapter-name="selectedLinkedChapterName"
+            :detach-visible="selectedDetachVisible"
             @update:prompt="(value) => updatePrompt(selectedItem!.asset, selectedVariant!, value)"
+            @update:slots="(slots, activeId) => updateGenSlots(selectedItem!.asset, selectedVariant!, slots, activeId)"
             @rewrite-prompt="(v) => openRewriteModal(selectedItem!.asset, v)"
+            @view-prompt="(v) => openPromptModal(selectedItem!.asset, v)"
             @generate="(v) => generateImage(selectedItem!.asset, v)"
-            @remove-gen-image="(payload) => requestDeleteGeneratedImage(selectedItem!.asset, payload)"
+            @add-asset-image="(payload) => addAssetImage(selectedItem!.asset, payload)"
+            @remove-asset-image="(payload) => requestDeleteAssetImage(selectedItem!.asset, payload)"
+            @link-chapter="(v) => emit('link-chapter', { asset: selectedItem!.asset, variant: v })"
+            @detach-chapter="(v) => emit('detach-chapter', { asset: selectedItem!.asset, variant: v })"
             @remove-image="(payload) => removeImage(selectedItem!.asset, payload)"
             @add-image="(payload) => addImage(selectedItem!.asset, payload)"
             @pick-images="(v) => openAssetPicker(selectedItem!.asset, v)"
@@ -143,38 +152,77 @@
       @close="promptImportVisible = false"
     />
 
-    <!-- 生图配置抽屉 -->
+    <!-- 生图配置抽屉：绘画模型 + 共用属性都存在 assetGenConfig 里，与分镜绘图配置不互通 -->
     <AssetImageGenDrawer
       v-model="configDrawerVisible"
       :image-models="imageModels"
-      :llm-models="llmModels"
-      :templates="assetPromptTemplates"
       :config="assetGenConfig"
       @save="saveGenConfig"
     />
 
-    <!-- 大图预览 -->
+    <!-- 最终生图提示词查看弹窗：与 generateImage 发送内容完全同源。
+         挂到 #app：#app-shell 与 ComicLayout 都是 overflow:hidden，Teleport 到 body 的 fixed 弹层
+         会被裁在视口外，点击后看不见。不用 Transition：目标组件没有 fade 过渡样式时，
+         进入态会停在 opacity:0。 -->
+    <Teleport to="#app">
+      <div
+        v-if="finalPromptModalVisible"
+        class="fixed inset-0 z-[150] flex items-center justify-center bg-black/70 p-6"
+        @click.self="finalPromptModalVisible = false"
+      >
+          <div class="flex max-h-[82vh] w-[min(760px,92vw)] flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-2xl">
+            <div class="flex shrink-0 items-center justify-between border-b border-border-subtle px-5 py-3.5">
+              <h2 class="text-sm font-semibold text-text-primary">最终生图提示词 · {{ finalPromptModalTarget?.asset.name }} · {{ finalPromptModalTarget?.variant.name }}</h2>
+              <button
+                class="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-elevated hover:text-text-primary"
+                @click="finalPromptModalVisible = false"
+              ><X :size="15" /></button>
+            </div>
+            <pre class="custom-scrollbar min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-4 text-xs leading-relaxed text-text-primary">{{ finalPromptModalText }}</pre>
+            <div class="flex shrink-0 items-center justify-between gap-3 border-t border-border-subtle px-5 py-3">
+              <p class="text-[10px] text-text-muted">共 {{ finalPromptModalText.length.toLocaleString() }} 字符 · 与「生成图片」发送内容一致</p>
+              <div class="flex items-center gap-2">
+                <button
+                  class="flex items-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-[11px] text-text-secondary transition-colors hover:border-border-default hover:text-text-primary"
+                  @click="copyPromptModalText"
+                >
+                  <Check v-if="finalPromptModalCopied" :size="12" class="text-emerald-400" />
+                  <Copy v-else :size="12" />
+                  {{ finalPromptModalCopied ? '已复制' : '复制' }}
+                </button>
+                <button
+                  class="rounded-lg bg-cyan-500 px-4 py-1.5 text-[11px] font-medium text-white transition-opacity hover:opacity-90"
+                  @click="finalPromptModalVisible = false"
+                >关闭</button>
+              </div>
+            </div>
+          </div>
+      </div>
+    </Teleport>
+
+    <!-- 大图预览：纯查看（removable=false）—— 删除入口只在卡片图块上，且仅原章节可用 -->
     <AssetImagePreviewModal
       v-model="previewVisible"
       :images="previewImages"
       :image-index="previewIndex"
       :alt="previewAlt"
-      @remove="requestRemovePreviewImage"
+      :removable="false"
     />
 
     <!-- 资产图选择弹窗：从资产库勾选图片追加为参考图 -->
+    <!-- 从资产库追加参考图：图源只有各状态的 AI 生成图（上传的参考图不进列表） -->
     <AssetImagePickerModal
       v-model="pickerVisible"
       :assets="pickerAssets"
       append
-      include-generated
       @confirm="appendAssetImages"
     />
 
-    <!-- 删除生成图确认（z-[210] 压过大图预览 z-[200]，预览内删除时可见） -->
+    <!-- 删除成品图确认（z-[210] 压过大图预览 z-[200]，预览内删除时可见）。
+         被其他章节引用时，正文会列出受影响的章节并说明会同步消失。 -->
     <ConfirmDialog
       v-model="deleteConfirmVisible"
-      title="删除这张生成图"
+      :title="deleteConfirmTitle"
       :content="deleteConfirmContent"
       confirm-text="确认删除"
       z-index-class="z-[210]"
@@ -186,11 +234,12 @@
 <script setup lang="ts">
 /**
  * 长篇章节资产生图工作台：批量/单条提示词生成 + 批量/单张参考图生图 + 本地上传 + 资产库选图。
- * 数据（assets / assetGenConfig）由父组件传入并回写持久化；本组件只编排交互。
+ * 数据（assets / assetGenConfig，含资产生图自己的共用属性）由父组件传入并回写持久化；本组件只编排交互。
+ * 资产生图的共用属性存在 assetGenConfig.sharedBlocks，与分镜绘图配置的 imageGenConfig.sharedBlocks 不是同一份。
  * 右侧视觉状态多状态时以 tab 切换展示，单卡片不再上下滚动。
  */
 import { computed, nextTick, reactive, ref, toRaw, watch } from 'vue'
-import { Boxes, Eraser, LoaderCircle, MapPin, Package, UserRound } from 'lucide-vue-next'
+import { Boxes, Check, Copy, Eraser, LoaderCircle, MapPin, Package, UserRound, X } from 'lucide-vue-next'
 import AssetVariantCard from './AssetVariantCard.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import AssetPromptGenerateModal, { type AssetPromptRetryPayload, type AssetPromptRunItem, type AssetPromptRunResult } from './AssetPromptGenerateModal.vue'
@@ -200,10 +249,13 @@ import AssetImagePreviewModal from './AssetImagePreviewModal.vue'
 import AssetImagePickerModal from './AssetImagePickerModal.vue'
 import { useToast } from '@comic/composables/useToast'
 import { imageGenerationService } from '@comic/services/imageGenerationService'
+import { buildSharedBlockSection, effectiveVariantRefImages } from '@comic/services/panelPromptService'
+import { getSharedRefImages } from '@comic/utils/sharedBlocks'
+import { resolveActiveGenSlot, slotAttachShared } from '@comic/utils/genPromptSlots'
 import { buildAssetPromptPrompt, buildSingleAssetPrompt, buildStyleContext, buildTargetList, generateAssetPrompts, rewriteAssetPrompt, type AssetPromptTarget } from '@comic/services/assetPromptService'
 import { AssetPromptParseError, describeParseFailure, parseAssetPromptResponse, type AssetPromptParseDiagnostics } from '@comic/services/assetPromptParser'
 import type { AssetUsageIndex } from '@comic/services/assetUsageService'
-import type { AssetGenConfig, LongProjectAsset, LongProjectAssetVariant, ModelConfig, PromptTemplate, SharedPromptBlock } from '@comic/types'
+import type { AssetGenConfig, GenPromptSlot, LongProjectAsset, LongProjectAssetVariant, LongProjectChapterAsset, ModelConfig, PromptTemplate } from '@comic/types'
 
 interface Props {
   /** 本章涉及的资产（已按章节引用过滤出相关 variants） */
@@ -215,13 +267,18 @@ interface Props {
   templates: PromptTemplate[]
   assetGenConfig?: AssetGenConfig
   paintingStyle?: string
-  sharedBlocks?: SharedPromptBlock[]
   /** 接力定位目标（从分镜页跳转时携带，选中具体资产/视觉状态）。 */
   focusTarget?: { assetId: string; variantId?: string } | null
   /** 项目范围孤儿数据条数（没有任何章节引用的视觉状态 + 章节资产），> 0 时左列表顶部显示清理入口。 */
   orphanCount?: number
   /** 资产引用索引（章节引用 + 分镜绑定 + 图片级在用情况），用于显示「被谁引用」。 */
   usage?: AssetUsageIndex
+  /** 本章 id：判断「本章是不是该资产的原章节」（决定能否删图，以及本章是否手工引用了某状态）。 */
+  chapterId?: string
+  /** 项目全部章节引用（判断本章是不是引用方 → 「引用自 X」角标与「移出本章」）。 */
+  chapterAssets?: LongProjectChapterAsset[]
+  /** 章节 id → 名称（角标与删除影响提示里用可读名）。 */
+  chapterNames?: Record<string, string>
 }
 
 const props = defineProps<Props>()
@@ -232,6 +289,10 @@ const emit = defineEmits<{
   (e: 'prompt-completed'): void
   /** 清理孤儿数据：由容器执行（需要项目级资产与章节引用，工作台只有本章视图）。 */
   (e: 'clear-orphans'): void
+  /** 引用其他章节已生成的图：弹窗与写库由容器负责（它才有全项目章节与引用表）。 */
+  (e: 'link-chapter', payload: { asset: LongProjectAsset; variant: LongProjectAssetVariant }): void
+  /** 移出本章：只删本章引用条目，不动原章节的图。 */
+  (e: 'detach-chapter', payload: { asset: LongProjectAsset; variant: LongProjectAssetVariant }): void
 }>()
 
 const toast = useToast()
@@ -250,8 +311,6 @@ const previewAlt = ref('')
 /** 资产图选择弹窗：目标视觉状态（追加参考图）。 */
 const pickerVisible = ref(false)
 const pickerTarget = ref<{ asset: LongProjectAsset; variant: LongProjectAssetVariant } | null>(null)
-/** 当前预览的图片来源：生成预览暂存区 / 正式参考图区。 */
-const previewSource = ref<'generated' | 'reference'>('reference')
 const promptBusyIds = reactive(new Set<string>())
 const genBusyIds = reactive(new Set<string>())
 const promptBatchBusy = ref(false)
@@ -271,7 +330,8 @@ const ASSET_TYPE_META: Array<{ type: LongProjectAsset['type']; label: string; ic
 /** 工作资产：带缺图标记（无生成图 = 缺）。 */
 const workAssets = computed(() => props.assets.map((asset) => ({
   asset,
-  missing: asset.variants.some((variant) => !(variant.generatedImageIds ?? []).length),
+  // 「缺参考图」= 这条资产没有任何可用的成品图（生成图 + 自上传图），与分镜取图同一口径
+  missing: asset.variants.some((variant) => !effectiveVariantRefImages(variant).length),
 })))
 const visibleAssets = computed(() => filterMissing.value ? workAssets.value.filter((item) => item.missing) : workAssets.value)
 /** 左列表按类型分组（人物 → 场景 → 道具），顺序由 assets 入参决定（PanelGenAssetTab 已按提取顺序排好）。 */
@@ -284,6 +344,45 @@ const selectedVariant = computed(() => {
 })
 // 切换资产（含筛选导致回退）时重置视觉状态选中
 watch(() => selectedItem.value?.asset.id, () => { selectedVariantId.value = null })
+
+/**
+ * 该资产的**原章节**：最早出现它的章节（`sourceChapterIds[0]`）。
+ * `scope: 'project'` 的公共资产没有单一归属，视为哪一章都能维护（可删）。
+ */
+function ownerChapterIdOf(asset: LongProjectAsset): string | undefined {
+  if (asset.scope === 'project') return undefined
+  return asset.sourceChapterIds[0]
+}
+
+/** 本章是不是这条资产的**原章节** —— 只有原章节能删图（引用方章节只读 + 可移出）。 */
+const selectedCanDeleteImages = computed(() => {
+  const asset = selectedItem.value?.asset
+  if (!asset || !props.chapterId) return true
+  const owner = ownerChapterIdOf(asset)
+  return !owner || owner === props.chapterId
+})
+
+/** 本章是引用方时，显示「引用自 X」角标（图只在原章节增删）。 */
+const selectedLinkedChapterName = computed(() => {
+  const asset = selectedItem.value?.asset
+  if (!asset || !props.chapterId || selectedCanDeleteImages.value) return ''
+  const owner = ownerChapterIdOf(asset)
+  if (!owner) return ''
+  return props.chapterNames?.[owner] ?? owner
+})
+
+/** 本章引用了这条状态、且本章不是原章节 → 显示「移出本章」。 */
+const selectedDetachVisible = computed(() => {
+  const asset = selectedItem.value?.asset
+  const variant = selectedVariant.value
+  if (!asset || !variant || !props.chapterId || selectedCanDeleteImages.value) return false
+  return (props.chapterAssets ?? []).some((entry) => entry.chapterId === props.chapterId
+    && entry.assetId === asset.id
+    && (!entry.variantId || entry.variantId === variant.id))
+})
+
+/** 本章的可读名（删除影响提示里排除「自己」用）。 */
+const currentChapterName = computed(() => (props.chapterId ? props.chapterNames?.[props.chapterId] ?? '' : ''))
 // 接力定位：从分镜页跳转携带的资产/视觉状态，挂载或变化时选中（nextTick 等上面的选中重置跑完再落 variant）
 watch(() => props.focusTarget, async (target) => {
   if (!target || !props.assets.some((asset) => asset.id === target.assetId)) return
@@ -292,7 +391,9 @@ watch(() => props.focusTarget, async (target) => {
   selectedVariantId.value = target.variantId ?? null
 }, { immediate: true })
 const assetPromptTemplates = computed(() => props.templates.filter((t) => t.type === 'asset-prompt').sort((a, b) => a.sortOrder - b.sortOrder))
-const styleContext = computed(() => buildStyleContext(props.sharedBlocks ?? [], props.paintingStyle ?? ''))
+/** 资产生图自己的共用属性（与分镜绘图配置的 sharedBlocks 无关）。 */
+const assetSharedBlocks = computed(() => props.assetGenConfig?.sharedBlocks ?? [])
+const styleContext = computed(() => buildStyleContext(assetSharedBlocks.value, props.paintingStyle ?? ''))
 const currentImageModel = computed(() => props.imageModels.find((m) => m.id === props.assetGenConfig?.imageModelId))
 /** 资产图选择弹窗数据源：项目全部资产。 */
 const pickerAssets = computed(() => props.allAssets ?? props.assets)
@@ -305,7 +406,8 @@ const totalVariantCount = computed(() => allPromptTargets.value.reduce((count, i
 const hasPromptTargets = computed(() => totalVariantCount.value > 0)
 /** 生图目标：有提示词但还没有生成图的状态。 */
 const genTargets = computed(() => props.assets.flatMap((asset) => asset.variants
-  .filter((v) => v.imagePrompt?.trim() && !(v.generatedImageIds ?? []).length)
+  // 用「当前选中那条」的正文判断有没有可发的提示词，与 composeAssetPrompt 同源。
+  .filter((v) => activeGenSlot(v).text?.trim() && !(v.generatedImageIds ?? []).length)
   .map((variant) => ({ asset, variant }))))
 const hasGenTargets = computed(() => genTargets.value.length > 0)
 
@@ -719,18 +821,51 @@ function updatePrompt(asset: LongProjectAsset, variant: LongProjectAssetVariant,
   emit('update:asset', { assetId: asset.id, variantId: variant.id, patch: { imagePrompt: value } })
 }
 
+/** 候选提示词条整体写回（正文 / 开关 / 当前选中）。 */
+function updateGenSlots(asset: LongProjectAsset, variant: LongProjectAssetVariant, slots: GenPromptSlot[], activeId: string) {
+  emit('update:asset', {
+    assetId: asset.id,
+    variantId: variant.id,
+    patch: { genPrompts: slots, activeGenPromptId: activeId },
+  })
+}
+
+/**
+ * 当前选中的候选提示词条 —— **选哪条就发哪条**。
+ * 没建过条时由 `resolveActiveGenSlot` 返回一条「按默认开看待」的槽（正文取 `imagePrompt`）。
+ */
+function activeGenSlot(variant: LongProjectAssetVariant): GenPromptSlot {
+  return resolveActiveGenSlot(variant)
+}
+
 // ========== 生图 ==========
+/**
+ * 最终发送的生图提示词 = 共用属性（插入最前）+ 绘画提示词 + 共用属性（插入最后）。
+ * 拼接逻辑与分镜生图相同，但共用属性取资产自己的 `assetGenConfig.sharedBlocks`，与分镜不互通；
+ * 「查看提示词」弹窗与实际发送共用此函数。
+ *
+ * **只拼当前选中那条**：关掉它的「拼接共用属性」就前后置都不拼（对应的图也从 `genRefImages` 里剔除），
+ * 否则提示词会指向一批根本没发出去的图。
+ */
+function composeAssetPrompt(variant: LongProjectAssetVariant): string {
+  const slot = activeGenSlot(variant)
+  if (!slotAttachShared(slot)) return (slot.text ?? '').trim()
+  const front = buildSharedBlockSection(assetSharedBlocks.value, 'front')
+  const back = buildSharedBlockSection(assetSharedBlocks.value, 'back')
+  return [front, slot.text ?? '', back].map((part) => part.trim()).filter(Boolean).join('\n\n')
+}
+
 /** 单张生成：用户上传的参考图作为参数发给模型，结果按比例进入生成预览区。 */
 async function generateImage(asset: LongProjectAsset, variant: LongProjectAssetVariant) {
   const model = currentImageModel.value
   if (!model) { toast.error('请先在「生图配置」中选择生图模型'); configDrawerVisible.value = true; return }
-  if (!variant.imagePrompt?.trim()) { toast.error('请先生成或填写绘画提示词'); return }
+  if (!activeGenSlot(variant).text?.trim()) { toast.error('请先生成或填写绘画提示词'); return }
   genBusyIds.add(variant.id)
   try {
     const config = props.assetGenConfig ?? defaultGenConfig()
     const result = await imageGenerationService.generateWithModel(
       model,
-      variant.imagePrompt,
+      composeAssetPrompt(variant),
       genRefImages(variant),
       config.aspectRatio,
       config.resolution,
@@ -761,7 +896,7 @@ async function runBatchGen() {
     try {
       const result = await imageGenerationService.generateWithModel(
         model,
-        variant.imagePrompt ?? '',
+        composeAssetPrompt(variant),
         genRefImages(variant),
         config.aspectRatio,
         config.resolution,
@@ -781,12 +916,20 @@ async function runBatchGen() {
   toast[failed ? 'error' : 'success'](`批量生图完成：成功 ${batchTotal.value - failed}，失败 ${failed}，请在各状态预览区查看`)
 }
 
-/** 生图参数参考图：该状态用户上传的参考图 + 共用块启用的风格参考图。 */
+/**
+ * 资产生图实际发送的参考图，顺序决定图号（与提示词里的「图N」一致）：
+ * 1. 共用属性「插入最前」且启用参考图的图（按属性顺序、块内上传顺序）；
+ * 2. 这个视觉状态自己上传的参考图接在后面。
+ * 「插入最后」的共用属性不参与取图。
+ */
 function genRefImages(variant: LongProjectAssetVariant): string[] {
-  return [...variant.referenceImageIds, ...(props.sharedBlocks ?? [])
-    .filter((block) => block.enableRefImages)
-    .flatMap((block) => block.referenceImages)]
+  // 关掉「拼接共用属性」时共用属性图也不发，本状态上传图直接从「图1」起（与卡片角标同一口径）。
+  const shared = slotAttachShared(activeGenSlot(variant)) ? getSharedRefImages(assetSharedBlocks.value) : []
+  return [...shared, ...variant.referenceImageIds]
 }
+
+/** 共用属性参考图张数：本状态上传图的图号从这之后续编（图 sharedRefImageCount+1 起）。 */
+const sharedRefImageCount = computed(() => getSharedRefImages(assetSharedBlocks.value).length)
 
 /** 保存生图配置。 */
 function saveGenConfig(config: AssetGenConfig) {
@@ -794,61 +937,91 @@ function saveGenConfig(config: AssetGenConfig) {
   toast.success('生图配置已保存')
 }
 
+// ========== 最终生图提示词查看弹窗 ==========
+const finalPromptModalVisible = ref(false)
+const finalPromptModalCopied = ref(false)
+const finalPromptModalTarget = ref<{ asset: LongProjectAsset; variant: LongProjectAssetVariant } | null>(null)
+const finalPromptModalText = computed(() => (finalPromptModalTarget.value ? composeAssetPrompt(finalPromptModalTarget.value.variant) : ''))
+
+/** 查看某视觉状态拼接后的最终生图提示词（与 generateImage 发送内容同源）。 */
+function openPromptModal(asset: LongProjectAsset, variant: LongProjectAssetVariant) {
+  finalPromptModalTarget.value = { asset, variant }
+  finalPromptModalCopied.value = false
+  finalPromptModalVisible.value = true
+}
+
+async function copyPromptModalText() {
+  const text = finalPromptModalText.value.trim()
+  if (!text) { toast.warning('提示词为空，请先填写绘画提示词'); return }
+  try {
+    await navigator.clipboard.writeText(text)
+    finalPromptModalCopied.value = true
+    setTimeout(() => { finalPromptModalCopied.value = false }, 1600)
+  } catch {
+    toast.error('复制失败，请手动选择文本复制')
+  }
+}
+
 function defaultGenConfig(): AssetGenConfig {
-  return { imageModelId: '', aspectRatio: '3:4', resolution: '1K', quality: '', concurrency: 1 }
+  return { imageModelId: '', aspectRatio: '', resolution: '', quality: '', sharedBlocks: [], concurrency: 1 }
 }
 
 // ========== 参考图与生成预览管理 ==========
 
-/** 删除确认弹窗状态：生成图删除一律先确认（卡片右上角叉 / 大图预览内删除两个入口）。 */
+/** 删除确认弹窗状态：成品图删除一律先确认（卡片右上角叉 / 大图预览内删除两个入口）。 */
 const deleteConfirmVisible = ref(false)
-const deleteTarget = ref<{ asset: LongProjectAsset; variant: LongProjectAssetVariant; index: number; source: 'generated' | 'reference' } | null>(null)
+const deleteTarget = ref<{ asset: LongProjectAsset; variant: LongProjectAssetVariant; image: string; source: 'generated' | 'uploaded' | 'reference' } | null>(null)
+const deleteConfirmTitle = computed(() => (deleteTarget.value?.source === 'reference' ? '删除这张参考图' : '删除这张图'))
+
+/**
+ * 删除确认文案。**被别的章节引用时**列出来是哪些章节并说明会同步消失 ——
+ * 图只有一份（引用方章节共用同一条状态记录），删掉后引用它的章节也会失去这张图，
+ * 分镜里已选它的位置按「显示哪张就用哪张」的口径回落到该状态的第一张。
+ */
 const deleteConfirmContent = computed(() => {
-  if (!deleteTarget.value) return ''
-  const kind = deleteTarget.value.source === 'generated' ? '生成图' : '参考图'
-  return `将删除「${deleteTarget.value.asset.name} · ${deleteTarget.value.variant.name}」的一张${kind}，删除后无法恢复，是否确认？`
+  const target = deleteTarget.value
+  if (!target) return ''
+  const kind = target.source === 'generated' ? '生成图' : target.source === 'uploaded' ? '上传图' : '参考图'
+  const base = `将删除「${target.asset.name} · ${target.variant.name}」的一张${kind}，删除后无法恢复。`
+  if (target.source === 'reference') return `${base}是否确认？`
+  const others = (props.usage?.variants.get(target.variant.id)?.chapterNames ?? [])
+    .filter((name) => name !== currentChapterName.value)
+  if (!others.length) return `${base}是否确认？`
+  return `${base}该视觉状态被 ${others.join('、')} 引用，删除后这些章节也会同步失去这张图（分镜里已选它的位置会回落到该状态的第一张）。是否确认？`
 })
 
-/** 卡片「生成预览」右上角叉：先确认再删除。 */
-function requestDeleteGeneratedImage(asset: LongProjectAsset, payload: { variant: LongProjectAssetVariant; index: number }) {
-  deleteTarget.value = { asset, variant: payload.variant, index: payload.index, source: 'generated' }
-  deleteConfirmVisible.value = true
-}
-
-/** 大图预览内删除：生成图先确认；参考图维持原行为（用户自己上传的，删除可逆感知低）。 */
-function requestRemovePreviewImage(index: number) {
-  const image = previewImages.value[index]
-  const found = image ? findImageOwner(image) : null
-  if (!found) return
-  if (found.source === 'generated') {
-    deleteTarget.value = { asset: found.asset, variant: found.variant, index: (found.variant.generatedImageIds ?? []).indexOf(image), source: 'generated' }
-    deleteConfirmVisible.value = true
+/**
+ * 当前资产区右上角叉：先确认再删除。
+ * **图只能在原章节删** —— 引用方章节直接拦下并指路（图由原章节维护）。
+ */
+function requestDeleteAssetImage(asset: LongProjectAsset, payload: { variant: LongProjectAssetVariant; image: string }) {
+  if (!selectedCanDeleteImages.value) {
+    toast.warning(`这张图属于「${selectedLinkedChapterName.value || '原章节'}」的资产，请到原章节删除`)
     return
   }
-  executeDelete({ asset: found.asset, variant: found.variant, index: found.variant.referenceImageIds.indexOf(image), source: 'reference' })
-  shrinkPreviewAfterDelete(index)
+  const source = assetImageSource(payload.variant, payload.image)
+  if (!source) return
+  deleteTarget.value = { asset, variant: payload.variant, image: payload.image, source }
+  deleteConfirmVisible.value = true
 }
 
 /** 确认删除：真正执行落库。 */
 function confirmDeleteImage() {
   const target = deleteTarget.value
   if (!target) return
-  const image = target.source === 'generated' ? target.variant.generatedImageIds?.[target.index] : target.variant.referenceImageIds[target.index]
   executeDelete(target)
-  if (image) {
-    const previewIndexAt = previewImages.value.indexOf(image)
-    if (previewIndexAt >= 0) shrinkPreviewAfterDelete(previewIndexAt)
-  }
+  const previewIndexAt = previewImages.value.indexOf(target.image)
+  if (previewIndexAt >= 0) shrinkPreviewAfterDelete(previewIndexAt)
   deleteTarget.value = null
 }
 
 /** 执行删除落库（update:asset 由父级走 read-modify-write 持久化）。 */
-function executeDelete(target: { asset: LongProjectAsset; variant: LongProjectAssetVariant; index: number; source: 'generated' | 'reference' }) {
-  if (target.source === 'generated') {
-    removeGeneratedImage(target.asset, { variant: target.variant, index: target.index })
-  } else {
-    removeImage(target.asset, { variant: target.variant, index: target.index })
+function executeDelete(target: { asset: LongProjectAsset; variant: LongProjectAssetVariant; image: string; source: 'generated' | 'uploaded' | 'reference' }) {
+  if (target.source === 'reference') {
+    removeImage(target.asset, { variant: target.variant, index: target.variant.referenceImageIds.indexOf(target.image) })
+    return
   }
+  removeAssetImage(target.asset, { variant: target.variant, image: target.image })
 }
 
 /** 预览数组同步收缩，避免显示已删除的图。 */
@@ -859,9 +1032,27 @@ function shrinkPreviewAfterDelete(index: number) {
   }
 }
 
-function removeGeneratedImage(asset: LongProjectAsset, payload: { variant: LongProjectAssetVariant; index: number }) {
-  const next = (payload.variant.generatedImageIds ?? []).filter((_, index) => index !== payload.index)
-  emit('update:asset', { assetId: asset.id, variantId: payload.variant.id, patch: { generatedImageIds: next } })
+/** 当前资产区：上传成品图（进 `uploadedImageIds`，与生成图一样可被分镜取用）。 */
+function addAssetImage(asset: LongProjectAsset, payload: { variant: LongProjectAssetVariant; url: string }) {
+  const next = [...(payload.variant.uploadedImageIds ?? []), payload.url]
+  emit('update:asset', { assetId: asset.id, variantId: payload.variant.id, patch: { uploadedImageIds: next } })
+}
+
+/** 这张成品图归哪个数组（生成图 / 自上传图）；都不是则 null。 */
+function assetImageSource(variant: LongProjectAssetVariant, image: string): 'generated' | 'uploaded' | null {
+  if ((variant.generatedImageIds ?? []).includes(image)) return 'generated'
+  if ((variant.uploadedImageIds ?? []).includes(image)) return 'uploaded'
+  return null
+}
+
+/** 按 URL 从对应数组里摘掉一张成品图。 */
+function removeAssetImage(asset: LongProjectAsset, payload: { variant: LongProjectAssetVariant; image: string }) {
+  const source = assetImageSource(payload.variant, payload.image)
+  if (!source) return
+  const patch: Partial<LongProjectAssetVariant> = source === 'generated'
+    ? { generatedImageIds: (payload.variant.generatedImageIds ?? []).filter((url) => url !== payload.image) }
+    : { uploadedImageIds: (payload.variant.uploadedImageIds ?? []).filter((url) => url !== payload.image) }
+  emit('update:asset', { assetId: asset.id, variantId: payload.variant.id, patch })
 }
 
 function removeImage(asset: LongProjectAsset, payload: { variant: LongProjectAssetVariant; index: number }) {
@@ -873,19 +1064,19 @@ function addImage(asset: LongProjectAsset, payload: { variant: LongProjectAssetV
   emit('update:asset', { assetId: asset.id, variantId: payload.variant.id, patch: { referenceImageIds: [...payload.variant.referenceImageIds, payload.url] } })
 }
 
-function openPreview(payload: { images: string[]; index: number; source: 'generated' | 'reference' }) {
+function openPreview(payload: { images: string[]; index: number }) {
   previewImages.value = [...payload.images]
   previewIndex.value = payload.index
-  previewSource.value = payload.source
   previewAlt.value = previewImageAlt()
   previewVisible.value = true
 }
 
-/** 通过图片反查所属视觉状态及其所在区域（生成预览 / 参考图）。 */
-function findImageOwner(image: string): { asset: LongProjectAsset; variant: LongProjectAssetVariant; source: 'generated' | 'reference' } | null {
+/** 通过图片反查所属视觉状态及其所在区域（当前资产区 / 参考图区）。 */
+function findImageOwner(image: string): { asset: LongProjectAsset; variant: LongProjectAssetVariant; source: 'generated' | 'uploaded' | 'reference' } | null {
   for (const item of workAssets.value) {
     for (const variant of item.asset.variants) {
-      if ((variant.generatedImageIds ?? []).includes(image)) return { asset: item.asset, variant, source: 'generated' }
+      const source = assetImageSource(variant, image)
+      if (source) return { asset: item.asset, variant, source }
       if (variant.referenceImageIds.includes(image)) return { asset: item.asset, variant, source: 'reference' }
     }
   }
@@ -896,7 +1087,8 @@ function previewImageAlt(): string {
   const image = previewImages.value[previewIndex.value]
   const found = image ? findImageOwner(image) : null
   if (!found) return '图片'
-  return `${found.asset.name} · ${found.variant.name} · ${found.source === 'generated' ? '生成图' : '参考图'}`
+  const label = found.source === 'generated' ? '生成图' : found.source === 'uploaded' ? '上传图' : '参考图'
+  return `${found.asset.name} · ${found.variant.name} · ${label}`
 }
 
 // ========== 资产图选择（追加为参考图） ==========
@@ -934,3 +1126,16 @@ defineExpose({
   runBatchGen,
 })
 </script>
+
+<style>
+/* 不加 scoped：弹窗 Teleport 到 body，scoped 选择器匹配不上。
+   缺这段过渡时，Vue 会把进入态停在 opacity:0，弹窗在但看不见，看起来像按钮没反应。 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+</style>

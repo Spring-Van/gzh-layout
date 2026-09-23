@@ -13,6 +13,7 @@ import {
   overrideAssetWithCandidate,
   pruneOrphanEntries,
   repairDanglingBindings,
+  repairDanglingChapterAssets,
   selectDroppedVariants,
 } from '../../src/modules/comic/services/assetExtractionConfirm';
 
@@ -97,6 +98,24 @@ describe('overrideAssetWithCandidate（本次结果优先）', () => {
     expect(overridden.content).toBe('# 李渔\n新提取正文');
     expect(overridden.description).toBe('新提取描述');
     expect(overridden.variants.map((item) => item.name)).toEqual(['少年期']);
+  });
+
+  it('别名以本次提取结果为准（覆盖而非并集）——旧别名累积会让资产被判成歧义而退出自动绑定', () => {
+    const candidate = makeCandidate({ aliases: ['阿渔'] });
+
+    const overridden = overrideAssetWithCandidate(makeAsset(), candidate, CHAPTER);
+
+    // makeAsset 原有别名「小鱼」，本次候选只给「阿渔」→ 旧别名必须被覆盖掉
+    expect(overridden.aliases).toEqual(['阿渔']);
+    expect(overridden.aliases).not.toContain('小鱼');
+  });
+
+  it('本次候选完全没给别名时保留原有别名，不把资产清空', () => {
+    const candidate = makeCandidate({ aliases: [] });
+
+    const overridden = overrideAssetWithCandidate(makeAsset(), candidate, CHAPTER);
+
+    expect(overridden.aliases).toEqual(['小鱼']);
   });
 
   it('命中已有状态时复用原 id，分镜绑定不会悬空', () => {
@@ -211,6 +230,16 @@ describe('buildExtractionConfirmResult', () => {
 
     expect(result.assets.map((item) => item.id)).not.toContain('asset-stale');
     expect(result.chapterAssets.every((entry) => entry.assetId !== 'asset-stale')).toBe(true);
+  });
+
+  it('手工引用（origin: manual，跨章节引用其他章节的图）在重新提取确认后仍保留', () => {
+    const manualEntries: LongProjectChapterAsset[] = [
+      { id: 'entry-manual', chapterId: CHAPTER, assetId: 'asset-from-chapter-1', variantId: 'variant-from-chapter-1', appearance: 'reused', evidence: [], origin: 'manual', createdAt: 1, updatedAt: 1 },
+    ];
+    const result = buildExtractionConfirmResult(makeRun([makeCandidate()]), CHAPTER, [makeAsset()], manualEntries);
+
+    // extraction 来源的引用照旧重建，手工引用不能被抹掉
+    expect(result.chapterAssets.some((entry) => entry.id === 'entry-manual')).toBe(true);
   });
 
   it('被其他章节引用的章节资产不会被误删', () => {
@@ -348,6 +377,76 @@ describe('repairDanglingBindings（覆盖后的悬空绑定兜底）', () => {
     const result = repairDanglingBindings(panels, [asset], CHAPTER, { [CHAPTER]: 0 });
 
     expect(result[0]).toBe(panels[0]);
+  });
+
+  it('资产已被整条删除时移除该绑定（不留悬空 assetId = 幽灵资产）', () => {
+    const panels = [makePanel([
+      { assetId: 'asset-deleted', assetName: '已删资产', visualVersionId: 'v-x', visualVersionName: '旧状态', matchSource: 'manual' },
+      { assetId: 'asset-1', assetName: '李渔', visualVersionId: 'variant-a', visualVersionName: '少年期', matchSource: 'manual' },
+    ])];
+    const result = repairDanglingBindings(panels, [makeAsset()], CHAPTER, { [CHAPTER]: 0 });
+
+    expect(result[0].assetBindings.map((binding) => binding.assetId)).toEqual(['asset-1']);
+  });
+
+  it('没有 assetId 的绑定（名字没匹配到资产）保持原样，交给待核对区换绑', () => {
+    const panels = [makePanel([{ assetName: '写错的名字', matchSource: 'unmatched' }])];
+    const result = repairDanglingBindings(panels, [makeAsset()], CHAPTER, { [CHAPTER]: 0 });
+
+    expect(result[0]).toBe(panels[0]);
+    expect(result[0].assetBindings).toHaveLength(1);
+  });
+
+  it('格级绑定同样清理已删资产（页级与格级口径一致）', () => {
+    const panel = makePanel([]);
+    panel.cells = [
+      { content: '画面', assetBindings: [{ assetId: 'asset-deleted', assetName: '已删资产', matchSource: 'manual' }] },
+      { content: '画面二', assetBindings: [{ assetId: 'asset-1', assetName: '李渔', visualVersionId: 'variant-a', matchSource: 'manual' }] },
+    ];
+    const result = repairDanglingBindings([panel], [makeAsset()], CHAPTER, { [CHAPTER]: 0 });
+
+    expect(result[0].cells?.[0].assetBindings).toEqual([]);
+    expect(result[0].cells?.[1].assetBindings).toHaveLength(1);
+  });
+});
+
+describe('repairDanglingChapterAssets（跨章引用悬空兜底）', () => {
+  function entry(partial: Partial<LongProjectChapterAsset> & { assetId: string }): LongProjectChapterAsset {
+    return { id: `entry-${partial.assetId}-${partial.variantId ?? 'whole'}`, chapterId: CHAPTER, appearance: 'reused', evidence: [], createdAt: 1, updatedAt: 1, ...partial };
+  }
+
+  it('指向已被删除状态的其他章节引用，回落到该引用方章节的默认状态', () => {
+    const asset = makeAsset({ variants: [makeVariant({ id: 'variant-new', name: '新状态' })] });
+    const other = { ...entry({ assetId: 'asset-1', variantId: 'variant-deleted' }), chapterId: 'chapter-2' };
+    const result = repairDanglingChapterAssets([other], [asset], { [CHAPTER]: 0, 'chapter-2': 1 });
+
+    expect(result.reassigned).toBe(1);
+    expect(result.dropped).toBe(0);
+    expect(result.chapterAssets[0].variantId).toBe('variant-new');
+  });
+
+  it('引用仍然有效时原样返回（保持引用，避免无谓持久化）', () => {
+    const asset = makeAsset();
+    const valid = entry({ assetId: 'asset-1', variantId: 'variant-a' });
+    const result = repairDanglingChapterAssets([valid], [asset], { [CHAPTER]: 0 });
+
+    expect(result.chapterAssets[0]).toBe(valid);
+    expect(result.reassigned + result.dropped).toBe(0);
+  });
+
+  it('整资产引用（无 variantId）不被主动补状态', () => {
+    const asset = makeAsset();
+    const whole = entry({ assetId: 'asset-1' });
+    const result = repairDanglingChapterAssets([whole], [asset], { [CHAPTER]: 0 });
+
+    expect(result.chapterAssets[0]).toBe(whole);
+  });
+
+  it('资产整条已不存在时丢弃该引用', () => {
+    const result = repairDanglingChapterAssets([entry({ assetId: 'asset-gone', variantId: 'v-x' })], [makeAsset()], { [CHAPTER]: 0 });
+
+    expect(result.dropped).toBe(1);
+    expect(result.chapterAssets).toEqual([]);
   });
 });
 

@@ -22,7 +22,16 @@
             @contextmenu="openContextMenu($event.event, $event.node)"
             @update:nodes="persistNodes"
           />
-          <LongProjectAssetLibraryTree :selected-category="selectedAssetCategory" class="mt-3" @select="selectAssetCategory" />
+          <!-- 资产库入口：内嵌在主区渲染（跨项目聚合，默认选中本项目） -->
+          <button
+            class="mt-3 flex h-9 w-full items-center gap-2 rounded-lg border border-transparent px-2 text-left text-sm text-text-primary transition-colors hover:bg-elevated"
+            :class="assetLibraryOpen ? 'bg-elevated' : ''"
+            @click="selectAssetLibrary"
+          >
+            <Boxes :size="16" class="shrink-0 text-violet-400" />
+            <span class="min-w-0 flex-1 truncate font-medium">资产库</span>
+            <span class="shrink-0 text-[11px] text-text-muted">{{ projectAssetCount }}</span>
+          </button>
         </div>
       </template>
 
@@ -36,20 +45,20 @@
             <span v-if="chapterCount" class="absolute -right-1 -top-1 min-w-[15px] rounded-full bg-violet-500 px-1 text-center text-[10px] leading-[15px] text-white">{{ chapterCount }}</span>
           </button>
           <button v-if="selectedChapter" class="sidebar-icon" :class="selectedChapterId ? 'bg-cyan-500/15 text-cyan-400' : ''" :title="selectedChapter.name" @mouseenter="hoverChapterFlyout($event)" @mouseleave="flyoutRef?.triggerLeave()" @click="flyoutRef?.triggerClick(triggerTop($event))"><FileText :size="18" /></button>
-          <button class="sidebar-icon" :class="selectedAssetCategory ? 'bg-violet-500/15 text-violet-300' : ''" title="资产库" @mouseenter="hoverAssetFlyout($event)" @mouseleave="assetFlyoutRef?.triggerLeave()" @click="assetFlyoutRef?.triggerClick(triggerTop($event))"><Boxes :size="18" /></button>
+          <button class="sidebar-icon" :class="assetLibraryOpen ? 'bg-cyan-500/15 text-cyan-400' : ''" title="资产库" @click="selectAssetLibrary"><Boxes :size="18" /></button>
           <div class="flex-1" />
           <button class="sidebar-icon" title="返回项目列表" @click="router.push('/comic/projects')"><ArrowLeft :size="18" /></button>
         </div>
         <LongProjectChapterFlyout ref="flyoutRef" :nodes="nodes" :selected-chapter-id="selectedChapterId" @select="selectChapter" />
-        <LongProjectAssetFlyout ref="assetFlyoutRef" :assets="projectAssets" :selected-category="selectedAssetCategory" @select="selectAssetCategory" />
       </template>
     </aside>
 
     <main class="min-w-0 flex-1 overflow-hidden">
       <div v-if="loading" class="flex h-full items-center justify-center text-sm text-text-secondary">正在加载项目...</div>
 
-      <section v-else-if="selectedAssetCategory" class="custom-scrollbar h-full overflow-y-auto">
-        <LongProjectAssetLibrary :category="selectedAssetCategory" :assets="assetsForSelectedCategory" />
+      <!-- 资产库：内嵌筛选视图（tree 右侧主区），跨项目聚合 -->
+      <section v-else-if="assetLibraryOpen" class="h-full min-h-0">
+        <LongAssetLibraryView ref="libraryRef" :default-project-id="projectId" />
       </section>
 
       <section v-else-if="!selectedChapter" class="custom-scrollbar h-full overflow-y-auto">
@@ -191,34 +200,37 @@
           @save-script="saveScript"
         />
 
-        <!-- 资产 tab：先于分镜确认本章资产（提取/审核/生图工作台），首次进入挂载后常驻（提取任务切页签不中断） -->
-        <LongProjectAssetTab
-          v-if="assetsOpened"
-          v-show="activeTab === 'assets'"
-          :project-id="projectId"
-          :chapter-id="selectedChapterId ?? ''"
-          :project="project"
-          :models="models"
-          :templates="promptTemplates"
-          :focus-target="assetFocusTarget"
-          :mutate-long-project-data="mutateLongProjectData"
-        />
+        <!-- 资产 tab：先于分镜确认本章资产（提取/审核/生图工作台），首次进入挂载后常驻（提取任务切页签不中断）。
+             互斥显示交给 TabPanel（v-show 落在容器上，不依赖子组件根节点） -->
+        <TabPanel :active="activeTab === 'assets'">
+          <LongProjectAssetTab
+            v-if="assetsOpened"
+            :project-id="projectId"
+            :chapter-id="selectedChapterId ?? ''"
+            :project="project"
+            :models="models"
+            :templates="promptTemplates"
+            :focus-target="assetFocusTarget"
+            :mutate-long-project-data="mutateLongProjectData"
+          />
+        </TabPanel>
 
         <!-- 分镜 tab：首次进入时挂载，之后常驻（批量推导/生图切页签不中断） -->
-        <LongProjectStoryboardTab
-          v-if="storyboardOpened"
-          v-show="activeTab === 'storyboard'"
-          v-model:stage="storyboardStage"
-          :project-id="projectId"
-          :chapter-id="selectedChapterId ?? ''"
-          :project="project"
-          :models="models"
-          :templates="promptTemplates"
-          :mutate-long-project-data="mutateLongProjectData"
-          @image-config-saved="loadProject"
-          @templates-changed="reloadTemplates"
-          @go-assets="goAssets"
-        />
+        <TabPanel :active="activeTab === 'storyboard'">
+          <LongProjectStoryboardTab
+            v-if="storyboardOpened"
+            v-model:stage="storyboardStage"
+            :project-id="projectId"
+            :chapter-id="selectedChapterId ?? ''"
+            :project="project"
+            :models="models"
+            :templates="promptTemplates"
+            :mutate-long-project-data="mutateLongProjectData"
+            @image-config-saved="loadProject"
+            @templates-changed="reloadTemplates"
+            @go-assets="goAssets"
+          />
+        </TabPanel>
       </section>
     </main>
 
@@ -279,18 +291,18 @@ import ManualResultImportDialog from "@comic/components/common/ManualResultImpor
 import LongProjectNodeDialog from "@comic/components/LongProjectNodeDialog.vue";
 import LongProjectTree from "@comic/components/LongProjectTree.vue";
 import LongProjectChapterFlyout from "@comic/components/LongProjectChapterFlyout.vue";
-import LongProjectAssetFlyout from "@comic/components/LongProjectAssetFlyout.vue";
-import LongProjectAssetLibraryTree, { type AssetLibraryCategory } from "@comic/components/LongProjectAssetLibraryTree.vue";
-import LongProjectAssetLibrary from "@comic/components/LongProjectAssetLibrary.vue";
+import LongAssetLibraryView from "@comic/views/LongAssetLibraryView.vue";
 import LongProjectSourceTab from "@comic/components/LongProjectSourceTab.vue";
 import LongProjectScriptTab from "@comic/components/LongProjectScriptTab.vue";
 import LongProjectAssetTab from "@comic/components/LongProjectAssetTab.vue";
+import TabPanel from "@comic/components/common/TabPanel.vue";
 import LongProjectStoryboardTab from "@comic/components/LongProjectStoryboardTab.vue";
 import { useToast } from "@comic/composables/useToast";
 import { useLongProjectPersistence } from "@comic/composables/useLongProjectPersistence";
 import { useChapterDocRun } from "@comic/composables/useChapterDocRun";
 import { buildAnalysisPrompt, buildScriptPrompt } from "@comic/services/chapterDocService";
 import { stageAfterSourceEdit } from "@comic/utils/chapterStage";
+import { cleanupChapterData, hasSweepWork, sweepProjectData } from "@comic/services/projectDataCleanup";
 import type { LongChapterStartMode, LongProjectNode, LongProjectNodeType, ModelConfig, PromptTemplate } from "@comic/types";
 
 const route = useRoute();
@@ -312,25 +324,29 @@ const { selectedModelByKind, selectedTemplateByKind, initDefaults, getDoc, saveD
 const saving = ref(false);
 let autoSaveTimer: ReturnType<typeof setTimeout> | undefined;
 const sidebarCollapsed = ref(localStorage.getItem("comic-long-sidebar-collapsed") === "true");
-/** 收缩态章节/资产浮层实例（触发按钮 hover/click 转发给浮层管理显隐时机）。 */
+/** 收缩态章节浮层实例（触发按钮 hover/click 转发给浮层管理显隐时机）。 */
 const flyoutRef = ref<InstanceType<typeof LongProjectChapterFlyout> | null>(null);
-const assetFlyoutRef = ref<InstanceType<typeof LongProjectAssetFlyout> | null>(null);
-/** hover 触发某浮层时先立即收起另一个（避免同位叠放），并把触发按钮的垂直位置作为浮层锚点。 */
+/** hover 触发章节浮层时，把触发按钮的垂直位置作为浮层锚点。 */
 const triggerTop = (event: MouseEvent) => (event.currentTarget instanceof HTMLElement ? event.currentTarget.offsetTop : undefined);
-const hoverChapterFlyout = (event: MouseEvent) => { assetFlyoutRef.value?.close(); flyoutRef.value?.triggerEnter(triggerTop(event)); };
-const hoverAssetFlyout = (event: MouseEvent) => { flyoutRef.value?.close(); assetFlyoutRef.value?.triggerEnter(triggerTop(event)); };
-/** 鼠标离开收缩侧栏时，两个浮层都进入延迟收起。 */
-const onRailMouseleave = () => { flyoutRef.value?.triggerLeave(); assetFlyoutRef.value?.triggerLeave(); };
+const hoverChapterFlyout = (event: MouseEvent) => { flyoutRef.value?.triggerEnter(triggerTop(event)); };
+/** 鼠标离开收缩侧栏时，浮层进入延迟收起。 */
+const onRailMouseleave = () => { flyoutRef.value?.triggerLeave(); };
+
+/** 资产库内嵌视图实例（父级 onActivated 时触发刷新，合并其他页面写库的变更）。 */
+const libraryRef = ref<InstanceType<typeof LongAssetLibraryView> | null>(null);
+/** 资产库内嵌视图开关：true = 主区显示资产库（不选中章节）。 */
+const assetLibraryOpen = ref(false);
+/** 进入资产库视图：不走路由，就在 tree 右侧主区渲染。 */
+const selectAssetLibrary = async () => { if (isDirty.value) await saveCurrentChapter(false); selectedChapterId.value = null; assetLibraryOpen.value = true; persistLastSelection({ chapterId: null, library: true }); };
 
 /**
- * 「记住上次选中的章节／资产分类」的本地存档。
+ * 「记住上次选中的章节／资产库视图」的本地存档。
  * 作用：切到其他菜单 tab 再切回、或关闭页签后重开、乃至重启应用，
  * 都能回到上次正在编辑的章节（而不是空白）。
  * 按项目隔离，避免多项目多开时互相覆盖。
- * 存两类：chapter = 选中的章节 id；asset = 选中的资产分类。
  */
 const LAST_SELECTION_PREFIX = "comic-long-last-selection:";
-type LastSelection = { chapterId?: string | null; assetCategory?: AssetLibraryCategory | null };
+type LastSelection = { chapterId?: string | null; library?: boolean };
 
 function readLastSelection(): LastSelection {
   try {
@@ -354,7 +370,6 @@ function persistLastSelection(patch: LastSelection) {
 
 const expandedFolders = ref(new Set<string>());
 const selectedChapterId = ref<string | null>(null);
-const selectedAssetCategory = ref<AssetLibraryCategory | null>(null);
 const draftContent = ref("");
 /** 章节创作阶段页签 key（资产在分镜之前：原文 → 剧本 → 资产 → 分镜）。 */
 type ChapterTabKey = "source" | "script" | "assets" | "storyboard";
@@ -388,7 +403,8 @@ const contextMenu = ref<{ x: number; y: number; node: LongProjectNode | null } |
 
 const nodes = computed(() => project.value?.longProjectData?.nodes ?? []);
 const projectAssets = computed(() => project.value?.longProjectData?.assets ?? []);
-const assetsForSelectedCategory = computed(() => selectedAssetCategory.value ? projectAssets.value.filter((asset) => asset.type === selectedAssetCategory.value && asset.scope !== "chapter") : []);
+/** 项目资产计数（侧栏资产库入口徽标，与资产库视图口径一致：不过滤 scope）。 */
+const projectAssetCount = computed(() => projectAssets.value.length);
 const chapters = computed(() => nodes.value.filter((node) => node.type === "chapter").sort(sortNodes));
 const chapterCount = computed(() => chapters.value.length);
 const readyChapterCount = computed(() => chapters.value.filter((node) => Boolean(node.content?.trim())).length);
@@ -406,8 +422,8 @@ const scriptSourceChanged = computed(() => Boolean(scriptDoc.value && scriptDoc.
 const nodeDialogParentName = computed(() => nodeDialogParentId.value ? nodes.value.find((node) => node.id === nodeDialogParentId.value)?.name ?? "" : project.value?.name ?? "");
 const deleteDialogContent = computed(() => {
   if (!deletingNode.value) return "删除后无法恢复，是否确认删除？";
-  if (deletingNode.value.type === "folder") return `确定删除文件夹「${deletingNode.value.name}」吗？其中的 ${descendantsOf(deletingNode.value.id).filter((node) => node.type === "chapter").length} 个章节也会一并删除。`;
-  return `确定删除章节「${deletingNode.value.name}」吗？章节正文和后续创作数据将一并删除。`;
+  if (deletingNode.value.type === "folder") return `确定删除文件夹「${deletingNode.value.name}」吗？其中的 ${descendantsOf(deletingNode.value.id).filter((node) => node.type === "chapter").length} 个章节也会一并删除，各章的创作数据同步清理。`;
+  return `确定删除章节「${deletingNode.value.name}」吗？章节正文、分析、剧本、分镜、画面工件与提取记录将一并删除，仅剩该章引用的资产也会清理。此操作不可恢复。`;
 });
 
 const workflowSteps = [
@@ -583,16 +599,15 @@ async function handleImportConfirm() {
 const toggleFolder = (folderId: string) => { const next = new Set(expandedFolders.value); next.has(folderId) ? next.delete(folderId) : next.add(folderId); expandedFolders.value = next; };
 const selectChapter = async (chapter: LongProjectNode) => {
   if (isDirty.value) await saveCurrentChapter(false);
-  selectedAssetCategory.value = null;
+  assetLibraryOpen.value = false;
   selectedChapterId.value = chapter.id;
   draftContent.value = chapter.content ?? "";
-  persistLastSelection({ chapterId: chapter.id, assetCategory: null });
+  persistLastSelection({ chapterId: chapter.id, library: false });
   // 分镜/资产页签内切换章节时保持页签（资产工作台与分镜常驻挂载，切章不中断）；其余回到本章首个可用页签（剧本起稿章节无原文页签）
   if (activeTab.value !== "storyboard" && activeTab.value !== "assets") {
     activeTab.value = chapter.startMode === "script" ? "script" : "source";
   }
 };
-const selectAssetCategory = async (category: AssetLibraryCategory) => { if (isDirty.value) await saveCurrentChapter(false); selectedChapterId.value = null; selectedAssetCategory.value = category; persistLastSelection({ chapterId: null, assetCategory: category }); };
 const openCreateDialog = (type: LongProjectNodeType, parentId: string | null) => { editingNode.value = null; nodeDialogType.value = type; nodeDialogParentId.value = parentId; nodeDialogVisible.value = true; contextMenu.value = null; };
 const openRenameDialog = (node: LongProjectNode) => { editingNode.value = node; nodeDialogType.value = node.type; nodeDialogParentId.value = node.parentId; contextMenu.value = null; nodeDialogVisible.value = true; };
 const openContextMenu = (event: MouseEvent, node: LongProjectNode | null) => {
@@ -634,24 +649,78 @@ const handleNodeDialogSubmit = async ({ name, content, startMode }: { name: stri
     if (newNode.parentId) expandedFolders.value = new Set([...expandedFolders.value, newNode.parentId]);
     selectedChapterId.value = newNode.id;
     draftContent.value = "";
-    persistLastSelection({ chapterId: newNode.id, assetCategory: null });
+    assetLibraryOpen.value = false;
+    persistLastSelection({ chapterId: newNode.id, library: false });
     // 剧本起稿章节直接落到剧本页签
     activeTab.value = newNode.startMode === "script" ? "script" : "source";
   }
 };
 
 const requestDelete = (node: LongProjectNode) => { deletingNode.value = node; deleteDialogVisible.value = true; contextMenu.value = null; };
+/**
+ * 删除节点（含文件夹子树）：先摘掉节点树里的行，再清理这些章节名下的全部项目数据。
+ * 只摘节点不清数据的话，分析/剧本/分镜版本/画面工件/提取记录会永远留在库里且界面上再也访问不到。
+ */
 const confirmDelete = async () => {
   if (!deletingNode.value) return;
   const ids = new Set([deletingNode.value.id]);
   if (deletingNode.value.type === "folder") descendantsOf(deletingNode.value.id).forEach((node) => ids.add(node.id));
-  if (selectedChapterId.value && ids.has(selectedChapterId.value)) { selectedChapterId.value = null; draftContent.value = ""; persistLastSelection({ chapterId: null }); }
-  await persistNodes(nodes.value.filter((node) => !ids.has(node.id))); deletingNode.value = null;
+  if (selectedChapterId.value && ids.has(selectedChapterId.value)) { selectedChapterId.value = null; draftContent.value = ""; persistLastSelection({ chapterId: null }); }  const removedChapterIds = nodes.value.filter((node) => ids.has(node.id) && node.type === "chapter").map((node) => node.id);
+  const nextNodes = nodes.value.filter((node) => !ids.has(node.id));
+  await persistNodes(nextNodes);
+  if (removedChapterIds.length) await cleanupChapters(removedChapterIds);
+  deletingNode.value = null;
+};
+
+/** 清理已删除章节名下的项目数据（分析/剧本/分镜版本/画面工件/提取记录/章节资产引用 + 只剩它用的资产），并回执。 */
+const cleanupChapters = async (chapterIds: string[]) => {
+  const totalRemoved: number[] = [];
+  await mutateLongProjectData((data) => {
+    const report = cleanupChapterData(data, chapterIds);
+    totalRemoved.push(
+      report.analyses + report.scripts + report.storyboardRuns + report.panelArtworks
+      + report.assetExtractionRuns + report.chapterAssets + report.variants + report.assets,
+    );
+  });
+  const removed = totalRemoved[0] ?? 0;
+  if (removed) toast.success(`已删除 ${chapterIds.length} 个章节及其 ${removed} 条创作数据`);
+};
+
+/**
+ * 项目数据体检（载入时一次）：清理节点树里已不存在章节的残留 + 压缩版本历史堆叠。
+ * 这两类数据没有任何界面能访问到，却占了数据文件九成以上体积；幂等，无残留时不写库。
+ */
+const sweepStaleProjectData = async () => {
+  const data = project.value?.longProjectData;
+  if (!data || !hasSweepWork(data)) return;
+  const removed: number[] = [];
+  await mutateLongProjectData((draft) => {
+    const report = sweepProjectData(draft);
+    removed.push(report.danglingChapters + report.storyboardRuns + report.assetExtractionRuns
+      + report.panelArtworks + report.analyses + report.scripts + report.chapterAssets
+      + report.variants + report.assets);
+  });
+  const total = removed[0] ?? 0;
+  if (total) toast.success(`已清理 ${total} 条界面上不可访问的历史数据`);
+};
+
+/**
+ * 异常恢复：页面刚加载时不可能存在进行中的资产提取。
+ * 残留的 running 记录会让该章「提取资产 / 重新提取」按钮永久禁用（`extractBusy` 恒真），
+ * 而提取记录只增不删、没有别的入口能把它改掉 —— 必须在这里兜底标为失败。
+ */
+const recoverAssetExtraction = async () => {
+  const stuck = (project.value?.longProjectData?.assetExtractionRuns ?? []).some((run) => run.status === "running");
+  if (!stuck) return;
+  await mutateLongProjectData((data) => {
+    data.assetExtractionRuns = (data.assetExtractionRuns ?? []).map((run) => run.status === "running"
+      ? { ...run, status: "failed" as const, error: run.error || "上次资产提取被中断，请重新提取", updatedAt: Date.now() }
+      : run);
+  });
 };
 
 /** 自动保存当前章节正文（stage 只升不降，见 utils/chapterStage）。 */
-const saveCurrentChapter = async (notify: boolean) => {
-  if (!selectedChapter.value || !isDirty.value || saving.value) return;
+const saveCurrentChapter = async (notify: boolean) => {  if (!selectedChapter.value || !isDirty.value || saving.value) return;
   saving.value = true;
   try {
     const content = draftContent.value;
@@ -672,17 +741,17 @@ onBeforeUnmount(() => {
 });
 
 /**
- * 恢复上次选中的章节／资产分类（来自本地存档）。
+ * 恢复上次选中的章节／资产库视图（来自本地存档）。
  * - 章节：仅当该 id 在当前节点中真实存在时才恢复（防已删除/换项目后的悬空 id）；
- * - 资产分类：无选中章节时按存档恢复；若既无章节也无存档则保持空白。
+ * - 无章节存档但上次开着资产库视图 → 恢复资产库视图。
  * 进入时同步 draftContent，避免正文区与选中章节错位。
  */
 function restoreLastSelection() {
   const saved = readLastSelection();
   const savedChapterId = saved.chapterId;
   if (savedChapterId && chapters.value.some((node) => node.id === savedChapterId)) {
+    assetLibraryOpen.value = false;
     selectedChapterId.value = savedChapterId;
-    selectedAssetCategory.value = null;
     draftContent.value = selectedChapter.value?.content ?? "";
     // 页签落到该章节的首个可用页签（「从剧本开始」的章节没有原文页签）；资产/分镜页签挂载后保持
     if (activeTab.value !== "storyboard" && activeTab.value !== "assets") {
@@ -690,9 +759,9 @@ function restoreLastSelection() {
     }
     return;
   }
-  if (saved.assetCategory) {
+  if (saved.library) {
     selectedChapterId.value = null;
-    selectedAssetCategory.value = saved.assetCategory;
+    assetLibraryOpen.value = true;
   }
 }
 
@@ -713,7 +782,11 @@ onMounted(async () => {
     initDefaults(models.value, promptTemplates.value);
     // 异常恢复：页面刚加载时不可能有进行中的文档任务，残留 running 标记为失败
     await recoverInterrupted();
-    // 恢复上次选中的章节／资产分类（关闭页签后重开、重启应用均生效）
+    // 同理：资产提取的残留 running 会把该章提取入口永久锁死，一并恢复
+    await recoverAssetExtraction();
+    // 项目数据体检：清掉不可访问的历史堆积（版本历史、已删章节残留）
+    await sweepStaleProjectData();
+    // 恢复上次选中的章节（关闭页签后重开、重启应用均生效）
     restoreLastSelection();
   } finally { loading.value = false; }
 });
@@ -727,7 +800,9 @@ onActivated(async () => {
   if (loading.value) return;
   if (isDirty.value) await saveCurrentChapter(false);
   await loadProject();
-  if (!selectedChapter.value && !selectedAssetCategory.value) restoreLastSelection();
+  if (!selectedChapter.value && !assetLibraryOpen.value) restoreLastSelection();
+  // 资产库视图数据可能被其他页面写库更新，触发一次刷新
+  if (assetLibraryOpen.value) libraryRef.value?.refresh();
 });
 </script>
 

@@ -1,20 +1,8 @@
 <template>
   <div class="flex h-full flex-col overflow-hidden">
     <div class="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
-      <!-- 未匹配绑定：仅提示，不支持换绑（资产关联以分镜文本/资产库为准） -->
-      <div v-if="unmatchedBindings.length" class="mb-2.5 rounded-lg border border-amber-400/30 bg-amber-400/5 p-2.5">
-        <p class="text-[10px] text-amber-300">未匹配资产（名称与资产库对不上，请回资产工作台核对）</p>
-        <div class="mt-1.5 flex flex-wrap gap-1.5">
-          <span
-            v-for="entry in unmatchedBindings"
-            :key="`unmatched-${entry.index}`"
-            class="rounded border border-amber-400/30 px-2 py-1 text-[11px] text-amber-200"
-          >{{ entry.binding.assetName }}</span>
-        </div>
-      </div>
-
       <!-- 底部：人物/场景/道具 tab 分组的缩略图墙，点击缩略图放大预览；抽屉由 tab 行右侧按钮打开 -->
-      <div v-if="orderedEntries.length">
+      <div v-if="orderedEntries.length || pendingSlots.length || unmatchedEntries.length">
         <!-- Tab 切换：人物 / 场景 / 道具（与抽屉内 tab 同款样式）；右侧按钮打开参考图抽屉 -->
         <div class="mb-2.5 flex items-center gap-1 border-b border-border-subtle">
           <button
@@ -34,9 +22,10 @@
           >更多<ChevronRight :size="13" /></button>
         </div>
 
-        <!-- 缩略图墙：从左往右排列、自动换行；只显示缩略图，点击放大预览 -->
+        <!-- 缩略图墙：从左往右排列、自动换行；只显示缩略图，点击放大预览。
+             同一「资产+状态」只出现一个缩略图（多次声明也只绑一张图）。 -->
         <div class="flex flex-wrap gap-2">
-          <template v-for="entry in bottomEntries" :key="entry.index">
+          <template v-for="entry in visibleBottomEntries" :key="entry.index">
             <button
               v-if="selectedImage(entry)"
               class="group relative block shrink-0 overflow-hidden rounded border border-border-subtle transition-colors hover:border-cyan-400"
@@ -56,11 +45,36 @@
               @click="openDrawer(bottomTab)"
             >无图</button>
           </template>
+
+          <!-- 待绑定占位：出场资产有缺口时直接给空位，点一下按缺省状态绑定（幂等，连点不会重复添加） -->
+          <button
+            v-for="slot in tabPendingSlots"
+            :key="slot.key"
+            class="flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-0.5 rounded border border-dashed border-cyan-400/50 text-cyan-400 transition-colors hover:border-cyan-400 hover:bg-cyan-400/5"
+            :title="slot.title"
+            @click="runSlot(slot)"
+          >
+            <Plus :size="14" />
+            <span class="w-full truncate px-0.5 text-center text-[9px] leading-3">{{ slot.label }}</span>
+          </button>
+
+          <!-- 未匹配绑定（资产库中找不到）：每个 tab 都显示虚线占位，点击打开抽屉换绑（与缩略图同行排，放不下才换行） -->
+          <button
+            v-for="entry in unmatchedEntries"
+            :key="`unmatched-${entry.index}`"
+            class="flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-0.5 rounded border border-dashed border-amber-400/60 text-amber-500 transition-colors hover:border-amber-400 hover:bg-amber-400/5"
+            :title="`「${entry.binding.assetName}」不在资产库中，点击打开抽屉换绑`"
+            @click="openDrawer(bottomTab, entry.index)"
+          >
+            <Plus :size="14" />
+            <span class="w-full truncate px-0.5 text-center text-[9px] leading-3">{{ entry.binding.assetName }}</span>
+          </button>
         </div>
 
-        <p v-if="!bottomEntries.length" class="rounded-lg border border-dashed border-border-subtle px-3 py-4 text-center text-xs text-text-muted">
-          本分镜未绑定{{ assetTypeLabel(bottomTab) }}资产
-        </p>
+        <p
+          v-if="!visibleBottomEntries.length && !tabPendingSlots.length && !unmatchedEntries.length"
+          class="rounded-lg border border-dashed border-border-subtle px-3 py-4 text-center text-xs text-text-muted"
+        >本分镜未绑定{{ assetTypeLabel(bottomTab) }}资产</p>
       </div>
       <p v-else class="rounded-lg border border-dashed border-border-subtle px-3 py-4 text-center text-xs text-text-muted">本分镜未绑定资产</p>
     </div>
@@ -106,7 +120,8 @@
                 <div
                   v-for="entry in drawerEntries"
                   :key="entry.index"
-                  class="space-y-2.5 rounded-xl border border-border-subtle bg-elevated p-3"
+                  class="space-y-2.5 rounded-xl border p-3"
+                  :class="focusedEntryIndex === entry.index ? 'border-cyan-400 bg-cyan-400/5' : 'border-border-subtle bg-elevated'"
                 >
                   <div class="flex items-center gap-1.5">
                     <AssetBindingTag class="min-w-0 justify-start" :binding="entry.binding" :assets="assets" @inspect="inspectEntry(entry)">
@@ -116,47 +131,76 @@
                     </AssetBindingTag>
                   </div>
 
-                  <div v-if="cellVariantRows(entry).length" class="flex flex-wrap items-center gap-x-2 text-[10px] text-text-muted">
-                    <span
-                      v-for="row in cellVariantRows(entry)"
-                      :key="row.label"
-                      :class="row.isPrimary ? 'text-cyan-300' : ''"
-                    >{{ row.label }}：{{ row.variantName }}</span>
-                  </div>
-
-                  <!-- 视觉状态切换：chip 本地预选 -->
-                  <div v-if="(entry.asset?.variants.length ?? 0) > 1" class="flex flex-wrap gap-1.5">
+                  <!-- 未匹配绑定（资产库中找不到）：在抽屉里换绑到真实资产，换绑后缩略图出现在对应类型下 -->
+                  <div v-if="!entry.asset" class="flex items-center gap-1.5">
+                    <select
+                      class="min-w-0 flex-1 rounded border border-border-subtle bg-transparent px-1.5 py-1 text-[10px] text-text-primary outline-none"
+                      value=""
+                      @change="onRebindSelect(entry, $event)"
+                    >
+                      <option value="" disabled>「{{ entry.binding.assetName }}」不在资产库中，换绑到…</option>
+                      <option v-for="candidate in assets" :key="candidate.id" :value="candidate.id">{{ candidate.name }}</option>
+                    </select>
                     <button
-                      v-for="variant in entry.asset?.variants ?? []"
-                      :key="variant.id"
-                      class="drawer-chip"
-                      :class="{ 'drawer-chip--active': variant.id === drawerVariantOf(entry)?.id }"
-                      :title="variantTip(variant)"
-                      @click="pickDrawerVariant(entry, variant)"
-                    >{{ variant.name }}</button>
+                      class="shrink-0 rounded border border-red-500/30 px-2 py-1 text-[10px] text-red-600 transition-colors hover:bg-red-500/10 dark:text-red-400"
+                      @click="emitRemoveEntry(entry)"
+                    >移除</button>
                   </div>
 
-                  <!-- 参考图切换：本地预选，选第一张 = 恢复默认 -->
-                  <div v-if="drawerImages(entry).length" class="flex flex-wrap gap-2">
-                    <button v-for="image in drawerImages(entry)" :key="image" class="relative" @click="pickDrawerImage(entry, image)">
-                      <img
-                        :src="image"
-                        class="h-16 w-16 rounded border object-cover"
-                        :class="drawerSelected(entry) === image ? 'border-cyan-400' : 'border-border-subtle opacity-60 hover:opacity-90'"
-                        :alt="`${entry.binding.assetName}候选图`"
-                      />
-                      <span
-                        v-if="drawerSelected(entry) === image"
-                        class="pointer-events-none absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-cyan-400 text-slate-900"
-                      ><Check :size="10" /></span>
-                      <span
-                        v-if="drawerSelected(entry) === image && manifestIndexOf(entry) > 0"
-                        class="pointer-events-none absolute inset-x-0 bottom-0 rounded-b bg-black/60 px-0.5 text-center text-[9px] leading-4 text-white"
-                      >图{{ manifestIndexOf(entry) }}</span>
-                    </button>
-                    <p class="w-full text-[10px] leading-4 text-text-muted">选第一张 = 恢复默认（资产换图后自动跟随）</p>
-                  </div>
-                  <p v-else class="text-[10px] text-text-muted">该视觉状态暂无参考图（去资产工作台生成）</p>
+                  <template v-else>
+                    <!-- 使用位置：该状态在本镜的哪些格出现（格级声明解析）；页级整镜声明显示「整镜」 -->
+                    <p v-if="variantUsageLabel(entry)" class="text-[10px] text-text-muted">使用位置：{{ variantUsageLabel(entry) }}</p>
+
+                    <!-- 视觉状态切换：chip 本地预选 -->
+                    <div v-if="(entry.asset?.variants.length ?? 0) > 1" class="flex flex-wrap gap-1.5">
+                      <button
+                        v-for="variant in entry.asset?.variants ?? []"
+                        :key="variant.id"
+                        class="drawer-chip"
+                        :class="{ 'drawer-chip--active': variant.id === drawerVariantOf(entry)?.id }"
+                        :title="variantTip(variant)"
+                        @click="pickDrawerVariant(entry, variant)"
+                      >{{ variant.name }}</button>
+                    </div>
+
+                    <!-- 多状态管理：同一资产在本镜可同时持有多个视觉状态（各出各的参考图） -->
+                    <div v-if="canAddState(entry) || canRemoveState(entry)" class="flex items-center gap-1.5">
+                      <button
+                        v-if="canAddState(entry)"
+                        class="drawer-chip"
+                        title="同一镜可以同时使用该资产的多个视觉状态，各出各的参考图"
+                        @click="addState(entry)"
+                      >+ 添加状态</button>
+                      <button
+                        v-if="canRemoveState(entry)"
+                        class="drawer-chip"
+                        title="移除这一条状态绑定（随时可以再加回）"
+                        @click="removeState(entry)"
+                      >移除此状态</button>
+                    </div>
+
+                    <!-- 参考图切换：本地预选，选第一张 = 恢复默认 -->
+                    <div v-if="drawerImages(entry).length" class="flex flex-wrap gap-2">
+                      <button v-for="image in drawerImages(entry)" :key="image" class="relative" @click="pickDrawerImage(entry, image)">
+                        <img
+                          :src="image"
+                          class="h-16 w-16 rounded border object-cover"
+                          :class="drawerSelected(entry) === image ? 'border-cyan-400' : 'border-border-subtle opacity-60 hover:opacity-90'"
+                          :alt="`${entry.binding.assetName}候选图`"
+                        />
+                        <span
+                          v-if="drawerSelected(entry) === image"
+                          class="pointer-events-none absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-cyan-400 text-slate-900"
+                        ><Check :size="10" /></span>
+                        <span
+                          v-if="drawerSelected(entry) === image && manifestIndexOf(entry) > 0"
+                          class="pointer-events-none absolute inset-x-0 bottom-0 rounded-b bg-black/60 px-0.5 text-center text-[9px] leading-4 text-white"
+                        >图{{ manifestIndexOf(entry) }}</span>
+                      </button>
+                      <p class="w-full text-[10px] leading-4 text-text-muted">选第一张 = 恢复默认（资产换图后自动跟随）</p>
+                    </div>
+                    <p v-else class="text-[10px] text-text-muted">该视觉状态暂无生成图（去资产工作台生成；上传的参考图不进分镜）</p>
+                  </template>
                 </div>
               </template>
               <p v-else class="rounded-lg border border-dashed border-border-subtle px-3 py-8 text-center text-xs text-text-muted">
@@ -193,8 +237,8 @@
  * - 点「保存」一次性写库（set-binding-variant + set-binding-images）—— 逐次点击立即写盘是之前切换卡顿的根因；
  * - 点「取消」/ 遮罩 / Esc 关闭，丢弃未保存的预选。
  *
- * 有效参考图口径走 `effectiveVariantRefImages`：采纳图（referenceImageIds）为空时回落生成图
- * （generatedImageIds）—— 资产生成的图就是参考图。
+ * 有效参考图口径走 `effectiveVariantRefImages`：只取生成图（generatedImageIds）。
+ * 用户上传的参考图只发给该视觉状态自己的生图，不进分镜。
  *
  * 「图N」来自生图清单（`buildPanelRefManifest`，全项目唯一图号来源）：编号覆盖前置共用属性图 +
  * 各资产参考图的最终生图顺序，与生图 / 右栏分组 / 画面描述提示词同一口径。
@@ -203,10 +247,11 @@
  * （`assetUsageService`）三处一致，统一走 `resolvePanelRefImage`，否则会「标了在用其实没用」。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Check, ChevronRight, X } from 'lucide-vue-next'
+import { Check, ChevronRight, Plus, X } from 'lucide-vue-next'
 import type { LongProjectAsset, LongProjectAssetType, LongProjectAssetVariant, LongProjectStoryboardAssetBinding, LongProjectStoryboardPanel } from '@comic/types'
-import type { PanelRefManifest } from '@comic/services/panelRefManifest'
-import { effectiveVariantRefImages, resolvePanelBindings, resolvePanelRefImage } from '@comic/services/panelPromptService'
+import { effectiveVariantRefImages, resolvePanelBindings, resolvePanelRefImage, type RuntimeRefManifest } from '@comic/services/panelPromptService'
+import { bindingIdentityKey, type PanelBindingFix } from '@comic/services/promptAssetService'
+import { defaultVariant } from '@comic/services/storyboardService'
 import { ASSET_TYPE_ORDER, assetTypeLabel } from '@comic/utils/assetTypeTheme'
 import AssetBindingTag from '@comic/components/AssetBindingTag.vue'
 
@@ -216,36 +261,158 @@ const props = defineProps<{
   panel: LongProjectStoryboardPanel
   /** 本章可用资产（含全部视觉状态）。 */
   assets: LongProjectAsset[]
+  /** 当前章节 ID（待核对项的缺省状态按章节范围推导用）。 */
+  chapterId?: string
   /** 章节顺序表（章节 ID → 序号），用于视觉状态的章节范围悬浮提示。 */
   chapterOrders?: Record<string, number>
   /** 当前分镜的生图参考图清单（唯一图号来源 buildPanelRefManifest），「图N」角标由此对齐。 */
-  refManifest?: PanelRefManifest
+  /**
+   * 本镜生图参考图清单：父级已按当前选中提示词条的开关裁剪并重编图号，
+   * 所以这里读到的 `index` 就是这次实际发送的「图N」（`images[i]` = 图 i+1）。
+   * 用最小结构而非完整 PanelRefManifest：本组件只读 entries 的 index/source/variantId。
+   */
+  refManifest?: RuntimeRefManifest
+  /** 本镜绑定待核对项（父组件用审计算出，含画面描述参与判断）。 */
+  bindingFixes?: PanelBindingFix[]
 }>()
 
 const emit = defineEmits<{
-  /** 设定本镜使用的参考图（单选；空数组 = 恢复"未选"，即取第一张）。 */
-  (e: 'set-binding-images', payload: { panelId: string; assetId: string; imageIds: string[] }): void
-  (e: 'preview', payload: { images: string[]; index: number }): void
-  /** 手动切换本镜某资产绑定的视觉状态（父组件持久化为 manual 绑定 + 其后 auto 绑定延续重算）。 */
-  (e: 'set-binding-variant', payload: { panelId: string; assetId: string; variantId: string }): void
+  /** 设定某条绑定（资产+状态）的本镜参考图（单选；空数组 = 恢复"未选"，即取第一张）。 */
+  (e: 'set-binding-images', payload: { panelId: string; assetId: string; variantId?: string; imageIds: string[] }): void
+  /** 查看资产图大图：`removable: false` —— 中栏只是查看，图由资产页维护（不提供删除）。 */
+  (e: 'preview', payload: { images: string[]; index: number; removable: false }): void
+  /** 手动切换某条绑定的视觉状态（fromVariantId 定位要改的那条；多状态下同一资产可有多条绑定）。 */
+  (e: 'set-binding-variant', payload: { panelId: string; assetId: string; variantId: string; fromVariantId?: string }): void
+  /** 处理一条绑定待核对项 / 增删状态：补绑 / 选状态 / 状态落定 / 换绑 / 移除（父组件统一写库并重算延续链）。 */
+  (e: 'fix-binding', payload: {
+    panelId: string
+    action: 'add' | 'set-variant' | 'resolve' | 'rebind' | 'remove'
+    assetId?: string
+    variantId?: string
+    fromVariantId?: string
+    bindingIndex?: number
+  }): void
 }>()
 
 const tabs = ASSET_TYPE_ORDER.map((type) => ({ type, label: assetTypeLabel(type) }))
 
-/** 全部绑定（带原始下标）+ 资产分类信息。 */
-const entries = computed<BindingEntry[]>(() =>
-  props.panel.assetBindings.map((binding, index) => ({
-    index,
-    binding,
-    asset: props.assets.find((item) => item.id === binding.assetId),
-  })),
-)
+/** 全部绑定（带原始下标）+ 资产分类信息。同一「资产+状态」只保留首个 —— 重复声明只算一次、只绑一张图。 */
+const entries = computed<BindingEntry[]>(() => {
+  const seen = new Set<string>()
+  const result: BindingEntry[] = []
+  props.panel.assetBindings.forEach((binding, index) => {
+    const key = bindingIdentityKey(binding)
+    if (seen.has(key)) return
+    seen.add(key)
+    result.push({ index, binding, asset: props.assets.find((item) => item.id === binding.assetId) })
+  })
+  return result
+})
 
+/** tab 计数 = 该类型下的绑定条数（同资产多状态各算一条，P09 魔石碑两条状态 → 计 2）。 */
 function countOf(type: LongProjectAssetType): number {
   return entries.value.filter((entry) => entry.asset?.type === type).length
 }
 
-const unmatchedBindings = computed(() => entries.value.filter((entry) => !entry.asset))
+/* ===== 待绑定占位：绑定有缺口时在缩略图墙里给空位，点一下即完成绑定 ===== */
+
+/** 待核对项（父组件未传时为空，模板无需判空）。 */
+const fixes = computed<PanelBindingFix[]>(() => props.bindingFixes ?? [])
+
+/** 待核对项的资产：从 assets 实时取（核对期间资产可能被改名 / 改状态）。 */
+function fixAssetOf(fix: PanelBindingFix): LongProjectAsset | undefined {
+  const id = fix.asset?.id
+  return id ? props.assets.find((item) => item.id === id) : undefined
+}
+
+/** 候选资产的缺省视觉状态：按章节范围推导，推不出用第一个状态。 */
+function fixDefaultVariantId(asset: LongProjectAsset): string | undefined {
+  return defaultVariant(asset, props.chapterId ?? '', props.chapterOrders ?? {})?.id ?? asset.variants[0]?.id
+}
+
+/** 可一键绑定的占位（缺省状态兜底；歧义名每个候选各一个占位）。 */
+interface PendingSlot {
+  key: string
+  type: LongProjectAssetType
+  label: string
+  title: string
+  fix: PanelBindingFix
+  candidate?: LongProjectAsset
+}
+
+const pendingSlots = computed<PendingSlot[]>(() => {
+  const slots: PendingSlot[] = []
+  for (const fix of fixes.value) {
+    if (fix.reason === 'missing-binding' || fix.reason === 'missing-variant') {
+      const asset = fixAssetOf(fix)
+      if (!asset) continue
+      slots.push({
+        key: fix.id,
+        type: asset.type,
+        label: asset.name,
+        title: fix.reason === 'missing-variant'
+          ? `${asset.name}：视觉状态未定，点击按缺省状态完成绑定`
+          : `${asset.name}：点击绑定（按章节范围取缺省状态）`,
+        fix,
+      })
+      continue
+    }
+    if (fix.reason === 'ambiguous-name') {
+      for (const candidate of fix.candidates ?? []) {
+        slots.push({
+          key: `${fix.id}:${candidate.id}`,
+          type: candidate.type,
+          label: candidate.name,
+          title: `「${fix.label}」有同名资产，点击绑定为「${candidate.name}」`,
+          fix,
+          candidate,
+        })
+      }
+    }
+  }
+  return slots
+})
+
+/** 当前 tab 下的待绑定占位。 */
+const tabPendingSlots = computed(() => pendingSlots.value.filter((slot) => slot.type === bottomTab.value))
+
+/** 未匹配绑定（资产库中找不到，asset 解析不出来）：在每个 tab 都以虚线占位呈现，点击打开抽屉换绑。 */
+const unmatchedEntries = computed<BindingEntry[]>(() => entries.value.filter((entry) => !entry.asset))
+
+/** 点击占位：按缺省状态一次性绑定成功；重复点击由父级「已存在即跳过」兜底，不会重复添加。 */
+function runSlot(slot: PendingSlot) {
+  const asset = slot.candidate ?? fixAssetOf(slot.fix)
+  if (!asset) return
+  // 状态未定 → resolve：页级 + 格级的无状态绑定一并落定（只修页级时格级会让占位框永远点不掉）
+  const isResolve = slot.fix.reason === 'missing-variant'
+  emit('fix-binding', {
+    panelId: props.panel.id,
+    action: isResolve ? 'resolve' : 'add',
+    assetId: asset.id,
+    variantId: fixDefaultVariantId(asset),
+  })
+}
+
+/** 移除一条绑定（按页级下标；用于未匹配绑定的「移除」）。 */
+function emitRemoveEntry(entry: BindingEntry) {
+  emit('fix-binding', { panelId: props.panel.id, action: 'remove', bindingIndex: entry.index })
+}
+
+/** 换绑：把未匹配绑定指向选定的真实资产（状态按章节范围取缺省；格级同名声明随之修正）。 */
+function onRebindSelect(entry: BindingEntry, event: Event) {
+  const select = event.target as HTMLSelectElement
+  const assetId = select.value
+  select.value = ''
+  if (!assetId) return
+  const asset = props.assets.find((item) => item.id === assetId)
+  emit('fix-binding', {
+    panelId: props.panel.id,
+    action: 'rebind',
+    assetId,
+    variantId: asset ? fixDefaultVariantId(asset) : undefined,
+    bindingIndex: entry.index,
+  })
+}
 
 /** 底部卡片排序：人物 → 场景 → 道具（与生图清单的资产顺序一致）。 */
 const orderedEntries = computed<BindingEntry[]>(() =>
@@ -261,11 +428,33 @@ const bottomEntries = computed<BindingEntry[]>(() =>
   orderedEntries.value.filter((entry) => entry.asset?.type === bottomTab.value),
 )
 
-/** 切换分镜时：底部 tab 自动定位到第一个有绑定的分类。 */
+/**
+ * 缩略图墙实际渲染的卡片：
+ * - 有「状态未定」待绑占位的绑定不重复渲染（占位框就是它的代表，绑定后缩略图顶上来）；
+ * - 同一「资产+状态」只渲染一个（多次声明也只绑一张图）。
+ */
+const visibleBottomEntries = computed<BindingEntry[]>(() => {
+  const hidden = new Set(
+    fixes.value
+      .filter((fix) => fix.reason === 'missing-variant' && fix.bindingIndex !== undefined)
+      .map((fix) => fix.bindingIndex as number),
+  )
+  const seen = new Set<string>()
+  return bottomEntries.value.filter((entry) => {
+    if (hidden.has(entry.index)) return false
+    const key = bindingIdentityKey(entry.binding)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+})
+
+/** 切换分镜时：底部 tab 自动定位到第一个有绑定 / 待绑定占位的分类。 */
 watch(
   () => props.panel.id,
   () => {
-    bottomTab.value = ASSET_TYPE_ORDER.find((type) => countOf(type) > 0) ?? 'character'
+    bottomTab.value = ASSET_TYPE_ORDER.find((type) =>
+      countOf(type) > 0 || pendingSlots.value.some((slot) => slot.type === type)) ?? 'character'
   },
   { immediate: true },
 )
@@ -273,9 +462,9 @@ watch(
 /** 页级绑定解析结果（绑定快照 → 当前资产/状态），本次渲染内复用，避免每个 helper 各算一遍。 */
 const resolvedBindings = computed(() => resolvePanelBindings(props.panel, props.assets))
 
-/** 绑定解析到的资产 + 当前生效状态（未命中资产时为 undefined）。 */
+/** 绑定解析到的资产 + 当前生效状态（未命中资产时为 undefined）。按绑定对象引用匹配 —— 多状态下同一资产有多条绑定。 */
 function resolvedOf(entry: BindingEntry) {
-  return resolvedBindings.value.find((item) => item.asset.id === entry.binding.assetId)
+  return resolvedBindings.value.find((item) => item.binding === entry.binding)
 }
 
 /** 本镜实际使用的参考图：以 visualVersionId 实时查 variant（绑定快照仅作兜底）。 */
@@ -292,7 +481,7 @@ function selectedIndex(entry: BindingEntry): number {
   return index < 0 ? 0 : index
 }
 
-/** 该绑定实际生效（已落库）视觉状态的参考图列表（采纳图为空时回落到生成图）。 */
+/** 该绑定实际生效（已落库）视觉状态的参考图列表（只含生成图）。 */
 function effectiveImagesOf(entry: BindingEntry): string[] {
   const resolved = resolvedOf(entry)
   if (resolved) return effectiveVariantRefImages(resolved.variant)
@@ -313,21 +502,29 @@ function currentVariantOf(entry: BindingEntry): LongProjectAssetVariant | undefi
 }
 
 /**
- * 该资产在本镜各格的实际状态行（格级「出场资产」声明解析）。
- * 各格状态一致、无格级声明或单格页时不显示（避免噪音）；镜末状态高亮标注。
+ * 该状态在本镜的**使用位置**（格级「出场资产」声明解析）：`用于第1、3格`。
+ * 资产在格级有声明但本状态不在其中 → `整镜`（页级声明的语义）；资产完全无格级声明 → 不显示（避免噪音）。
  */
-function cellVariantRows(entry: BindingEntry): Array<{ label: string; variantName: string; isPrimary: boolean }> {
-  if (!entry.asset) return []
-  const rows: Array<{ label: string; variantName: string }> = []
+function variantUsageLabel(entry: BindingEntry): string {
+  const asset = entry.asset
+  const variant = currentVariantOf(entry)
+  if (!asset || !variant) return ''
+  const cellIndexes: number[] = []
+  let hasCellDeclaration = false
   props.panel.cells?.forEach((cell, cellIndex) => {
-    const binding = (cell.assetBindings ?? []).find((item) => entry.binding.assetId && item.assetId === entry.binding.assetId)
-    if (!binding) return
-    rows.push({ label: `格${cellIndex + 1}`, variantName: binding.visualVersionName || '默认' })
+    const bindings = cell.assetBindings ?? []
+    if (!bindings.some((item) => entry.binding.assetId && item.assetId === entry.binding.assetId)) return
+    hasCellDeclaration = true
+    // 格级状态的解析口径与 resolveCellBindings 一致：id 优先 → 状态名 → 无状态回落第一个
+    const hit = bindings.some((item) => {
+      const resolved = asset.variants.find((v) => v.id === item.visualVersionId)
+        ?? (!item.visualVersionId ? asset.variants.find((v) => v.name === item.visualVersionName) ?? asset.variants[0] : undefined)
+      return resolved?.id === variant.id
+    })
+    if (hit) cellIndexes.push(cellIndex)
   })
-  if (rows.length < 2) return []
-  if (new Set(rows.map((row) => row.variantName)).size < 2) return []
-  const primaryName = currentVariantOf(entry)?.name
-  return rows.map((row) => ({ ...row, isPrimary: row.variantName === primaryName }))
+  if (cellIndexes.length) return `用于第${cellIndexes.map((index) => index + 1).join('、')}格`
+  return hasCellDeclaration ? '整镜' : ''
 }
 
 /** 状态的章节范围提示文案（无章节顺序表或无范围时返回 undefined）。 */
@@ -345,26 +542,29 @@ function variantTip(variant: LongProjectAssetVariant): string {
   return [variant.anchor || variant.description || '', chapterRangeLabel(variant)].filter(Boolean).join(' · ')
 }
 
-/** 点击资产 tag：放大查看该视觉状态参考图。 */
+/** 点击资产 tag：放大查看该视觉状态参考图（只查看，不提供删除）。 */
 function inspectEntry(entry: BindingEntry) {
   const images = effectiveImagesOf(entry)
-  if (images.length) emit('preview', { images, index: selectedIndex(entry) })
+  if (images.length) emit('preview', { images, index: selectedIndex(entry), removable: false })
 }
 
 /* ===== 参考图抽屉：本地预选 + 保存一次性写库 ===== */
 
 const drawerVisible = ref(false)
 const drawerTab = ref<LongProjectAssetType>('character')
-/** 预选的视觉状态（assetId → variantId）。 */
+/** 抽屉内高亮的绑定下标（从缩略图墙的未匹配占位点进来时定位用）。 */
+const focusedEntryIndex = ref<number | null>(null)
+/** 预选的视觉状态（绑定下标 → variantId）。 */
 const pendingVariants = ref<Record<string, string>>({})
-/** 预选的参考图（assetId → 图片地址；'' = 恢复默认第一张）。 */
+/** 预选的参考图（绑定下标 → 图片地址；'' = 恢复默认第一张）。 */
 const pendingImages = ref<Record<string, string>>({})
 
 watch(() => props.panel.id, () => closeDrawer())
 
-/** 打开抽屉：可指定定位到的分类 tab（缺省用底部当前 tab）。 */
-function openDrawer(type?: LongProjectAssetType) {
+/** 打开抽屉：可指定定位到的分类 tab（缺省用底部当前 tab）与高亮的绑定。 */
+function openDrawer(type?: LongProjectAssetType, focusIndex?: number) {
   drawerTab.value = type ?? bottomTab.value
+  focusedEntryIndex.value = focusIndex ?? null
   pendingVariants.value = {}
   pendingImages.value = {}
   drawerVisible.value = true
@@ -372,20 +572,29 @@ function openDrawer(type?: LongProjectAssetType) {
 
 function closeDrawer() {
   drawerVisible.value = false
+  focusedEntryIndex.value = null
   pendingVariants.value = {}
   pendingImages.value = {}
 }
 
-const drawerEntries = computed<BindingEntry[]>(() => entries.value.filter((entry) => entry.asset?.type === drawerTab.value))
+/** 抽屉条目：当前 tab 的绑定 + 未匹配绑定（无类型，每个 tab 都显示，就地换绑）。 */
+const drawerEntries = computed<BindingEntry[]>(() =>
+  entries.value.filter((entry) => !entry.asset || entry.asset.type === drawerTab.value),
+)
+
+/** 预选键 = 绑定在页级列表里的下标：多状态下同一资产有多条绑定，按 assetId 存会互相覆盖。 */
+function pendingKey(entry: BindingEntry): string {
+  return String(entry.index)
+}
 
 /** 抽屉内该绑定展示的视觉状态：预选优先，未预选用当前生效状态。 */
 function drawerVariantOf(entry: BindingEntry): LongProjectAssetVariant | undefined {
-  const pendingId = entry.asset ? pendingVariants.value[entry.asset.id] : undefined
+  const pendingId = pendingVariants.value[pendingKey(entry)]
   if (pendingId) return entry.asset?.variants.find((variant) => variant.id === pendingId)
   return currentVariantOf(entry)
 }
 
-/** 抽屉内候选图：跟随预选状态的参考图（采纳图为空回落生成图）。 */
+/** 抽屉内候选图：跟随预选状态的生成图（上传参考图不进分镜）。 */
 function drawerImages(entry: BindingEntry): string[] {
   const variant = drawerVariantOf(entry)
   return variant ? effectiveVariantRefImages(variant) : []
@@ -395,26 +604,70 @@ function drawerImages(entry: BindingEntry): string[] {
 function drawerSelected(entry: BindingEntry): string | undefined {
   const images = drawerImages(entry)
   if (!images.length) return undefined
-  const pending = entry.asset ? pendingImages.value[entry.asset.id] : undefined
+  const key = pendingKey(entry)
+  const pending = pendingImages.value[key]
   if (pending !== undefined) return images.includes(pending) ? pending : images[0]
-  if (pendingVariants.value[entry.asset?.id ?? '']) return images[0]
+  if (pendingVariants.value[key]) return images[0]
   const applied = selectedImage(entry)
   return applied && images.includes(applied) ? applied : images[0]
 }
 
-/** 预选视觉状态：清掉该资产的图片预选（新状态的候选图不同）。 */
+/** 预选视觉状态：清掉该条绑定的图片预选（新状态的候选图不同）。 */
 function pickDrawerVariant(entry: BindingEntry, variant: LongProjectAssetVariant) {
   if (!entry.asset || drawerVariantOf(entry)?.id === variant.id) return
-  pendingVariants.value = { ...pendingVariants.value, [entry.asset.id]: variant.id }
+  const key = pendingKey(entry)
+  pendingVariants.value = { ...pendingVariants.value, [key]: variant.id }
   const next = { ...pendingImages.value }
-  delete next[entry.asset.id]
+  delete next[key]
   pendingImages.value = next
 }
 
 /** 预选参考图：'' = 恢复默认（保存时写空数组）。 */
 function pickDrawerImage(entry: BindingEntry, image: string) {
+  pendingImages.value = { ...pendingImages.value, [pendingKey(entry)]: image }
+}
+
+/** 同一资产在本镜已绑定的状态 id 集合（多状态：判断还能加哪些状态）。 */
+function boundVariantIdsOf(asset: LongProjectAsset): Set<string> {
+  return new Set(
+    entries.value
+      .filter((entry) => entry.asset?.id === asset.id)
+      .map((entry) => currentVariantOf(entry)?.id)
+      .filter(Boolean) as string[],
+  )
+}
+
+/** 该资产还有未绑定的状态 → 抽屉里显示「+ 添加状态」。 */
+function canAddState(entry: BindingEntry): boolean {
+  if (!entry.asset || entry.asset.variants.length < 2) return false
+  return entry.asset.variants.some((variant) => !boundVariantIdsOf(entry.asset!).has(variant.id))
+}
+
+/** 该资产在本镜有多条绑定 → 允许移除其中一条（移除后可随时再加回）。 */
+function canRemoveState(entry: BindingEntry): boolean {
+  if (!entry.asset || entry.asset.variants.length < 2) return false
+  return entries.value.filter((item) => item.asset?.id === entry.asset?.id).length > 1
+}
+
+/** 新增一条状态绑定：取该资产第一个尚未绑定的状态。 */
+function addState(entry: BindingEntry) {
+  const asset = entry.asset
+  if (!asset) return
+  const bound = boundVariantIdsOf(asset)
+  const variant = asset.variants.find((item) => !bound.has(item.id))
+  if (!variant) return
+  emit('fix-binding', { panelId: props.panel.id, action: 'add', assetId: asset.id, variantId: variant.id })
+}
+
+/** 移除这一条状态绑定（按「资产+状态」定位）。 */
+function removeState(entry: BindingEntry) {
   if (!entry.asset) return
-  pendingImages.value = { ...pendingImages.value, [entry.asset.id]: image }
+  emit('fix-binding', {
+    panelId: props.panel.id,
+    action: 'remove',
+    assetId: entry.asset.id,
+    fromVariantId: currentVariantOf(entry)?.id ?? '',
+  })
 }
 
 /** 保存：一次性把全部预选写库（先状态后图片），随后关闭抽屉。 */
@@ -422,13 +675,19 @@ function saveDrawer() {
   const panelId = props.panel.id
   for (const entry of entries.value) {
     if (!entry.asset) continue
-    const pendingVariant = pendingVariants.value[entry.asset.id]
+    const key = pendingKey(entry)
+    const pendingVariant = pendingVariants.value[key]
     if (pendingVariant && currentVariantOf(entry)?.id !== pendingVariant) {
-      emit('set-binding-variant', { panelId, assetId: entry.asset.id, variantId: pendingVariant })
+      emit('set-binding-variant', { panelId, assetId: entry.asset.id, variantId: pendingVariant, fromVariantId: currentVariantOf(entry)?.id })
     }
-    const pendingImage = pendingImages.value[entry.asset.id]
+    const pendingImage = pendingImages.value[key]
     if (pendingImage !== undefined) {
-      emit('set-binding-images', { panelId, assetId: entry.asset.id, imageIds: pendingImage === '' ? [] : [pendingImage] })
+      emit('set-binding-images', {
+        panelId,
+        assetId: entry.asset.id,
+        variantId: drawerVariantOf(entry)?.id,
+        imageIds: pendingImage === '' ? [] : [pendingImage],
+      })
     }
   }
   closeDrawer()

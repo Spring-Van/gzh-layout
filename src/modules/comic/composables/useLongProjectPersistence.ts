@@ -58,5 +58,20 @@ export function useLongProjectPersistence(projectId: string) {
   const persistLongProjectData = (changes: Partial<NonNullable<ComicProject['longProjectData']>>) =>
     mutateLongProjectData((data) => { Object.assign(data, changes) })
 
-  return { project, loading, loadProject, mutateLongProjectData, persistLongProjectData }
+  /**
+   * 项目根级 read-modify-write（imageGenConfig 等挂在 ComicProject 根上、不在 longProjectData 里）。
+   * 与 mutateLongProjectData 同一串行队列，写回后刷新 project ref，保证全页响应式同步。
+   */
+  const mutateProject = (mutate: (project: ComicProject) => void) =>
+    runPersistTask(async () => {
+      const latest = (await comicDb.getProject(projectId)) ?? project.value
+      if (!latest) return
+      const draft = JSON.parse(JSON.stringify(latest)) as ComicProject
+      mutate(draft)
+      const updated: ComicProject = { ...draft, updatedAt: Date.now() }
+      await comicDb.saveProject(updated)
+      project.value = updated
+    })
+
+  return { project, loading, loadProject, mutateLongProjectData, mutateProject, persistLongProjectData }
 }

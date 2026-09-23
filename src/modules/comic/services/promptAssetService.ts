@@ -83,16 +83,40 @@ export function detectAssetsInText(text: string, index: AssetNameEntry[]): Map<s
 
 /** 文本明确写出视觉状态名或状态标签时优先使用该状态；多状态同时出现时取最后提及者。 */
 function variantMentionedInText(asset: LongProjectAsset, text: string): LongProjectAsset['variants'][number] | undefined {
+  const all = variantMentionsInText(asset, text)
+  return all.length ? all[all.length - 1].variant : undefined
+}
+
+interface VariantMention {
+  variant: LongProjectAsset['variants'][number]
+  /** 该状态在文本中的**最后**一次出现位置（紧凑文本下标） */
+  position: number
+}
+
+/**
+ * 文本提及的**全部**视觉状态，按首次提及顺序排列（去重）。
+ *
+ * 2026-09-22 起同一格/同一镜允许同一资产出现多个状态（`魔石碑亮起三段字符，随后变为七段` → 两个都绑），
+ * `variantMentionedInText` 保留为「取最后提及者」的旧语义包装。
+ */
+function variantsMentionedInText(asset: LongProjectAsset, text: string): LongProjectAsset['variants'][number][] {
+  return variantMentionsInText(asset, text).map((mention) => mention.variant)
+}
+
+function variantMentionsInText(asset: LongProjectAsset, text: string): VariantMention[] {
   const compactText = text.toLocaleLowerCase().replace(/[\s　]+/g, '')
-  const candidates = asset.variants
-    .flatMap((variant) => [variant.name, ...(variant.tags ?? [])].map((cue) => ({
-      variant,
-      cue: cue.trim().toLocaleLowerCase().replace(/[\s　]+/g, ''),
-    })))
-    .filter((item) => item.cue.length >= 2 && compactText.includes(item.cue))
-    .map((item) => ({ ...item, position: compactText.lastIndexOf(item.cue) }))
-    .sort((a, b) => b.position - a.position || b.cue.length - a.cue.length)
-  return candidates[0]?.variant
+  const byVariant = new Map<string, VariantMention>()
+  for (const variant of asset.variants) {
+    let best: VariantMention | undefined
+    for (const cue of [variant.name, ...(variant.tags ?? [])]) {
+      const compact = cue.trim().toLocaleLowerCase().replace(/[\s　]+/g, '')
+      if (compact.length < 2 || !compactText.includes(compact)) continue
+      const mention = { variant, position: compactText.lastIndexOf(compact) }
+      if (!best || mention.position > best.position) best = mention
+    }
+    if (best && !byVariant.has(variant.id)) byVariant.set(variant.id, best)
+  }
+  return [...byVariant.values()].sort((a, b) => a.position - b.position)
 }
 
 /** 一格参与资产识别的全部文本字段。不能只扫描画面，否则人物/道具写在字段里会漏绑。 */
@@ -111,11 +135,125 @@ function bindingKey(binding: Pick<LongProjectStoryboardAssetBinding, 'assetId' |
   return binding.assetId ?? normalizedName(binding.assetName)
 }
 
+/**
+ * 绑定的**身份键**：`资产 + 视觉状态`。
+ *
+ * 2026-09-22 起同一资产允许在同一镜（页级）或同一格（格级）持有多个视觉状态 ——
+ * 分镜画面需要几个状态就出几张参考图，去重与匹配一律按 `assetId::visualVersionId`，
+ * 不再按 assetId 折叠（那会把多状态抹平成一个）。
+ * 没有状态的绑定以空状态位参与键（`资产::`），与「有状态」的绑定互不冲突。
+ */
+export function bindingIdentityKey(binding: LongProjectStoryboardAssetBinding): string {
+  const asset = binding.assetId ?? normalizedName(binding.assetName)
+  return `${asset}::${binding.visualVersionId ?? ''}`
+}
+
+/**
+ * 按「资产 + 状态」去重合并绑定列表：资产按首次出现顺序分组，同资产的多个状态按首次出现顺序排列。
+ * 格级 → 页级汇总（`summarizeCellBindings` / `summarizeCellBindingsForSync`）共用这一条口径，
+ * 保证 `格1 便装 + 格2 战斗服` 汇总成 `林小雨（便装）、林小雨（战斗服）` 而不是只留镜末状态。
+ */
+export function mergeBindingsByIdentity(bindings: Iterable<LongProjectStoryboardAssetBinding>): LongProjectStoryboardAssetBinding[] {
+  const assetOrder: string[] = []
+  const byAsset = new Map<string, Map<string, LongProjectStoryboardAssetBinding>>()
+  for (const binding of bindings) {
+    const assetKey = binding.assetId ?? normalizedName(binding.assetName)
+    let variants = byAsset.get(assetKey)
+    if (!variants) {
+      variants = new Map()
+      byAsset.set(assetKey, variants)
+      assetOrder.push(assetKey)
+    }
+    const key = bindingIdentityKey(binding)
+    if (!variants.has(key)) variants.set(key, { ...binding })
+  }
+  return assetOrder.flatMap((assetKey) => [...byAsset.get(assetKey)!.values()])
+}
+
 function sameBinding(a: LongProjectStoryboardAssetBinding, b: LongProjectStoryboardAssetBinding): boolean {
   return bindingKey(a) === bindingKey(b)
     && a.visualVersionId === b.visualVersionId
     && a.visualVersionName === b.visualVersionName
     && a.matchSource === b.matchSource
+}
+
+/**
+ * 单个资产的自动绑定扫描（格级 / 页级共用一套口径）。
+ *
+ * 2026-09-22 起**同一资产允许多个状态**：
+ * - 文本提及的状态**全部**绑定（`魔石碑亮起三段，随后变七段` → 两条绑定、出两张参考图）；
+ *   已有 auto-text 槽位按序复用（保持列表位置，避免图号跳动），不够的追加，多余的移除；
+ * - **manual 绑定是用户锚点，永不自动改写、不因文本提及其他状态而被覆盖**；
+ * - 文本未提及任何状态时：维持既有绑定不动（多状态下「该改哪条」无从判断）；
+ *   仅在「完全没有绑定」或「唯一一条缺状态」时用延续/默认兜底 —— 与旧单状态行为一致。
+ */
+function scanAssetBindingsForAsset(
+  bindings: LongProjectStoryboardAssetBinding[],
+  asset: LongProjectAsset,
+  mentioned: LongProjectAsset['variants'][number][],
+  resolveVariant: (asset: LongProjectAsset, text?: string) => LongProjectAsset['variants'][number] | undefined,
+  text: string,
+): { next: LongProjectStoryboardAssetBinding[]; changed: boolean } {
+  const next = [...bindings]
+  let changed = false
+  const isAsset = (binding: LongProjectStoryboardAssetBinding) => binding.assetId === asset.id
+  const autoSlots = () => next.reduce<number[]>((acc, binding, index) => {
+    if (isAsset(binding) && binding.matchSource === 'auto-text') acc.push(index)
+    return acc
+  }, [])
+  const makeBinding = (variant: LongProjectAsset['variants'][number] | undefined): LongProjectStoryboardAssetBinding => ({
+    assetId: asset.id,
+    assetName: asset.name,
+    visualVersionId: variant?.id,
+    visualVersionName: variant?.name,
+    matchSource: 'auto-text',
+    referenceImageIds: variant?.referenceImageIds ?? [],
+  })
+
+  if (mentioned.length) {
+    const mentionedIds = new Set(mentioned.map((variant) => variant.id))
+    const slots = autoSlots()
+    let slotCursor = 0
+    mentioned.forEach((variant) => {
+      // 非 auto 来源（model / manual / chapter-range）已有这个「资产+状态」→ 不重复建
+      if (next.some((binding) => isAsset(binding) && binding.matchSource !== 'auto-text' && binding.visualVersionId === variant.id)) return
+      if (slotCursor < slots.length) {
+        const index = slots[slotCursor]
+        slotCursor += 1
+        if (next[index].visualVersionId !== variant.id) {
+          next[index] = { ...next[index], visualVersionId: variant.id, visualVersionName: variant.name, referenceImageIds: variant.referenceImageIds ?? [], selectedImageIds: undefined }
+          changed = true
+        }
+        return
+      }
+      next.push(makeBinding(variant))
+      changed = true
+    })
+    // 移除不再被提及的 auto 槽位（从后往前删，避免下标失效）
+    for (let index = next.length - 1; index >= 0; index -= 1) {
+      const binding = next[index]
+      if (isAsset(binding) && binding.matchSource === 'auto-text' && binding.visualVersionId && !mentionedIds.has(binding.visualVersionId)) {
+        next.splice(index, 1)
+        changed = true
+      }
+    }
+    return { next, changed }
+  }
+
+  const existing = next.filter(isAsset)
+  if (!existing.length) {
+    next.push(makeBinding(resolveVariant(asset, text)))
+    return { next, changed: true }
+  }
+  if (existing.length === 1 && !existing[0].visualVersionId) {
+    const variant = resolveVariant(asset, text)
+    if (variant) {
+      const index = next.indexOf(existing[0])
+      next[index] = { ...existing[0], visualVersionId: variant.id, visualVersionName: variant.name, referenceImageIds: variant.referenceImageIds ?? [], selectedImageIds: undefined }
+      return { next, changed: true }
+    }
+  }
+  return { next, changed }
 }
 
 /** 格级自动绑定：扫描这一格的所有可见/可听字段，保证人物字段和画面字段都能触发绑定。 */
@@ -132,45 +270,17 @@ export function computeCellAutoBindings(
     return detected.has(binding.assetId)
   })
   let changed = next.length !== current.length
-  for (const [assetId, asset] of detected) {
-    const mentionedVariant = variantMentionedInText(asset, text)
-    const variant = mentionedVariant ?? resolveVariant(asset, text)
-    const existingIndex = next.findIndex((binding) => binding.assetId === assetId)
-    if (existingIndex >= 0) {
-      const existing = next[existingIndex]
-      const followsResolvedState = existing.matchSource === 'auto-text' || existing.matchSource === 'manual'
-      if (variant && existing.visualVersionId !== variant.id && (mentionedVariant || followsResolvedState)) {
-        next[existingIndex] = {
-          ...existing,
-          assetName: asset.name,
-          visualVersionId: variant.id,
-          visualVersionName: variant.name,
-          matchSource: 'auto-text',
-          referenceImageIds: variant.referenceImageIds ?? [],
-          selectedImageIds: undefined,
-        }
-        changed = true
-      }
-      continue
-    }
-    next.push({
-      assetId,
-      assetName: asset.name,
-      visualVersionId: variant?.id,
-      visualVersionName: variant?.name,
-      matchSource: 'auto-text',
-      referenceImageIds: variant?.referenceImageIds ?? [],
-    })
-    changed = true
+  for (const [, asset] of detected) {
+    const result = scanAssetBindingsForAsset(next, asset, variantsMentionedInText(asset, text), resolveVariant, text)
+    if (result.changed) changed = true
+    next.splice(0, next.length, ...result.next)
   }
   return changed ? next : null
 }
 
-/** 格级绑定汇总到页级：同资产取最后一个格的状态，保留首次出现顺序。 */
+/** 格级绑定汇总到页级：按「资产+状态」去重（同一资产的多个状态各留一条），保留首次出现顺序。 */
 function summarizeCellBindingsForSync(cells: LongProjectStoryboardCell[]): LongProjectStoryboardAssetBinding[] {
-  const byKey = new Map<string, LongProjectStoryboardAssetBinding>()
-  for (const cell of cells) for (const binding of cell.assetBindings ?? []) byKey.set(bindingKey(binding), { ...binding })
-  return [...byKey.values()]
+  return mergeBindingsByIdentity(cells.flatMap((cell) => cell.assetBindings ?? []))
 }
 
 /** 自动绑定完整性审计：返回文本已命中、但当前格没有对应绑定的资产。 */
@@ -179,9 +289,12 @@ export interface PanelBindingAuditIssue {
   asset?: LongProjectAsset
   label: string
   reason: 'missing-binding' | 'ambiguous-name' | 'unmatched-asset' | 'missing-variant'
+  /** 名称有歧义时的候选资产（reason = 'ambiguous-name'），供一键补绑直接选用。 */
+  candidates?: LongProjectAsset[]
 }
 
-const PANEL_BINDING_AUDIT_REASON_TEXT: Record<PanelBindingAuditIssue['reason'], string> = {
+/** 审计原因 → 界面文案（toast 与中栏待核对区共用，保证同一问题两处措辞一致）。 */
+export const PANEL_BINDING_AUDIT_REASON_TEXT: Record<PanelBindingAuditIssue['reason'], string> = {
   'missing-binding': '未绑定',
   'ambiguous-name': '名称有歧义',
   'unmatched-asset': '资产未匹配',
@@ -267,6 +380,9 @@ export function auditPanelAssetBindings(panel: LongProjectStoryboardPanel, index
     ambiguousGroups.set(key, [...(ambiguousGroups.get(key) ?? []), entry])
   }
   const issues: PanelBindingAuditIssue[] = []
+  // 页级绑定 id 集合：格级与页级是同一份声明的两个视图（生图取图以页级为准），
+  // 任一有绑定就不算漏绑 —— 否则「只写页级」的旧数据会被逐格误报未绑定。
+  const pageBoundIds = new Set((panel.assetBindings ?? []).map((binding) => binding.assetId).filter(Boolean) as string[])
   const auditBindings = (bindings: LongProjectStoryboardAssetBinding[], cellIndex: number) => {
     for (const binding of bindings) {
       const asset = binding.assetId ? assets.get(binding.assetId) : undefined
@@ -280,7 +396,10 @@ export function auditPanelAssetBindings(panel: LongProjectStoryboardPanel, index
     }
   }
   const auditText = (text: string, bindings: LongProjectStoryboardAssetBinding[], cellIndex: number) => {
-    const bound = new Set(bindings.map((binding) => binding.assetId).filter(Boolean))
+    const bound = new Set([
+      ...bindings.map((binding) => binding.assetId).filter(Boolean),
+      ...pageBoundIds,
+    ] as string[])
     for (const asset of detectAssetsInText(text, index).values()) {
       if (!bound.has(asset.id)) issues.push({ cellIndex, asset, label: asset.name, reason: 'missing-binding' })
     }
@@ -288,7 +407,7 @@ export function auditPanelAssetBindings(panel: LongProjectStoryboardPanel, index
     for (const [name, entries] of ambiguousGroups) {
       const candidates = [...new Map(entries.map((entry) => [entry.asset.id, entry.asset])).values()]
       if (!compactText.includes(name) || candidates.some((asset) => bound.has(asset.id))) continue
-      issues.push({ cellIndex, label: `${entries[0].name}（候选：${candidates.map((asset) => asset.name).join(' / ')}）`, reason: 'ambiguous-name' })
+      issues.push({ cellIndex, label: `${entries[0].name}（候选：${candidates.map((asset) => asset.name).join(' / ')}）`, reason: 'ambiguous-name', candidates })
     }
   }
   if (!panel.cells?.length) {
@@ -307,12 +426,92 @@ export function auditPanelAssetBindings(panel: LongProjectStoryboardPanel, index
 }
 
 /**
+ * 「本镜绑定待核对」项：把审计问题翻译成**一个明确的解法 + 现成的候选**。
+ *
+ * 审计只负责发现问题，本结构负责让每个问题都能一步解决：
+ * - `add`：补一条绑定（文本已命中但未绑 → 候选已定；歧义名 → 候选为同名资产列表）；
+ * - `set-variant`：绑定已存在但视觉状态未定 → 选一个状态（取图时状态未定会被直接丢弃，这是漏图主因）；
+ * - `remove`：绑定指向的资产在库里找不到（名字写错 / 资产已删）→ 移除或换绑。
+ */
+export interface PanelBindingFix {
+  /** 列表 key（同一分镜内唯一） */
+  id: string
+  reason: PanelBindingAuditIssue['reason']
+  /** 涉及的格序号（0 起；-1 = 仅页级声明） */
+  cellIndex: number
+  /** 展示标签：资产名 / 歧义名（含候选）/ 未匹配的原始名 */
+  label: string
+  /** 动作类型 */
+  action: 'add' | 'set-variant' | 'remove'
+  /** 目标资产：`add`/`set-variant` 已确定；歧义名与未匹配需用户先选 */
+  asset?: LongProjectAsset
+  /** 需要用户先选资产时的候选（歧义名有多个候选；未匹配时为空 = 从全库选） */
+  candidates?: LongProjectAsset[]
+  /** 已有绑定在 `panel.assetBindings` 中的下标（`set-variant` / `remove` 用） */
+  bindingIndex?: number
+}
+
+/**
+ * 审计问题 → 可执行操作项（同资产的同类问题去重，保留首次出现的格序号）。
+ *
+ * 去重的意义：同一资产漏绑往往在多个格同时命中（同一页第1格和第3格都写了它），
+ * 但解法只有一个 —— 补一条页级绑定，所以列表里只该出现一行。
+ */
+export function buildPanelBindingFixes(panel: LongProjectStoryboardPanel, index: AssetNameEntry[]): PanelBindingFix[] {
+  const fixes: PanelBindingFix[] = []
+  const seen = new Set<string>()
+  for (const issue of auditPanelAssetBindings(panel, index)) {
+    if (issue.reason === 'unmatched-asset') {
+      const key = `remove:${issue.label}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      // 未匹配的绑定没有 assetId（资产已删或名字写错），只能按名字定位原绑定
+      const bindingIndex = panel.assetBindings.findIndex((binding) => (binding.assetName ?? '').trim() === issue.label.trim())
+      fixes.push({
+        id: key, reason: issue.reason, cellIndex: issue.cellIndex, label: issue.label,
+        action: 'remove',
+        bindingIndex: bindingIndex >= 0 ? bindingIndex : undefined,
+      })
+      continue
+    }
+    if (issue.reason === 'ambiguous-name') {
+      const key = `ambiguous:${issue.label}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      fixes.push({
+        id: key, reason: issue.reason, cellIndex: issue.cellIndex, label: issue.label,
+        action: 'add',
+        candidates: issue.candidates,
+      })
+      continue
+    }
+    const asset = issue.asset
+    if (!asset) continue
+    const key = `${issue.reason}:${asset.id}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const bindingIndex = panel.assetBindings.findIndex((binding) => binding.assetId === asset.id)
+    fixes.push({
+      id: key,
+      reason: issue.reason,
+      cellIndex: issue.cellIndex,
+      label: asset.name,
+      action: issue.reason === 'missing-variant' ? 'set-variant' : 'add',
+      asset,
+      bindingIndex: bindingIndex >= 0 ? bindingIndex : undefined,
+    })
+  }
+  return fixes
+}
+
+/**
  * 计算分镜绑定在自动规则下的增量变更（纯函数，不修改入参）。
  * 规则：
  * - 文本中出现资产名且未绑定 → 新增 auto-text 绑定；
- * - auto-text / manual 绑定且资产名（含别名）从文本中消失 → 移除；
- * - 文字明确写出另一个视觉状态 → 覆盖旧状态，并转为 auto-text；
- * - model/chapter-range/unmatched 在没有明确新状态时不改动。
+ * - auto-text / manual 绑定且资产名（含别名）从文本中消失 → 移除（文本是绑定的事实来源：
+ *   画面上不再出现的资产不该继续占参考图位）；
+ * - 文字明确写出的**每个**视觉状态都各有一条绑定（同一资产可多条，见 `scanAssetBindingsForAsset`）；
+ * - manual 绑定是用户锚点，不自动改写；model/chapter-range/unmatched 不改动。
  * @returns 变更后的绑定数组；无变化时返回 null（避免无谓的持久化）
  */
 export function computeAutoBindings(
@@ -324,43 +523,14 @@ export function computeAutoBindings(
   const detected = detectAssetsInText(text, index)
   const next = panel.assetBindings.filter((binding) => {
     if (!['auto-text', 'manual'].includes(binding.matchSource) || !binding.assetId) return true
-    const asset = detected.get(binding.assetId)
-    if (!asset) return false
-    // 名称仍出现，保留
-    return true
+    return detected.has(binding.assetId)
   })
 
   let changed = next.length !== panel.assetBindings.length
-  for (const [assetId, asset] of detected) {
-    const mentionedVariant = variantMentionedInText(asset, text)
-    const variant = mentionedVariant ?? resolveVariant(asset, text)
-    const existingIndex = next.findIndex((binding) => binding.assetId === assetId)
-    if (existingIndex >= 0) {
-      const existing = next[existingIndex]
-      const followsResolvedState = existing.matchSource === 'auto-text' || existing.matchSource === 'manual'
-      if (variant && existing.visualVersionId !== variant.id && (mentionedVariant || followsResolvedState)) {
-        next[existingIndex] = {
-          ...existing,
-          assetName: asset.name,
-          visualVersionId: variant.id,
-          visualVersionName: variant.name,
-          matchSource: 'auto-text',
-          referenceImageIds: variant.referenceImageIds ?? [],
-          selectedImageIds: undefined,
-        }
-        changed = true
-      }
-      continue
-    }
-    next.push({
-      assetId,
-      assetName: asset.name,
-      visualVersionId: variant?.id,
-      visualVersionName: variant?.name,
-      matchSource: 'auto-text',
-      referenceImageIds: variant?.referenceImageIds ?? [],
-    })
-    changed = true
+  for (const [, asset] of detected) {
+    const result = scanAssetBindingsForAsset(next, asset, variantsMentionedInText(asset, text), resolveVariant, text)
+    if (result.changed) changed = true
+    next.splice(0, next.length, ...result.next)
   }
   return changed ? next : null
 }
@@ -406,25 +576,23 @@ export function syncPanelsAutoBindings(
         return nextCell
       })
       // 画面描述可能提到资产但无法定位到具体格，先作为页级自动绑定保留，避免完全丢失。
+      // 键一律是「资产+状态」（bindingIdentityKey）：格级声明了 七段，页级画面描述又补了 九段 → 两条都保留。
       const summarizedCellBindings = summarizeCellBindingsForSync(cells)
-      const cellKeys = new Set(summarizedCellBindings.map(bindingKey))
+      const cellKeys = new Set(summarizedCellBindings.map(bindingIdentityKey))
       const pageScanPanel = { ...panel, content: '', dialogue: undefined, narration: undefined, cells: undefined }
       const pageBindings = computeAutoBindings(pageScanPanel, index, resolveVariant)
       const resolvedPageBindings = pageBindings ?? panel.assetBindings
-      const pageAuto = resolvedPageBindings.filter((binding) => binding.matchSource === 'auto-text' && (
-        !cellKeys.has(bindingKey(binding))
-        || summarizedCellBindings.some((cellBinding) => bindingKey(cellBinding) === bindingKey(binding) && cellBinding.visualVersionId !== binding.visualVersionId)
-      ))
-      const pageOverrideKeys = new Set(pageAuto.map(bindingKey))
-      const previousByKey = new Map(panel.assetBindings.map((binding) => [bindingKey(binding), binding]))
-      const cellBindings = summarizedCellBindings.filter((binding) => !pageOverrideKeys.has(bindingKey(binding))).map((binding) => {
-        const previous = previousByKey.get(bindingKey(binding))
+      const pageAuto = resolvedPageBindings.filter((binding) => binding.matchSource === 'auto-text' && !cellKeys.has(bindingIdentityKey(binding)))
+      const pageOverrideKeys = new Set(pageAuto.map(bindingIdentityKey))
+      const previousByKey = new Map(panel.assetBindings.map((binding) => [bindingIdentityKey(binding), binding]))
+      const cellBindings = summarizedCellBindings.filter((binding) => !pageOverrideKeys.has(bindingIdentityKey(binding))).map((binding) => {
+        const previous = previousByKey.get(bindingIdentityKey(binding))
         if (previous && previous.visualVersionId === binding.visualVersionId && previous.selectedImageIds?.length) {
           return { ...binding, selectedImageIds: [...previous.selectedImageIds] }
         }
         return binding
       })
-      const retainedPage = resolvedPageBindings.filter((binding) => binding.matchSource !== 'auto-text' && !cellKeys.has(bindingKey(binding)))
+      const retainedPage = resolvedPageBindings.filter((binding) => binding.matchSource !== 'auto-text' && !cellKeys.has(bindingIdentityKey(binding)))
       const nextBindings = [...cellBindings, ...retainedPage, ...pageAuto]
       const bindingsChanged = nextBindings.length !== panel.assetBindings.length
         || nextBindings.some((binding, i) => !sameBinding(binding, panel.assetBindings[i]))
@@ -467,8 +635,16 @@ export function reapplyVariantContinuation(
   let changed = false
   const next = panels.map((panel) => {
     if (panel.order <= fromPanelOrder) return panel
-    const binding = panel.assetBindings.find((item) => item.assetId === assetId)
-    if (!binding) return panel
+    // 多状态镜（同资产多条绑定）参与延续无从判断该跟哪条 → 整镜跳过，只把非 auto 状态并入延续起点
+    const assetBindings = panel.assetBindings.filter((item) => item.assetId === assetId)
+    if (!assetBindings.length) return panel
+    if (assetBindings.length > 1) {
+      for (const binding of assetBindings) {
+        if (binding.matchSource !== 'auto-text' && binding.visualVersionId) lastVariantId = binding.visualVersionId
+      }
+      return panel
+    }
+    const binding = assetBindings[0]
     if (binding.matchSource === 'auto-text') {
       if (binding.visualVersionId === lastVariantId) return panel
       const variant = asset.variants.find((item) => item.id === lastVariantId)

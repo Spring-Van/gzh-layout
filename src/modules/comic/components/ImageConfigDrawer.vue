@@ -395,6 +395,40 @@
               />
             </template>
 
+            <!-- 参考图用途 Tab：只写「资产名（状态）」之后那整句；图号 / 资产名 / 格号由代码算 -->
+            <template v-if="activeTab === 'refUsage'">
+              <div class="rounded-lg border border-border-subtle bg-surface p-4">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <p class="text-xs font-medium text-text-primary">参考图用途描述</p>
+                    <p class="mt-0.5 text-[11px] leading-relaxed text-text-muted">
+                      动态参考图清单里「资产名（状态）」之后那整句，图号与资产名由系统自动生成。可用两个占位符：{类型} = 人物 / 场景 / 道具；{格号} = 第1、3格 或 整镜。
+                    </p>
+                    <p class="mt-1 text-[11px] leading-relaxed text-text-muted">
+                      例：<span class="text-text-secondary">{类型}参考，仅用于{格号}的人物身份、脸部与发型</span>。注意 {格号} 自带「第1、3格」，别再写成「第{格号}格」。
+                    </p>
+                  </div>
+                  <button
+                    class="shrink-0 rounded-md border border-border-subtle px-2 py-1 text-[11px] text-text-secondary transition-colors hover:border-border-default hover:text-text-primary"
+                    @click="resetRefUsage"
+                  >
+                    恢复默认
+                  </button>
+                </div>
+                <div class="mt-4 space-y-3">
+                  <label v-for="field in refUsageFields" :key="field.type" class="block">
+                    <span class="text-[11px] text-text-secondary">{{ field.label }}</span>
+                    <textarea
+                      v-model="refUsageDraft[field.type]"
+                      rows="2"
+                      class="custom-scrollbar mt-1 w-full resize-y rounded-md border border-border-subtle bg-input-bg px-2 py-1.5 text-xs leading-relaxed text-text-primary outline-none focus:border-cyan-500/50"
+                      :placeholder="field.placeholder"
+                    />
+                  </label>
+                </div>
+              </div>
+            </template>
+
             <div class="h-px bg-elevated" />
 
             <div class="p-3 rounded-lg bg-cyan-500/5 border border-cyan-500/10">
@@ -553,11 +587,13 @@ import type {
   ModelConfig,
   PromptTemplate,
   ImageGenConfig,
+  LongProjectAssetType,
   SharedPromptBlock,
   PromptInsertPosition,
 } from "@comic/types";
 import { processImage, type ImageStorageMode } from "@comic/services/uploadService";
 import { useToast } from "@comic/composables/useToast";
+import { DEFAULT_REF_USAGE } from "@comic/services/refUsage";
 import ImagePreviewModal from "@comic/components/ImagePreviewModal.vue";
 import BlockCard from "@comic/components/SharedPromptBlockCard.vue";
 import { comicDb } from "@/api/comic";
@@ -587,10 +623,37 @@ const emit = defineEmits<{
 
 const config = ref<ImageGenConfig>(migrateLegacyImageGenConfig(null));
 
-const activeTab = ref<"model" | "blocks">("model");
+/**
+ * 参考图用途描述草稿：读写都落在 `config.refUsage` 上，不额外维护同步时机。
+ * 清空输入 = 该类型回到内置默认（`resolveRefUsageTemplate` 遇空串继续向下回落）。
+ */
+const refUsageDraft = computed<Record<LongProjectAssetType, string>>({
+  get: () => ({
+    character: config.value.refUsage?.character ?? "",
+    scene: config.value.refUsage?.scene ?? "",
+    prop: config.value.refUsage?.prop ?? "",
+  }),
+  set: (value) => {
+    config.value = { ...config.value, refUsage: { ...value } };
+  },
+});
+
+/** 三个可编辑的类型，「恢复默认」按钮 = 清空（回落内置默认文案）。 */
+const refUsageFields = computed(() => [
+  { type: "character" as const, label: "人物", placeholder: DEFAULT_REF_USAGE.character },
+  { type: "scene" as const, label: "场景", placeholder: DEFAULT_REF_USAGE.scene },
+  { type: "prop" as const, label: "道具", placeholder: DEFAULT_REF_USAGE.prop },
+]);
+
+function resetRefUsage() {
+  config.value = { ...config.value, refUsage: undefined };
+}
+
+const activeTab = ref<"model" | "blocks" | "refUsage">("model");
 const tabs = [
   { key: "model" as const, label: "绘画模型" },
   { key: "blocks" as const, label: "共用属性" },
+  { key: "refUsage" as const, label: "参考图用途" },
 ];
 
 const styleTemplates = ref<PromptTemplate[]>([]);

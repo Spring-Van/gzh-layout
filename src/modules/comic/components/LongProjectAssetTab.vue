@@ -20,7 +20,6 @@
         :chapter-names="chapterNames"
         :asset-gen-config="assetGenConfig"
         :painting-style="project?.comicConfig?.paintingStyle"
-        :shared-blocks="project?.imageGenConfig?.sharedBlocks"
         :focus-target="focusTarget"
         :mutate-long-project-data="mutateLongProjectData"
         @retry-extraction="retryExtraction"
@@ -137,6 +136,7 @@ import {
   parseAssetExtractionResponse,
 } from '@comic/services/assetExtractionService'
 import { selectDroppedVariants } from '@comic/services/assetExtractionConfirm'
+import { sweepProjectData } from '@comic/services/projectDataCleanup'
 import type {
   ComicProject,
   LongProjectAssetExtractionRun,
@@ -326,6 +326,8 @@ async function runExtraction(prompt: string) {
   }
   await props.mutateLongProjectData((data) => {
     data.assetExtractionRuns = [...(data.assetExtractionRuns ?? []), run]
+    // 新版本一落库就压掉更早的历史提取记录（界面只消费最新一版，历史版本纯占体积）
+    sweepProjectData(data)
   })
   try {
     const result = await extractChapterAssets({
@@ -386,6 +388,7 @@ async function confirmExtractionImport(content: string) {
     }
     await props.mutateLongProjectData((data) => {
       data.assetExtractionRuns = [...(data.assetExtractionRuns ?? []), run]
+      sweepProjectData(data)
     })
     extractImportVisible.value = false
     toast.success(`已导入 ${candidates.length} 项资产候选，请审核确认`)
