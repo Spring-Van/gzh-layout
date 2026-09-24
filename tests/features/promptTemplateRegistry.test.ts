@@ -15,7 +15,9 @@ describe('promptTemplateRegistry · 变量归一化与检测', () => {
   it('旧英文占位符归一化为中文占位符', () => {
     expect(normalizeTemplateVariables('【章节原文】\n{{chapter_content}}', 'analysis')).toBe('【章节原文】\n{{章节原文}}');
     expect(normalizeTemplateVariables('{{script_content}}+{{analysis}}', 'storyboard')).toBe('{{漫画剧本}}+{{原文分析}}');
-    expect(normalizeTemplateVariables('{{assets}}/{{style}}/{{target_model}}', 'asset-prompt')).toBe('{{状态清单}}/{{风格上下文}}/{{目标生图模型}}');
+    // asset-prompt 不再注册「风格上下文」：画风由生图时的共用属性拼接，不进绘画提示词，
+    // 因此旧占位符 {{style}} 保持原样（渲染时按未注册占位符清理）
+    expect(normalizeTemplateVariables('{{assets}}/{{style}}/{{target_model}}', 'asset-prompt')).toBe('{{状态清单}}/{{style}}/{{目标生图模型}}');
   });
 
   it('归一化按类型生效：chapter_content 在分镜模板中不识别', () => {
@@ -80,14 +82,15 @@ describe('promptTemplateRegistry · 渲染引擎', () => {
     expect(prompt).not.toContain('分镜1：开场');
   });
 
-  it('修复：风格上下文已插入时只替换、不再重复追加', () => {
+  it('资产绘画提示词不再接收风格上下文：画风由生图共用属性拼接，模板中的该占位符被清理', () => {
     const prompt = renderPromptTemplate({
       type: 'asset-prompt',
       content: '【风格上下文】\n{{风格上下文}}\n请生成提示词。',
       values: { 状态清单: '- 状态1', 风格上下文: '整体画风：国风' },
     });
-    expect(prompt.match(/整体画风：国风/g)?.length).toBe(1);
-    expect(prompt).not.toContain('【风格上下文】\n【风格上下文】');
+    expect(prompt).not.toContain('整体画风：国风');
+    expect(prompt).not.toContain('{{风格上下文}}');
+    expect(prompt).toContain('请生成提示词。');
   });
 
   it('未注册占位符构建时被清理', () => {
@@ -191,5 +194,25 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
     expect(spec).toContain('# 人物、# 场景、# 道具');
     expect(spec).toContain('## 资产名称');
     expect(spec).toContain('### 视觉状态：状态名');
+    expect(spec).toContain('状态标签、视觉描述、剧情锚点');
+    expect(spec).not.toContain('{{章节原文}}');
+    expect(spec).not.toContain('{{原文分析}}');
+    const recommended = RECOMMENDED_TEMPLATES.extract?.content ?? '';
+    expect(recommended).toContain('少年时期·回忆校服');
+    expect(recommended).toContain('完好/损坏');
+    expect(recommended).toContain('必须完整阅读【章节原文】【原文分析】【漫画剧本】【已有资产】四部分');
+    expect(recommended).toContain('漫画是否采用及出场范围以【漫画剧本】为准');
+    expect(recommended).toContain('客观视觉细节以【章节原文】为准');
+    expect(recommended).toContain('实体归属和既有状态命名以【已有资产】为准');
+    expect(recommended).toContain('不是最终绘画提示词');
+    expect(recommended).toContain('不要求坐标、米数或十个视角');
+    expect(recommended).toContain('依据不足时宁可少写，不得脑补');
+    expect(recommended).toContain('一个真实对象只建立一个资产实体');
+    expect(recommended).toContain('如果不单独提供该状态，生图是否可能把对象画错');
+    expect(recommended).toContain('一次性显示的台词、数值、测验结果和短暂光效');
+    expect(recommended.match(/\{\{章节原文\}\}/g)?.length).toBe(1);
+    expect(recommended.match(/\{\{原文分析\}\}/g)?.length).toBe(1);
+    expect(recommended.match(/\{\{漫画剧本\}\}/g)?.length).toBe(1);
+    expect(recommended.match(/\{\{已有资产\}\}/g)?.length).toBe(1);
   });
 });

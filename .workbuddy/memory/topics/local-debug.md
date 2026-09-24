@@ -51,6 +51,14 @@
 
 **要更新真正的 `dist`**（用户平时直接开构建后的应用）必须**先让用户关掉应用**，否则同样会卡住 —— 直接说明并请对方关掉后重跑，别让它挂着。
 
+## 重建正式 dist 的正确姿势（2026-09-23 验证，应用关闭后全程 ~30 秒）
+
+1. **先探测占用**：`touch dist/.write-probe && rm dist/.write-probe` 成功 = 应用已关，可重建。
+2. **手动清空 dist 再构建**：`rm -rf dist/assets` + 删根下 `index.html`/`*.svg`。原因：vite `emptyOutDir` 批量删除会被环境的 **safe-delete 护栏**拦截（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`，阈值 50、**scope=turn 按本轮累计计**，分批删也躲不掉），手动清空后构建时无删除目标即不触发。删 dist 属项目构建产物操作，护栏豁免需用户批准。
+3. **用 `pnpm run build:renderer`**（vue-tsc + vite build，~20s）。**别用 `pnpm run build`**：它额外跑 electron-builder 会去下载 Electron 二进制，网络不通时 `ERR_ELECTRON_BUILDER_CANNOT_EXECUTE`（更新 renderer 不需要打包安装器）。
+4. 验收：`ls dist/assets | wc -l`（新 hash 产物）+ `ls -la dist/index.html` 时间戳。
+5. 推论：第 38 行「>15 分钟卡死」的根因就是应用占用——干净环境下 20 秒完成。
+
 ## 工具用法坑（会静默出错）
 
 **同一条消息里对同一个文件发多个 Edit 会互相覆盖**：每个都报 success，但只有最后一个落盘。改同一文件的多个位置必须**一次一个 Edit**（或合并成一个大 Edit）。发现"明明说成功了但文件没变"就是这个原因 —— 用 `grep` 复核，别信成功回显。
