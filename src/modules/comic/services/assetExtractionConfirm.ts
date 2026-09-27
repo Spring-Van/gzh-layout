@@ -12,6 +12,7 @@ import type {
 import { getCandidateStates } from './assetExtractionService'
 import { buildAssetNameIndex, syncPanelsAutoBindings } from './promptAssetService'
 import { defaultVariant } from './storyboardService'
+import { buildOverwriteActiveSlotPatch } from '@comic/utils/genPromptSlots'
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
@@ -98,12 +99,15 @@ function applyCandidatesToAsset(
       variants.push({ id: uuidv4(), name, description: state.description, anchor: state.anchor, firstAppearanceChapterId: chapterId, chapterRange: { startChapterId: chapterId }, tags: state.tags, imagePrompt: state.imagePrompt, referenceImageIds: [], sourceChapterIds: [chapterId], createdAt: now, updatedAt: now })
       continue
     }
+    // 候选带「绘画提示词」时覆盖当前选中条（读写口径对齐）——只写 imagePrompt 会被已有候选条遮蔽成假写入；
+    // 候选没带时不动提示词层，...existing 原样保留 imagePrompt 与 genPrompts
+    const promptPatch = state.imagePrompt ? buildOverwriteActiveSlotPatch(existing, state.imagePrompt) : {}
     variants.push({
       ...existing,
       name,
       description: state.description || existing.description,
       anchor: state.anchor || existing.anchor,
-      imagePrompt: state.imagePrompt || existing.imagePrompt,
+      ...promptPatch,
       tags: state.tags?.length ? state.tags : existing.tags,
       sourceChapterIds: uniqueStrings([...existing.sourceChapterIds, chapterId]),
       updatedAt: now,

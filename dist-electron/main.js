@@ -33,10 +33,10 @@ import http$2 from "http";
 import * as https$2 from "https";
 import https__default from "https";
 import * as cheerio from "cheerio";
+import fs$8 from "fs";
 import require$$0$2 from "util";
 import stream$2, { Readable as Readable$4 } from "stream";
 import require$$5 from "url";
-import fs$8 from "fs";
 import require$$0$4 from "net";
 import require$$1$1 from "tls";
 import require$$3 from "assert";
@@ -389,6 +389,7 @@ function registerImageIpc() {
 }
 class UnsupportedSchemaVersionError extends Error {
 }
+const DEFAULT_VERIFY_MAX_BYTES = 8 * 1024 * 1024;
 class JsonFileStore {
   constructor(options) {
     __publicField(this, "filePath");
@@ -420,7 +421,7 @@ class JsonFileStore {
     fs$7.mkdirSync(path$7.dirname(this.filePath), { recursive: true });
     try {
       this.writeAndSyncTempFile(serialized);
-      JSON.parse(fs$7.readFileSync(this.tempPath, "utf8"));
+      this.verifyTempFile(serialized);
       if (backupMode === "previous" && !this.skipNextBackup && fs$7.existsSync(this.filePath)) {
         fs$7.copyFileSync(this.filePath, this.backupPath);
       }
@@ -460,6 +461,15 @@ class JsonFileStore {
   }
   withCurrentVersion(data) {
     return { ...data, schemaVersion: this.options.currentVersion };
+  }
+  /**
+   * 回读临时文件，确认写出的内容是可解析的 JSON。
+   * 仅在文件不超过 verifyMaxBytes 时执行，避免为主库这类大文件付出整份重解析的代价。
+   */
+  verifyTempFile(serialized) {
+    const limit = this.options.verifyMaxBytes ?? DEFAULT_VERIFY_MAX_BYTES;
+    if (serialized.length > limit) return;
+    JSON.parse(fs$7.readFileSync(this.tempPath, "utf8"));
   }
   writeAndSyncTempFile(serialized) {
     this.removeIfExists(this.tempPath);
@@ -2195,44 +2205,82 @@ function registerExtractIpc() {
 class ComicDatabaseService {
   constructor() {
     __publicField(this, "store");
-    __publicField(this, "data");
+    __publicField(this, "settingsStore");
     __publicField(this, "secretStorage", new SecretStorage(safeStorage));
-    __publicField(this, "loadedVersion", 2);
+    __publicField(this, "data");
+    __publicField(this, "settings");
+    /** comic-settings.json 的落盘版本；低于 2 表示密钥尚未保护 */
+    __publicField(this, "settingsVersion", 2);
+    /** 设置分区是否需要首次写入独立文件（读写分离迁移） */
+    __publicField(this, "needsInitialSettingsWrite", false);
+    /** 读取主库时暂存的旧布局设置分区，取出即清空 */
+    __publicField(this, "pendingLegacySettings", null);
     __publicField(this, "initialized", false);
     const userDataPath = app.getPath("userData");
     this.store = new JsonFileStore({
       filePath: path$6.join(userDataPath, "comic-gen.json"),
       currentVersion: 2,
-      createDefault: createDefaultComicDatabaseData,
+      createDefault: createDefaultProjectData,
       migrate: (raw, fromVersion) => {
-        this.loadedVersion = fromVersion;
-        return normalizeComicDatabaseData(raw);
+        this.pendingLegacySettings = readLegacySettingsPartition(raw, fromVersion);
+        return normalizeProjectData(raw);
       },
       logger: console
     });
+    this.settingsStore = new JsonFileStore({
+      filePath: path$6.join(userDataPath, "comic-settings.json"),
+      currentVersion: 2,
+      createDefault: createDefaultSettingsData,
+      migrate: (raw, fromVersion) => {
+        this.settingsVersion = fromVersion;
+        return normalizeSettingsData(raw);
+      },
+      logger: console
+    });
+    const hasSettingsFile = fs$8.existsSync(this.settingsStore.filePath);
     this.data = this.store.load();
+    const legacy = this.takeLegacySettings();
+    if (hasSettingsFile) {
+      this.settings = this.settingsStore.load();
+    } else {
+      this.settings = (legacy == null ? void 0 : legacy.settings) ?? createDefaultSettingsData();
+      this.settingsVersion = (legacy == null ? void 0 : legacy.fromVersion) ?? 2;
+      this.needsInitialSettingsWrite = true;
+    }
   }
-  saveToFile() {
-    this.store.save(this.protectCredentials(this.data));
+  /** 取出并清空读取主库时暂存的旧设置分区（独立方法是为了拿到确定的联合类型） */
+  takeLegacySettings() {
+    const legacy = this.pendingLegacySettings;
+    this.pendingLegacySettings = null;
+    return legacy;
+  }
+  /** 设置分区落盘（项目数据不受影响） */
+  saveSettingsToFile(options) {
+    this.settingsStore.save(this.protectCredentials(this.settings), options);
+    this.needsInitialSettingsWrite = false;
+    this.settingsVersion = 2;
+  }
+  /** 项目数据落盘（设置分区不受影响，也不再携带设置字段） */
+  saveProjectDataToFile() {
+    this.store.save(this.data);
   }
   async init() {
     if (this.initialized) return;
-    const persisted = this.data;
-    const needsMigration = this.loadedVersion < 2 || persisted.modelConfigs.some((config) => this.secretStorage.hasUnprotectedFields(config, ["apiKey"])) || this.secretStorage.hasUnprotectedFields(persisted.appSettings, ["picgoApiKey"]);
-    this.data = this.revealCredentials(persisted);
+    const persisted = this.settings;
+    const needsMigration = this.needsInitialSettingsWrite || this.settingsVersion < 2 || persisted.modelConfigs.some((config) => this.secretStorage.hasUnprotectedFields(config, ["apiKey"])) || this.secretStorage.hasUnprotectedFields(persisted.appSettings, ["picgoApiKey"]);
+    this.settings = this.revealCredentials(persisted);
     if (needsMigration) {
-      this.store.save(this.protectCredentials(this.data), { backupMode: "current" });
-      this.loadedVersion = 2;
+      this.saveSettingsToFile({ backupMode: "current" });
     }
     this.initialized = true;
   }
   // ========== AppSettings ==========
   getAppSettings() {
-    return { ...this.data.appSettings };
+    return { ...this.settings.appSettings };
   }
   saveAppSettings(settings) {
-    this.data.appSettings = { ...this.data.appSettings, ...settings };
-    this.saveToFile();
+    this.settings.appSettings = { ...this.settings.appSettings, ...settings };
+    this.saveSettingsToFile();
   }
   // ========== Projects ==========
   getAllProjects() {
@@ -2248,45 +2296,45 @@ class ComicDatabaseService {
     } else {
       this.data.projects.push(project);
     }
-    this.saveToFile();
+    this.saveProjectDataToFile();
   }
   deleteProject(id) {
     this.data.projects = this.data.projects.filter((p) => p.id !== id);
-    this.saveToFile();
+    this.saveProjectDataToFile();
   }
   // ========== ModelConfigs ==========
   getAllModelConfigs() {
-    return [...this.data.modelConfigs].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    return [...this.settings.modelConfigs].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
   }
   saveModelConfig(config) {
-    const index2 = this.data.modelConfigs.findIndex((m) => m.id === config.id);
+    const index2 = this.settings.modelConfigs.findIndex((m) => m.id === config.id);
     if (index2 !== -1) {
-      this.data.modelConfigs[index2] = config;
+      this.settings.modelConfigs[index2] = config;
     } else {
-      this.data.modelConfigs.push(config);
+      this.settings.modelConfigs.push(config);
     }
-    this.saveToFile();
+    this.saveSettingsToFile();
   }
   deleteModelConfig(id) {
-    this.data.modelConfigs = this.data.modelConfigs.filter((m) => m.id !== id);
-    this.saveToFile();
+    this.settings.modelConfigs = this.settings.modelConfigs.filter((m) => m.id !== id);
+    this.saveSettingsToFile();
   }
   // ========== PromptTemplates ==========
   getAllPromptTemplates() {
-    return [...this.data.promptTemplates].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    return [...this.settings.promptTemplates].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
   }
   savePromptTemplate(template) {
-    const index2 = this.data.promptTemplates.findIndex((t) => t.id === template.id);
+    const index2 = this.settings.promptTemplates.findIndex((t) => t.id === template.id);
     if (index2 !== -1) {
-      this.data.promptTemplates[index2] = template;
+      this.settings.promptTemplates[index2] = template;
     } else {
-      this.data.promptTemplates.push(template);
+      this.settings.promptTemplates.push(template);
     }
-    this.saveToFile();
+    this.saveSettingsToFile();
   }
   deletePromptTemplate(id) {
-    this.data.promptTemplates = this.data.promptTemplates.filter((t) => t.id !== id);
-    this.saveToFile();
+    this.settings.promptTemplates = this.settings.promptTemplates.filter((t) => t.id !== id);
+    this.saveSettingsToFile();
   }
   // ========== ProjectAssets ==========
   getAllProjectAssets() {
@@ -2302,15 +2350,15 @@ class ComicDatabaseService {
     } else {
       this.data.projectAssets.push(asset);
     }
-    this.saveToFile();
+    this.saveProjectDataToFile();
   }
   deleteProjectAsset(id) {
     this.data.projectAssets = this.data.projectAssets.filter((a) => a.id !== id);
-    this.saveToFile();
+    this.saveProjectDataToFile();
   }
   deleteProjectAssetsByProjectId(projectId) {
     this.data.projectAssets = this.data.projectAssets.filter((a) => a.projectId !== projectId);
-    this.saveToFile();
+    this.saveProjectDataToFile();
   }
   // ========== Materials ==========
   getAllMaterials() {
@@ -2326,15 +2374,15 @@ class ComicDatabaseService {
     } else {
       this.data.materials.push(material);
     }
-    this.saveToFile();
+    this.saveProjectDataToFile();
   }
   deleteMaterial(id) {
     this.data.materials = this.data.materials.filter((m) => m.id !== id);
-    this.saveToFile();
+    this.saveProjectDataToFile();
   }
   deleteMaterialsByProjectId(projectId) {
     this.data.materials = this.data.materials.filter((m) => m.projectId !== projectId);
-    this.saveToFile();
+    this.saveProjectDataToFile();
   }
   // ========== GenerationTasks ==========
   getAllGenerationTasks() {
@@ -2350,15 +2398,15 @@ class ComicDatabaseService {
     } else {
       this.data.generationTasks.push(task);
     }
-    this.saveToFile();
+    this.saveProjectDataToFile();
   }
   deleteGenerationTask(id) {
     this.data.generationTasks = this.data.generationTasks.filter((t) => t.id !== id);
-    this.saveToFile();
+    this.saveProjectDataToFile();
   }
   deleteGenerationTasksByProjectId(projectId) {
     this.data.generationTasks = this.data.generationTasks.filter((t) => t.projectId !== projectId);
-    this.saveToFile();
+    this.saveProjectDataToFile();
   }
   /**
    * 删除项目及其所有关联数据
@@ -2369,8 +2417,9 @@ class ComicDatabaseService {
     this.data.projectAssets = this.data.projectAssets.filter((asset) => asset.projectId !== projectId);
     this.data.materials = this.data.materials.filter((material) => material.projectId !== projectId);
     this.data.projects = this.data.projects.filter((project) => project.id !== projectId);
-    this.saveToFile();
+    this.saveProjectDataToFile();
   }
+  // ========== 密钥保护（只作用于设置分区） ==========
   protectCredentials(data) {
     return {
       ...data,
@@ -2390,30 +2439,47 @@ class ComicDatabaseService {
     };
   }
 }
-function createDefaultComicDatabaseData() {
+function createDefaultProjectData() {
   return {
     schemaVersion: 2,
     projects: [],
-    modelConfigs: [],
-    promptTemplates: [],
     projectAssets: [],
     materials: [],
-    generationTasks: [],
+    generationTasks: []
+  };
+}
+function createDefaultSettingsData() {
+  return {
+    schemaVersion: 2,
+    modelConfigs: [],
+    promptTemplates: [],
     appSettings: {}
   };
 }
-function normalizeComicDatabaseData(raw) {
+function normalizeProjectData(raw) {
   const data = raw && typeof raw === "object" ? raw : {};
   return {
     schemaVersion: 2,
     projects: Array.isArray(data.projects) ? data.projects : [],
-    modelConfigs: Array.isArray(data.modelConfigs) ? data.modelConfigs : [],
-    promptTemplates: Array.isArray(data.promptTemplates) ? data.promptTemplates : [],
     projectAssets: Array.isArray(data.projectAssets) ? data.projectAssets : [],
     materials: Array.isArray(data.materials) ? data.materials : [],
-    generationTasks: Array.isArray(data.generationTasks) ? data.generationTasks : [],
+    generationTasks: Array.isArray(data.generationTasks) ? data.generationTasks : []
+  };
+}
+function normalizeSettingsData(raw) {
+  const data = raw && typeof raw === "object" ? raw : {};
+  return {
+    schemaVersion: 2,
+    modelConfigs: Array.isArray(data.modelConfigs) ? data.modelConfigs : [],
+    promptTemplates: Array.isArray(data.promptTemplates) ? data.promptTemplates : [],
     appSettings: data.appSettings && typeof data.appSettings === "object" ? data.appSettings : {}
   };
+}
+function readLegacySettingsPartition(raw, fromVersion) {
+  const data = raw && typeof raw === "object" ? raw : {};
+  const hasPartition = Array.isArray(data.modelConfigs) || Array.isArray(data.promptTemplates) || data.appSettings !== null && typeof data.appSettings === "object";
+  if (!hasPartition) return null;
+  return { fromVersion, settings: normalizeSettingsData(data) };
 }
 const comicDbService = new ComicDatabaseService();
 function bind$2(fn, thisArg) {
@@ -14703,14 +14769,7 @@ var _eval = EvalError;
 var range$2 = RangeError;
 var ref = ReferenceError;
 var syntax = SyntaxError;
-var type;
-var hasRequiredType;
-function requireType() {
-  if (hasRequiredType) return type;
-  hasRequiredType = 1;
-  type = TypeError;
-  return type;
-}
+var type = TypeError;
 var uri = URIError;
 var abs$1 = Math.abs;
 var floor$1 = Math.floor;
@@ -14956,7 +15015,7 @@ function requireCallBindApplyHelpers() {
   if (hasRequiredCallBindApplyHelpers) return callBindApplyHelpers;
   hasRequiredCallBindApplyHelpers = 1;
   var bind3 = functionBind;
-  var $TypeError2 = requireType();
+  var $TypeError2 = type;
   var $call2 = requireFunctionCall();
   var $actualApply = requireActualApply();
   callBindApplyHelpers = function callBindBasic(args) {
@@ -15029,7 +15088,7 @@ var $EvalError = _eval;
 var $RangeError = range$2;
 var $ReferenceError = ref;
 var $SyntaxError = syntax;
-var $TypeError$1 = requireType();
+var $TypeError$1 = type;
 var $URIError = uri;
 var abs = abs$1;
 var floor = floor$1;
@@ -15360,7 +15419,7 @@ var GetIntrinsic2 = getIntrinsic;
 var $defineProperty = GetIntrinsic2("%Object.defineProperty%", true);
 var hasToStringTag = requireShams()();
 var hasOwn$1 = hasown;
-var $TypeError = requireType();
+var $TypeError = type;
 var toStringTag = hasToStringTag ? Symbol.toStringTag : null;
 var esSetTostringtag = function setToStringTag(object, value) {
   var overrideIfSet = arguments.length > 2 && !!arguments[2] && arguments[2].force;
@@ -15404,9 +15463,9 @@ var populate = populate$1;
 function escapeHeaderParam(str) {
   return String(str).replace(/\r/g, "%0D").replace(/\n/g, "%0A").replace(/"/g, "%22");
 }
-function FormData$1(options) {
-  if (!(this instanceof FormData$1)) {
-    return new FormData$1(options);
+function FormData$2(options) {
+  if (!(this instanceof FormData$2)) {
+    return new FormData$2(options);
   }
   this._overheadLength = 0;
   this._valueLength = 0;
@@ -15417,10 +15476,10 @@ function FormData$1(options) {
     this[option] = options[option];
   }
 }
-util$e.inherits(FormData$1, CombinedStream);
-FormData$1.LINE_BREAK = "\r\n";
-FormData$1.DEFAULT_CONTENT_TYPE = "application/octet-stream";
-FormData$1.prototype.append = function(field, value, options) {
+util$e.inherits(FormData$2, CombinedStream);
+FormData$2.LINE_BREAK = "\r\n";
+FormData$2.DEFAULT_CONTENT_TYPE = "application/octet-stream";
+FormData$2.prototype.append = function(field, value, options) {
   options = options || {};
   if (typeof options === "string") {
     options = { filename: options };
@@ -15440,7 +15499,7 @@ FormData$1.prototype.append = function(field, value, options) {
   append2(footer);
   this._trackLength(header, value, options);
 };
-FormData$1.prototype._trackLength = function(header, value, options) {
+FormData$2.prototype._trackLength = function(header, value, options) {
   var valueLength = 0;
   if (options.knownLength != null) {
     valueLength += Number(options.knownLength);
@@ -15450,7 +15509,7 @@ FormData$1.prototype._trackLength = function(header, value, options) {
     valueLength = Buffer.byteLength(value);
   }
   this._valueLength += valueLength;
-  this._overheadLength += Buffer.byteLength(header) + FormData$1.LINE_BREAK.length;
+  this._overheadLength += Buffer.byteLength(header) + FormData$2.LINE_BREAK.length;
   if (!value || !value.path && !(value.readable && hasOwn(value, "httpVersion")) && !(value instanceof Stream$2)) {
     return;
   }
@@ -15458,7 +15517,7 @@ FormData$1.prototype._trackLength = function(header, value, options) {
     this._valuesToMeasure.push(value);
   }
 };
-FormData$1.prototype._lengthRetriever = function(value, callback) {
+FormData$2.prototype._lengthRetriever = function(value, callback) {
   if (hasOwn(value, "fd")) {
     if (value.end != void 0 && value.end != Infinity && value.start != void 0) {
       callback(null, value.end + 1 - (value.start ? value.start : 0));
@@ -15484,7 +15543,7 @@ FormData$1.prototype._lengthRetriever = function(value, callback) {
     callback("Unknown stream");
   }
 };
-FormData$1.prototype._multiPartHeader = function(field, value, options) {
+FormData$2.prototype._multiPartHeader = function(field, value, options) {
   if (typeof options.header === "string") {
     return options.header;
   }
@@ -15511,13 +15570,13 @@ FormData$1.prototype._multiPartHeader = function(field, value, options) {
         header = [header];
       }
       if (header.length) {
-        contents += prop + ": " + header.join("; ") + FormData$1.LINE_BREAK;
+        contents += prop + ": " + header.join("; ") + FormData$2.LINE_BREAK;
       }
     }
   }
-  return "--" + this.getBoundary() + FormData$1.LINE_BREAK + contents + FormData$1.LINE_BREAK;
+  return "--" + this.getBoundary() + FormData$2.LINE_BREAK + contents + FormData$2.LINE_BREAK;
 };
-FormData$1.prototype._getContentDisposition = function(value, options) {
+FormData$2.prototype._getContentDisposition = function(value, options) {
   var filename;
   if (typeof options.filepath === "string") {
     filename = path$5.normalize(options.filepath).replace(/\\/g, "/");
@@ -15530,7 +15589,7 @@ FormData$1.prototype._getContentDisposition = function(value, options) {
     return 'filename="' + escapeHeaderParam(filename) + '"';
   }
 };
-FormData$1.prototype._getContentType = function(value, options) {
+FormData$2.prototype._getContentType = function(value, options) {
   var contentType = options.contentType;
   if (!contentType && value && value.name) {
     contentType = mime.lookup(value.name);
@@ -15545,13 +15604,13 @@ FormData$1.prototype._getContentType = function(value, options) {
     contentType = mime.lookup(options.filepath || options.filename);
   }
   if (!contentType && value && typeof value === "object") {
-    contentType = FormData$1.DEFAULT_CONTENT_TYPE;
+    contentType = FormData$2.DEFAULT_CONTENT_TYPE;
   }
   return contentType;
 };
-FormData$1.prototype._multiPartFooter = function() {
+FormData$2.prototype._multiPartFooter = function() {
   return (function(next) {
-    var footer = FormData$1.LINE_BREAK;
+    var footer = FormData$2.LINE_BREAK;
     var lastPart = this._streams.length === 0;
     if (lastPart) {
       footer += this._lastBoundary();
@@ -15559,10 +15618,10 @@ FormData$1.prototype._multiPartFooter = function() {
     next(footer);
   }).bind(this);
 };
-FormData$1.prototype._lastBoundary = function() {
-  return "--" + this.getBoundary() + "--" + FormData$1.LINE_BREAK;
+FormData$2.prototype._lastBoundary = function() {
+  return "--" + this.getBoundary() + "--" + FormData$2.LINE_BREAK;
 };
-FormData$1.prototype.getHeaders = function(userHeaders) {
+FormData$2.prototype.getHeaders = function(userHeaders) {
   var header;
   var formHeaders = {
     "content-type": "multipart/form-data; boundary=" + this.getBoundary()
@@ -15574,19 +15633,19 @@ FormData$1.prototype.getHeaders = function(userHeaders) {
   }
   return formHeaders;
 };
-FormData$1.prototype.setBoundary = function(boundary) {
+FormData$2.prototype.setBoundary = function(boundary) {
   if (typeof boundary !== "string") {
     throw new TypeError("FormData boundary must be a string");
   }
   this._boundary = boundary;
 };
-FormData$1.prototype.getBoundary = function() {
+FormData$2.prototype.getBoundary = function() {
   if (!this._boundary) {
     this._generateBoundary();
   }
   return this._boundary;
 };
-FormData$1.prototype.getBuffer = function() {
+FormData$2.prototype.getBuffer = function() {
   var dataBuffer = new Buffer.alloc(0);
   var boundary = this.getBoundary();
   for (var i = 0, len = this._streams.length; i < len; i++) {
@@ -15597,16 +15656,16 @@ FormData$1.prototype.getBuffer = function() {
         dataBuffer = Buffer.concat([dataBuffer, Buffer.from(this._streams[i])]);
       }
       if (typeof this._streams[i] !== "string" || this._streams[i].substring(2, boundary.length + 2) !== boundary) {
-        dataBuffer = Buffer.concat([dataBuffer, Buffer.from(FormData$1.LINE_BREAK)]);
+        dataBuffer = Buffer.concat([dataBuffer, Buffer.from(FormData$2.LINE_BREAK)]);
       }
     }
   }
   return Buffer.concat([dataBuffer, Buffer.from(this._lastBoundary())]);
 };
-FormData$1.prototype._generateBoundary = function() {
+FormData$2.prototype._generateBoundary = function() {
   this._boundary = "--------------------------" + crypto.randomBytes(12).toString("hex");
 };
-FormData$1.prototype.getLengthSync = function() {
+FormData$2.prototype.getLengthSync = function() {
   var knownLength = this._overheadLength + this._valueLength;
   if (this._streams.length) {
     knownLength += this._lastBoundary().length;
@@ -15616,14 +15675,14 @@ FormData$1.prototype.getLengthSync = function() {
   }
   return knownLength;
 };
-FormData$1.prototype.hasKnownLength = function() {
+FormData$2.prototype.hasKnownLength = function() {
   var hasKnownLength = true;
   if (this._valuesToMeasure.length) {
     hasKnownLength = false;
   }
   return hasKnownLength;
 };
-FormData$1.prototype.getLength = function(cb) {
+FormData$2.prototype.getLength = function(cb) {
   var knownLength = this._overheadLength + this._valueLength;
   if (this._streams.length) {
     knownLength += this._lastBoundary().length;
@@ -15643,7 +15702,7 @@ FormData$1.prototype.getLength = function(cb) {
     cb(null, knownLength);
   });
 };
-FormData$1.prototype.submit = function(params, cb) {
+FormData$2.prototype.submit = function(params, cb) {
   var request;
   var options;
   var defaults2 = { method: "post" };
@@ -15690,19 +15749,19 @@ FormData$1.prototype.submit = function(params, cb) {
   }).bind(this));
   return request;
 };
-FormData$1.prototype._error = function(err) {
+FormData$2.prototype._error = function(err) {
   if (!this.error) {
     this.error = err;
     this.pause();
     this.emit("error", err);
   }
 };
-FormData$1.prototype.toString = function() {
+FormData$2.prototype.toString = function() {
   return "[object FormData]";
 };
-setToStringTag2(FormData$1.prototype, "FormData");
-var form_data = FormData$1;
-const FormData$2 = /* @__PURE__ */ getDefaultExportFromCjs$1(form_data);
+setToStringTag2(FormData$2.prototype, "FormData");
+var form_data = FormData$2;
+const FormData$1 = /* @__PURE__ */ getDefaultExportFromCjs$1(form_data);
 const PlatformBuffer = {
   isBufferAvailable() {
     return typeof Buffer !== "undefined";
@@ -15735,7 +15794,7 @@ function toFormData$1(obj, formData, options) {
   if (!utils$3.isObject(obj)) {
     throw new TypeError("target must be an object");
   }
-  formData = formData || new (FormData$2 || FormData)();
+  formData = formData || new (FormData$1 || FormData)();
   options = utils$3.toFlatObject(
     options,
     {
@@ -16007,7 +16066,7 @@ const platform$2 = {
   isNode: true,
   classes: {
     URLSearchParams,
-    FormData: FormData$2,
+    FormData: FormData$1,
     Blob: typeof Blob !== "undefined" && Blob || null
   },
   ALPHABET,
@@ -21411,7 +21470,7 @@ class ComicUploadService {
     var _a3;
     const { base64, filename, mimetype, options = {} } = request;
     try {
-      const formData = new FormData$2();
+      const formData = new FormData$1();
       const buffer = Buffer.from(base64, "base64");
       formData.append("source", buffer, {
         filename,
@@ -21474,7 +21533,7 @@ class ComicUploadService {
   async uploadImageFromUrl(imageUrl, options = {}) {
     var _a3;
     try {
-      const formData = new FormData$2();
+      const formData = new FormData$1();
       formData.append("source", imageUrl);
       if (options.title) formData.append("title", options.title);
       if (options.description) formData.append("description", options.description);
@@ -24707,8 +24766,8 @@ function patch$1(fs2) {
   }
 }
 var Stream$1 = stream$2.Stream;
-var legacyStreams = legacy$2;
-function legacy$2(fs2) {
+var legacyStreams = legacy$3;
+function legacy$3(fs2) {
   return {
     ReadStream,
     WriteStream
@@ -24814,7 +24873,7 @@ function clone$1(obj) {
 }
 var fs$3 = fs$8;
 var polyfills = polyfills$1;
-var legacy$1 = legacyStreams;
+var legacy$2 = legacyStreams;
 var clone = clone_1;
 var util$d = require$$0$2;
 var gracefulQueue;
@@ -25006,7 +25065,7 @@ function patch(fs2) {
     }
   }
   if (process.version.substr(0, 4) === "v0.8") {
-    var legStreams = legacy$1(fs2);
+    var legStreams = legacy$2(fs2);
     ReadStream = legStreams.ReadStream;
     WriteStream = legStreams.WriteStream;
   }
@@ -29914,10 +29973,10 @@ function requireDestroy() {
   };
   return destroy_1;
 }
-var legacy;
+var legacy$1;
 var hasRequiredLegacy;
 function requireLegacy() {
-  if (hasRequiredLegacy) return legacy;
+  if (hasRequiredLegacy) return legacy$1;
   hasRequiredLegacy = 1;
   const { ArrayIsArray, ObjectSetPrototypeOf } = requirePrimordials();
   const { EventEmitter: EE } = require$$2$1;
@@ -29986,11 +30045,11 @@ function requireLegacy() {
     else if (ArrayIsArray(emitter._events[event])) emitter._events[event].unshift(fn);
     else emitter._events[event] = [fn, emitter._events[event]];
   }
-  legacy = {
+  legacy$1 = {
     Stream: Stream2,
     prependListener
   };
-  return legacy;
+  return legacy$1;
 }
 var addAbortSignal = { exports: {} };
 var hasRequiredAddAbortSignal;
@@ -46067,8 +46126,8 @@ vending.isRegisteredFormat = function(format) {
 vending.registerFormat("zip", zip);
 vending.registerFormat("tar", tar);
 vending.registerFormat("json", json);
-var archiver = vending;
-const archiver$1 = /* @__PURE__ */ getDefaultExportFromCjs$1(archiver);
+var archiver$1 = vending;
+const archiver = /* @__PURE__ */ getDefaultExportFromCjs$1(archiver$1);
 const VIBE_PRESETS = {
   none: {
     enabled: false,
@@ -46751,7 +46810,7 @@ class ComicDownloadService {
       const safeFolderName = folderName ? folderName.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, "_") : `images_${timestamp}`;
       const zipPath = path$6.join(this.downloadsDir, `${safeFolderName}.zip`);
       const output = fs$8.createWriteStream(zipPath);
-      const archive = archiver$1("zip", { zlib: { level: 9 } });
+      const archive = archiver("zip", { zlib: { level: 9 } });
       output.on("close", () => {
         console.log(`ZIP 文件创建完成：${zipPath}`);
       });
@@ -46844,7 +46903,7 @@ class ComicOpenaiProxyService {
     try {
       let response;
       if (formData) {
-        const form = new FormData$2();
+        const form = new FormData$1();
         for (const [key, value] of Object.entries(formData.fields)) {
           form.append(key, value);
         }

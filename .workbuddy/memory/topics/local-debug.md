@@ -1,5 +1,10 @@
 # 专题：本机调试环境（省时间）
 
+> ⚠️ **环境已变更（2026-09-27）**：当前开发机是 **macOS**，工作目录 `/Users/xiang/code/gzh-layout`，
+> 应用数据在 `~/Library/Application Support/gzh-layout/`（`comic-gen.json` / `comic-settings.json` / `gzh-layout.json`）。
+> 下面 Windows 时代的 `D:\`、`%APPDATA%`、PowerShell 用法属于历史记录，遇到路径对不上时按 macOS 等价物理解
+> （`dist` / `dist-electron` 相对路径不变；`ps` 命令在本机沙箱下不可用，改用 `ls -la` 时间戳判断进程是否在跑）。
+
 - **Bash 工具可用**：`ls`/`grep`/`find`/`rm`/`curl`/`tail` 正常，日常文件操作直接用 Bash 更快。偶发丢失 coreutils（`tail`/`wc` 报 not found）→ 前缀 `export PATH="/c/Users/admin/.workbuddy/binaries/PortableGit/versions/1.2.0/usr/bin:$PATH" &&` 即恢复；不要把这类报错当命令失败。
 - **`ELECTRON_RUN_AS_NODE=1` 在 shell 里是设着的** → 直接跑 `electron.exe` 会退化成 Node，脚本静默跑不起来。
 - **要用真 Electron 验证（系统代理 / CORS / 真实网络栈）只能走 PowerShell**：`Remove-Item env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue` → `& $exe "D:\<探针目录>" --no-sandbox`（目录里放 `package.json`(main) + 主进程 cjs：`app.whenReady()` → `net.fetch` → 写结果 → `app.exit(0)`）。**Bash 的 `env -u` 无效（退出码 0 却什么都不做）；`Start-Process -RedirectStandardOutput` 也跑不起来。**

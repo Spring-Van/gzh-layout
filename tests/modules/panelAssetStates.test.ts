@@ -165,6 +165,31 @@ describe('formatCellsForPrompt（画面描述的分格详情）', () => {
     const text = formatCellsForPrompt([{ content: '空镜' }]);
     expect(text).not.toContain('出场资产');
   });
+
+  it('台词 / 心声 / 画外 / 旁白进入分格详情，供画面描述层安排气泡与旁白框', () => {
+    const text = formatCellsForPrompt([
+      { content: '少年站在广场中央', speaker: '萧炎', dialogue: '我会回来的' },
+      { content: '近景', speaker: '萧炎', delivery: '心声', dialogue: '凭什么' },
+      { content: '全景', speaker: '测验员', delivery: '画外', dialogue: '下一位' },
+      { content: '雨夜空镜', narration: '三年前，他还是天才少年' },
+    ]);
+    // 标签取 delivery（缺省 = 台词），带说话人前缀；旁白不带说话人
+    expect(text).toContain('台词：萧炎：我会回来的');
+    expect(text).toContain('心声：萧炎：凭什么');
+    expect(text).toContain('画外：测验员：下一位');
+    expect(text).toContain('旁白：三年前，他还是天才少年');
+  });
+
+  it('无台词的格不输出文字层行', () => {
+    const text = formatCellsForPrompt([{ content: '空镜' }]);
+    expect(text).not.toContain('台词');
+    expect(text).not.toContain('旁白');
+  });
+
+  it('音效行随格进入分格详情：拟声词是画面描述层画成艺术字的来源', () => {
+    const text = formatCellsForPrompt([{ content: '灯管爆裂', sfx: '“啪——”灯管熄灭的电流声' }]);
+    expect(text).toContain('音效：“啪——”灯管熄灭的电流声');
+  });
 });
 
 describe('buildPanelAssetsContext（已随绑定资产变量下线）', () => {

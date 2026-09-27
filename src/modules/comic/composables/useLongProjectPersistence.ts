@@ -35,6 +35,10 @@ export function useLongProjectPersistence(projectId: string) {
   /**
    * 队列内 read-modify-write：先读 DB 最新数据，应用局部修改后写回。
    * patch 在队列任务内基于最新数据计算，避免跨页旧快照覆盖。
+   *
+   * 性能：DB（IPC）返回的本身就是纯数据，直接在其上 mutate，省掉一次全量 JSON 深克隆
+   *（长篇项目含全部分镜/资产/描述，整库可达数十 MB，克隆是毫秒~秒级同步阻塞）。
+   * 只有回落到本地 project.value（reactive proxy）时才需要克隆剥离 proxy。
    */
   const mutateLongProjectData = (mutate: (data: NonNullable<ComicProject['longProjectData']>) => void) =>
     runPersistTask(async () => {
@@ -42,9 +46,12 @@ export function useLongProjectPersistence(projectId: string) {
       const latest = (await comicDb.getProject(projectId)) ?? project.value
       if (!latest) return
       const current = latest.longProjectData ?? { nodes: [] }
-      // 先克隆出纯数据草稿，patch 后再次序列化以剥离 reactive proxy（IPC 安全）
-      const draft = JSON.parse(JSON.stringify(current)) as NonNullable<ComicProject['longProjectData']>
+      const fromDb = latest !== project.value
+      const draft = fromDb
+        ? current
+        : (JSON.parse(JSON.stringify(current)) as NonNullable<ComicProject['longProjectData']>)
       mutate(draft)
+      // mutate 回调可能塞入 reactive 值，写库前再序列化一次剥离 proxy（IPC 安全）
       const updated: ComicProject = {
         ...latest,
         longProjectData: JSON.parse(JSON.stringify(draft)),
@@ -66,7 +73,11 @@ export function useLongProjectPersistence(projectId: string) {
     runPersistTask(async () => {
       const latest = (await comicDb.getProject(projectId)) ?? project.value
       if (!latest) return
-      const draft = JSON.parse(JSON.stringify(latest)) as ComicProject
+      // 同 mutateLongProjectData：DB 纯数据直接 mutate，省一次全量克隆
+      const fromDb = latest !== project.value
+      const draft = fromDb
+        ? latest
+        : (JSON.parse(JSON.stringify(latest)) as ComicProject)
       mutate(draft)
       const updated: ComicProject = { ...draft, updatedAt: Date.now() }
       await comicDb.saveProject(updated)

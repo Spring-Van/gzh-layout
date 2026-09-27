@@ -251,7 +251,7 @@ import { useToast } from '@comic/composables/useToast'
 import { imageGenerationService } from '@comic/services/imageGenerationService'
 import { buildSharedBlockSection, effectiveVariantRefImages } from '@comic/services/panelPromptService'
 import { getSharedRefImages } from '@comic/utils/sharedBlocks'
-import { resolveActiveGenSlot, slotAttachShared } from '@comic/utils/genPromptSlots'
+import { buildOverwriteActiveSlotPatch, resolveActiveGenSlot, slotAttachShared } from '@comic/utils/genPromptSlots'
 import { buildAssetPromptPrompt, buildSingleAssetPrompt, buildStyleContext, buildTargetList, generateAssetPrompts, rewriteAssetPrompt, type AssetPromptTarget } from '@comic/services/assetPromptService'
 import { AssetPromptParseError, describeParseFailure, parseAssetPromptResponse, type AssetPromptParseDiagnostics } from '@comic/services/assetPromptParser'
 import type { AssetUsageIndex } from '@comic/services/assetUsageService'
@@ -696,7 +696,13 @@ function savePromptResults(results: AssetPromptRunResult[]) {
   let filled = 0
   for (const result of results) {
     if (!result.assetId || !result.variantId || result.variantId === 'batch-once') continue
-    emit('update:asset', { assetId: result.assetId, variantId: result.variantId, patch: { imagePrompt: result.imagePrompt } })
+    // 覆盖「当前选中条」：该状态建过候选条时只写 imagePrompt 是假写入（界面与生图读的是候选条）
+    const variant = props.assets.find((asset) => asset.id === result.assetId)?.variants.find((v) => v.id === result.variantId)
+    emit('update:asset', {
+      assetId: result.assetId,
+      variantId: result.variantId,
+      patch: buildOverwriteActiveSlotPatch(variant, result.imagePrompt),
+    })
     filled += 1
   }
   emit('prompt-completed')
@@ -736,6 +742,8 @@ function parsePromptImportPreview(content: string) {
  */
 function confirmPromptImport(content: string) {
   const items = parseImportedAssetPrompts(content)
+  // 解析成功即关闭导入弹窗（解析失败会抛错，弹窗保持打开让用户修改内容）
+  promptImportVisible.value = false
   if (!batchRuns.once) {
     const model = props.llmModels.find((m) => m.id === props.assetGenConfig?.promptModelId) ?? props.llmModels[0]
     const template = assetPromptTemplates.value.find((t) => t.id === props.assetGenConfig?.promptTemplateId) ?? assetPromptTemplates.value[0]
@@ -804,7 +812,7 @@ async function runRewritePrompt(options: { modelId: string; templateId?: string;
       styleContext: styleContext.value,
       prompt: options.prompt,
     })
-    emit('update:asset', { assetId: target.asset.id, variantId: target.variant.id, patch: { imagePrompt: prompt } })
+    emit('update:asset', { assetId: target.asset.id, variantId: target.variant.id, patch: buildOverwriteActiveSlotPatch(target.variant, prompt) })
     emit('update:gen-config', { ...(props.assetGenConfig ?? defaultGenConfig()), promptModelId: options.modelId, promptTemplateId: options.templateId })
     toast.success('提示词已生成')
   } catch (error) {

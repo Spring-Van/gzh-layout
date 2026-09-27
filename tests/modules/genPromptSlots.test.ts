@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createGenPromptSlot, normalizeGenPromptSlot, resolveActiveGenSlot, slotAttachShared, slotUseAssetRefs } from '../../src/modules/comic/utils/genPromptSlots';
+import { buildOverwriteActiveSlotPatch, createGenPromptSlot, normalizeGenPromptSlot, resolveActiveGenSlot, slotAttachShared, slotUseAssetRefs } from '../../src/modules/comic/utils/genPromptSlots';
 import type { GenPromptSlot } from '../../src/modules/comic/types';
 
 /**
@@ -36,6 +36,46 @@ describe('resolveActiveGenSlot — 选中哪条就发哪条', () => {
   it('完全没有工件时返回空正文，而不是抛错', () => {
     expect(resolveActiveGenSlot(undefined).text).toBe('');
     expect(resolveActiveGenSlot(null).text).toBe('');
+  });
+});
+
+describe('buildOverwriteActiveSlotPatch — 写回必须对齐读口径', () => {
+  it('没有候选条时只写 imagePrompt（单输入框时代口径）', () => {
+    expect(buildOverwriteActiveSlotPatch({ imagePrompt: '旧' }, '新')).toEqual({ imagePrompt: '新' });
+    expect(buildOverwriteActiveSlotPatch(undefined, '新')).toEqual({ imagePrompt: '新' });
+    expect(buildOverwriteActiveSlotPatch({ genPrompts: [] }, '新')).toEqual({ imagePrompt: '新' });
+  });
+
+  it('有候选条时覆盖当前选中条的正文（而不是 imagePrompt）', () => {
+    const slots = [slot('a', '第一条'), slot('b', '第二条')];
+    const patch = buildOverwriteActiveSlotPatch({ genPrompts: slots, activeGenPromptId: 'b' }, '导入的提示词');
+    expect(patch.genPrompts?.find((s) => s.id === 'b')?.text).toBe('导入的提示词');
+    expect(patch.genPrompts?.find((s) => s.id === 'a')?.text).toBe('第一条');
+    expect(patch.activeGenPromptId).toBe('b');
+    // 只覆盖非第 1 条时不动 imagePrompt（与卡片镜像不变式一致：imagePrompt ≡ 第 1 条）
+    expect(patch.imagePrompt).toBeUndefined();
+    // 写回后读口径必须立刻看到新正文
+    expect(resolveActiveGenSlot({ genPrompts: patch.genPrompts, activeGenPromptId: patch.activeGenPromptId }).text).toBe('导入的提示词');
+  });
+
+  it('覆盖第 1 条时同步镜像 imagePrompt', () => {
+    const slots = [slot('a', '第一条'), slot('b', '第二条')];
+    const patch = buildOverwriteActiveSlotPatch({ genPrompts: slots, activeGenPromptId: 'a' }, '新正文');
+    expect(patch.imagePrompt).toBe('新正文');
+  });
+
+  it('activeGenPromptId 悬空时覆盖第 1 条并锚定选中', () => {
+    const slots = [slot('a', '第一条'), slot('b', '第二条')];
+    const patch = buildOverwriteActiveSlotPatch({ genPrompts: slots, activeGenPromptId: 'deleted' }, '新正文');
+    expect(patch.genPrompts?.find((s) => s.id === 'a')?.text).toBe('新正文');
+    expect(patch.activeGenPromptId).toBe('a');
+    expect(patch.imagePrompt).toBe('新正文');
+  });
+
+  it('text 为 null 的脏条也能安全覆盖', () => {
+    const slots = [{ id: 'a', text: null as unknown as string, attachShared: true }];
+    const patch = buildOverwriteActiveSlotPatch({ genPrompts: slots }, '新正文');
+    expect(patch.genPrompts?.[0].text).toBe('新正文');
   });
 });
 

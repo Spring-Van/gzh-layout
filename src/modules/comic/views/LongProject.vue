@@ -257,10 +257,10 @@
       @close="importKind = null"
     />
 
-    <!-- 导入覆盖确认：层级高于手动导入弹窗，避免被其遮罩盖住 -->
+    <!-- 导入覆盖确认：z-[150] 必须高于手动导入弹窗（z-[140]），否则确认框被导入弹窗遮罩盖住点不到 -->
     <ConfirmDialog
       v-model="importConfirmVisible"
-      z-index-class="z-[120]"
+      z-index-class="z-[150]"
       title="覆盖已有内容"
       :content="importConfirmContent"
       confirm-text="覆盖导入"

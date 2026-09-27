@@ -1,4 +1,4 @@
-import type { InjectionKey } from 'vue';
+import type { InjectionKey, Ref } from 'vue';
 import { inject, provide, ref } from 'vue';
 import type { ToastType } from '../components/common/Toast.vue';
 
@@ -8,7 +8,12 @@ interface ToastInstance {
 }
 
 interface ToastContext {
-  instance: ToastInstance | null;
+  /**
+   * 必须持有 ref 本身（而不是 ref.value 的快照）。
+   * 提供者注册实例发生在 onMounted，晚于子组件的 setup，
+   * 只有共享同一个 ref，消费方才能读到注册后的最新值。
+   */
+  instance: Ref<ToastInstance | null>;
 }
 
 const toastKey: InjectionKey<ToastContext> = Symbol('toast');
@@ -16,7 +21,10 @@ const toastKey: InjectionKey<ToastContext> = Symbol('toast');
 export function useToastProvider() {
   const instance = ref<ToastInstance | null>(null);
 
-  provide(toastKey, { instance: instance.value });
+  // 注意：曾经误写成 { instance: instance.value }，注入到的是当时求值的 null 快照，
+  // 之后 setToastInstance 只更新了本函数的 ref，消费方永远读到 null，
+  // 导致全站提示被静默丢弃（保存成功、失败报错都毫无反馈）。
+  provide(toastKey, { instance });
 
   return (val: ToastInstance) => {
     instance.value = val;
@@ -31,7 +39,8 @@ export function useToast() {
   }
 
   const getInstance = () => {
-    if (!toastCtx.instance) {
+    const instance = toastCtx.instance.value;
+    if (!instance) {
       console.warn('Toast instance not initialized yet');
       // 返回空方法避免报错
       return {
@@ -39,7 +48,7 @@ export function useToast() {
         removeToast: () => { }
       };
     }
-    return toastCtx.instance;
+    return instance;
   };
 
   return {

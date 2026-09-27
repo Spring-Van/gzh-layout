@@ -1,7 +1,7 @@
 import { llmService } from './llmService'
 import { renderPromptTemplate } from './promptTemplateRegistry'
 import { buildStyleContext } from './assetPromptService'
-import { formatCellsForPrompt } from './storyboardService'
+import { cellCountLabel, formatCellsForPrompt } from './storyboardService'
 import { buildBlockText, computeBlockImageNumbers, getBlocksByPosition } from '@comic/utils/sharedBlocks'
 import { renderRefUsage, DEFAULT_REF_USAGE } from './refUsage'
 import type { LongProjectAsset, LongProjectPanelArtwork, LongProjectStoryboardAssetBinding, LongProjectStoryboardPanel, ModelConfig, PromptInsertPosition, SharedPromptBlock } from '@comic/types'
@@ -321,9 +321,15 @@ export function buildFinalPromptSections(
 
 /** 单镜信息文本（逐镜与全章两种模式共用同一拼法）。 */
 export function buildPanelInfoText(panel: LongProjectStoryboardPanel): string {
-  // 多格页：把每格的 景别/镜头/画面/人物/动作/表情/音效/光效 一并交给模型，避免只看到汇总后的「画面」而丢细节
-  const cellDetail = panel.cells?.length ? formatCellsForPrompt(panel.cells) : ''
+  // 多格页：把每格的 景别/镜头/画面/人物/出场资产/动作/表情/音效/光效/台词类 一并交给模型，
+  // 避免只看到汇总后的「画面」而丢细节（台词类供画面描述层安排气泡与旁白框）
+  const cellCount = panel.cells?.length ?? 0
+  const cellDetail = cellCount ? formatCellsForPrompt(panel.cells!) : ''
+  // 页面结构必须显式给出：画面描述层要依据分镜声明的格数标签决定分格结构与主格位置，
+  // 只靠「分格详情里有几格」推断会丢掉页头声明的结构意图（旧数据无 cells 视为整页单格）。
+  const structure = `${panel.cellLabel?.trim() || cellCountLabel(cellCount || 1)}（本页 ${cellCount || 1} 格）`
   return `分镜序号：${panel.order}
+页面结构：${structure}
 镜头：${panel.shot || '未指定'}
 画面内容：${panel.content}${cellDetail ? `\n分格详情：\n${cellDetail}` : ''}${panel.imagePrompt ? `\n分镜参考描述：${panel.imagePrompt}` : ''}`
 }

@@ -1,10 +1,10 @@
 <template>
   <Teleport to="body">
-    <div class="fixed top-4 right-4 z-50 flex flex-col gap-2">
+    <div class="fixed top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
       <div
         v-for="toast in toasts"
         :key="toast.id"
-        class="min-w-[300px] p-4 rounded-lg shadow-lg flex items-center gap-3 animate-slide-in transition-colors duration-300"
+        class="pointer-events-auto min-w-[300px] p-4 rounded-lg shadow-lg flex items-center gap-3 animate-slide-in transition-colors duration-300"
         :class="toastClass(toast.type)"
       >
         <svg

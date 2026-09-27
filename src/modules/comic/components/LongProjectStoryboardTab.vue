@@ -319,6 +319,7 @@
     <!-- 手动导入分镜（外部 AI 代跑）：粘贴 → 解析预览 → 确认导入；z-[140] 压过「确认发送内容」/批量推导弹窗（z-50/z-[130] 层级） -->
     <ManualResultImportDialog
       :visible="storyboardImportVisible"
+      :busy="storyboardImportBusy"
       title="手动导入分镜"
       placeholder="粘贴外部 AI 生成的分镜结果…"
       z-index-class="z-[140]"
@@ -330,6 +331,7 @@
     <!-- 手动导入画面描述（外部 AI 代跑整章生成）：粘贴 → 按 ## 分镜 N 对位预览 → 确认写入；z-[140] 压过批量推导弹窗 -->
     <ManualResultImportDialog
       :visible="promptImportVisible"
+      :busy="promptImportBusy"
       title="手动导入整章画面描述"
       placeholder="粘贴外部 AI 生成的整章画面描述（每镜以 ## 分镜 N 开头）…"
       z-index-class="z-[140]"
@@ -356,7 +358,7 @@
  * 数据持久化走 panelArtworks（panelId 关联），重跑分镜由迁移逻辑保留/标记过期；
  * 项目数据与持久化队列共享主页面实例（props 注入），不再独立读写。
  */
-import { computed, onMounted, reactive, ref, toRaw, watch, type Ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, toRaw, watch, type Ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
 import { ArrowRight, Download, ListTree, LoaderCircle, SlidersHorizontal, Sparkles, Undo2 } from 'lucide-vue-next'
 import { comicDb, comicDownload } from '@/api/comic'
@@ -763,6 +765,33 @@ function upsertArtworksBatch(items: Array<{ panelId: string; patch: Partial<Long
 }
 
 /**
+ * 画面记录的**内存快速补丁**：只改 project 响应式数据，不走「读库 + 克隆 + 全量落库」链。
+ *
+ * 用途是高频小状态位（如生图 running）—— 落库链每次都要 IPC 全量读 + JSON 深克隆 + 整个
+ * 存储文件全量重写，长篇项目下是秒级卡顿；状态位不值得。最终态（done/failed + 结果）
+ * 仍由 upsertArtwork 正式落库，崩溃后内存 running 自然消失、无需恢复。
+ * 注意：并发落库任务会以 DB 数据整体替换 project，可能短暂冲掉本补丁，由正式落库收敛。
+ */
+function patchArtworkInMemory(panelId: string, patch: Partial<LongProjectPanelArtwork>) {
+  const artworks = props.project?.longProjectData?.panelArtworks
+  if (!artworks) return
+  const index = artworks.findIndex((item) => item.panelId === panelId)
+  const now = Date.now()
+  if (index >= 0) {
+    artworks[index] = { ...artworks[index], ...patch, updatedAt: now }
+  } else {
+    artworks.push({
+      panelId,
+      chapterId: currentChapter.value?.id ?? '',
+      promptStatus: 'none',
+      genStatus: 'none',
+      ...patch,
+      updatedAt: now,
+    })
+  }
+}
+
+/**
  * 设定本镜使用的参考图（**单选**，见 `resolvePanelRefImage`）。
  * 传空数组表示回到"未选"状态 —— 即取该视觉状态的第一张，不在绑定里留快照，
  * 这样资产里的图换序或删掉第一张后本镜能自动跟随。
@@ -1068,9 +1097,15 @@ function parseStoryboardPreview(content: string): { title: string; items: string
 }
 
 /** 确认导入分镜：覆盖已有分镜前提示（已推导描述与成图将自动对位迁移）。 */
+const storyboardImportBusy = ref(false)
+
 async function confirmStoryboardImport(content: string) {
   if (!currentChapter.value) return
   if (panels.value.length && !window.confirm('本章已有分镜，导入将生成新一版分镜并自动对位迁移已推导描述与成图，是否继续？')) return
+  // 先点亮「导入中…」再让出一帧，随后才进入解析 + 绑定 + 迁移落库的同步重活
+  //（分镜多时这几步会阻塞主线程数秒，不先渲染 loading 用户会以为点了没反应）
+  storyboardImportBusy.value = true
+  await nextTick()
   try {
     const { panels: imported, droppedPromptCount } = await importStoryboard(content)
     storyboardImportVisible.value = false
@@ -1085,6 +1120,8 @@ async function confirmStoryboardImport(content: string) {
     notifyDroppedPrompts(droppedPromptCount)
   } catch (error) {
     toast.error(error instanceof Error ? error.message : '分镜解析失败')
+  } finally {
+    storyboardImportBusy.value = false
   }
 }
 
@@ -1105,16 +1142,22 @@ function parsePromptImportPreview(content: string): { title: string; items: stri
 const promptImportBusy = ref(false)
 
 async function confirmPromptImport(content: string) {
-  const parsed = parseChapterPanelPrompts(content, panels.value.map((panel) => ({ id: panel.id, order: panel.order })))
-  if (!parsed.entries.length) {
-    toast.error('没有解析出任何分镜描述')
-    return
-  }
+  // 先点亮「导入中…」再让出一帧，随后才进入解析 + 批量写入 + 整章绑定同步的同步重活
   promptImportBusy.value = true
+  await nextTick()
+  let parsed: ReturnType<typeof parseChapterPanelPrompts>
   try {
+    parsed = parseChapterPanelPrompts(content, panels.value.map((panel) => ({ id: panel.id, order: panel.order })))
+    if (!parsed.entries.length) {
+      toast.error('没有解析出任何分镜描述')
+      return
+    }
     await upsertArtworksBatch(parsed.entries.map((entry) => ({ panelId: entry.panelId, patch: { imagePrompt: entry.prompt, promptSource: 'manual' as const, promptStatus: 'done' as const } })))
     // 导入的外部描述同样是绑定依据（与推导路径同一口径）
     syncBindingsAfterPromptWrite(new Map(parsed.entries.map((entry) => [entry.panelId, entry.prompt])))
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : '导入失败')
+    return
   } finally {
     promptImportBusy.value = false
   }
@@ -1662,6 +1705,13 @@ async function generatePanelImage(
   // `description` 是本次要发的候选条正文；不传才回落到 `imagePrompt`（第 1 条）。
   options: { manifest?: RuntimeRefManifest; extras?: Array<{ image: string; label: string }>; attachShared?: boolean; description?: string } = {},
 ): Promise<boolean> {
+  // 先点亮「生图中」再进入补绑 / 体检 / 拼提示词等同步重活：这些活儿在分镜多时要跑好几秒，
+  // 放在设置 running 之后会让 loading 迟迟不出现（用户感觉点了没反应）。
+  // running 只走内存补丁：落库链（IPC 全量读 + 深克隆 + 整库文件重写）本身就要数秒，
+  // 状态位不值得；done/failed + 生成结果再由 upsertArtwork 正式落库。
+  const prevStatus = artworkMap.value.get(panel.id)?.genStatus ?? 'none'
+  patchArtworkInMemory(panel.id, { genStatus: 'running' })
+  await nextTick()
   // 生图前最后一次确定性补绑，防止旧分镜或外部导入绕过保存事件留下漏绑。
   let effectivePanel = panel
   const chapter = currentChapter.value
@@ -1693,11 +1743,13 @@ async function generatePanelImage(
   if (bindingIssues.length) {
     const labels = formatPanelBindingAuditIssues(bindingIssues).join('、')
     toast.warning(`本镜资产绑定需要确认：${labels}。中栏资产区可逐项处理`)
+    patchArtworkInMemory(panel.id, { genStatus: prevStatus })
     return false
   }
   const description = (options.description ?? artwork?.imagePrompt)?.trim()
   if (!description) {
     toast.warning('请先推导或编辑画面描述')
+    patchArtworkInMemory(panel.id, { genStatus: prevStatus })
     return false
   }
   const manifest = options.manifest && effectivePanel === panel ? options.manifest : refManifestOf(effectivePanel)
@@ -1710,13 +1762,14 @@ async function generatePanelImage(
   const model = imageModels.value.find((item) => item.id === config.imageModelId)
   if (!model) {
     toast.error('请先在顶部绘图配置中选择生图模型')
+    patchArtworkInMemory(panel.id, { genStatus: prevStatus })
     return false
   }
   if (!model.apiKey) {
     toast.error('请先在系统设置中配置该模型的 API Key')
+    patchArtworkInMemory(panel.id, { genStatus: prevStatus })
     return false
   }
-  await upsertArtwork(panel.id, { genStatus: 'running' })
   try {
     const result = await imageGenerationService.generateWithModel(
       toRaw(model),

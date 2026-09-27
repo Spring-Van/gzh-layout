@@ -66,31 +66,16 @@
                 <span class="min-w-0 truncate text-[11px] text-text-muted">{{ viewHint }}</span>
               </div>
 
-              <!-- 提示词视图 · 一次性发送：整份清单（发送前/重发前都可改；可复制给外部 AI、可导入外部结果） -->
+              <!-- 提示词视图 · 一次性发送：整份清单（发送前/重发前都可改；复制/导入入口在底部按钮区） -->
               <template v-if="effectiveView === 'prompt' && !isPerItem">
                 <div class="flex shrink-0 items-center justify-between gap-3">
                   <span class="min-w-0 truncate text-xs text-text-secondary">最终发送的提示词（可在发送前修改）</span>
-                  <div class="flex shrink-0 items-center gap-3">
-                    <button
-                      v-if="promptText"
-                      class="shrink-0 text-xs text-cyan-500 hover:text-cyan-400 disabled:opacity-40 dark:text-cyan-400 dark:hover:text-cyan-300"
-                      :disabled="running"
-                      title="复制整份提示词，可粘贴到外部 AI 执行"
-                      @click="copyPrompt"
-                    >{{ copied ? '已复制 ✓' : '复制提示词' }}</button>
-                    <button
-                      class="shrink-0 text-xs text-cyan-500 hover:text-cyan-400 disabled:opacity-40 dark:text-cyan-400 dark:hover:text-cyan-300"
-                      :disabled="running"
-                      title="把外部 AI 按本清单生成的结果粘贴回来，按「资产名｜状态名」解析后进入下方结果核对流程"
-                      @click="emit('import-request')"
-                    >导入外部 AI 结果</button>
-                    <button
-                      class="shrink-0 text-xs text-cyan-500 hover:text-cyan-400 disabled:opacity-40 dark:text-cyan-400 dark:hover:text-cyan-300"
-                      :disabled="running"
-                      title="恢复系统按当前模板拼装的提示词"
-                      @click="resetPrompt"
-                    >重置</button>
-                  </div>
+                  <button
+                    class="shrink-0 text-xs text-cyan-500 hover:text-cyan-400 disabled:opacity-40 dark:text-cyan-400 dark:hover:text-cyan-300"
+                    :disabled="running"
+                    title="恢复系统按当前模板拼装的提示词"
+                    @click="resetPrompt"
+                  >重置</button>
                 </div>
                 <textarea
                   v-model="promptText"
@@ -239,6 +224,39 @@
           <footer class="flex shrink-0 items-center justify-between gap-3 border-t border-border-subtle px-5 py-3">
             <p class="min-w-0 truncate text-xs text-text-muted">{{ footerHint }}</p>
             <div class="flex shrink-0 items-center gap-2">
+              <!-- 外部 AI 代跑入口（与原文分析/剧本等弹窗的底部按钮一致）：
+                   一次性 = 整份清单复制 / 整份导入解析；逐条 = 复制当前条 / 单条直接导入（无需标题格式） -->
+              <template v-if="allowSendMode">
+                <template v-if="!isPerItem">
+                  <button
+                    class="secondary-button"
+                    :disabled="running || !state.prompt.trim()"
+                    title="复制整份清单提示词，可粘贴到外部 AI 执行"
+                    @click="copyPrompt"
+                  ><Copy :size="14" />{{ copied ? '已复制 ✓' : '复制提示词' }}</button>
+                  <button
+                    class="secondary-button"
+                    :disabled="running"
+                    title="把外部 AI 按本清单生成的结果粘贴回来，按「资产名｜状态名」解析后进入结果核对流程"
+                    @click="emit('import-request')"
+                  ><ClipboardPaste :size="14" />导入外部 AI 结果</button>
+                </template>
+                <template v-else>
+                  <button
+                    class="secondary-button"
+                    :disabled="running || !activeItem?.text.trim()"
+                    title="复制当前选中视觉状态的提示词，可粘贴到外部 AI 单条执行"
+                    @click="copyActivePrompt"
+                  ><Copy :size="14" />{{ copiedActive ? '已复制 ✓' : '复制本条提示词' }}</button>
+                  <button
+                    class="secondary-button"
+                    :disabled="running || !activeItem"
+                    title="把外部 AI 为这一条生成的结果粘贴进来，直接填入当前条结果（无需「资产名｜状态名」标题）"
+                    @click="perItemImportVisible = true"
+                  ><ClipboardPaste :size="14" />导入本条结果</button>
+                </template>
+              </template>
+
               <button class="secondary-button" :disabled="running" @click="handleClose">{{ started ? '关闭' : '取消' }}</button>
 
               <template v-if="started">
@@ -334,6 +352,17 @@
             </section>
           </div>
         </Transition>
+
+        <!-- 逐条模式的单条导入：整段文本即当前条结果，无需「资产名｜状态名」标题解析；
+             z-[160] 高于本弹窗（z-[130]）与关闭确认（z-[140]） -->
+        <ManualResultImportDialog
+          :visible="perItemImportVisible"
+          title="导入本条结果（外部 AI）"
+          :placeholder="perItemImportPlaceholder"
+          z-index-class="z-[160]"
+          @confirm="confirmPerItemImport"
+          @close="perItemImportVisible = false"
+        />
       </div>
     </Transition>
   </Teleport>
@@ -349,8 +378,11 @@
  * - **生成结果**：模型返回的提示词，可逐条修改，点「填充到资产」才写回。
  * 进度区就在提示词输入框下方（进度条 + 已完成 N/M + 未填充提醒 + 失败/缺条说明），不跳窗。
  *
- * 一次性发送额外支持**外部 AI 代跑**：复制提示词 → 外部 AI 生成 → 点「导入外部 AI 结果」
- * 粘贴回传，由父组件按同一解析器解析后回填到结果视图（与内置模型同一核对/填充流程）。
+ * 两种发送方式都支持**外部 AI 代跑**（入口在底部按钮区，与原文分析/剧本等弹窗一致）：
+ * - 一次性：「复制提示词」复制整份清单 → 外部 AI 生成 → 「导入外部 AI 结果」粘贴回传，
+ *   由父组件按同一解析器解析后回填到结果视图（与内置模型同一核对/填充流程）；
+ * - 逐条：「复制本条提示词」复制当前选中条 → 外部 AI 生成 → 「导入本条结果」粘贴回传，
+ *   整段文本直接填入当前条结果（无需「资产名｜状态名」标题），同样走核对/填充流程。
  *
  * 成功/失败约定：
  * - **不再自动落库**。生成/导入成功后结果只留在弹窗里（页面顶部有「未填充」提醒），
@@ -360,7 +392,8 @@
  *   两者都按**输入框当前内容**发送。
  */
 import { computed, reactive, ref, watch } from 'vue'
-import { ChevronLeft, ChevronRight, CircleCheck, LoaderCircle, X } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, CircleCheck, ClipboardPaste, Copy, LoaderCircle, X } from 'lucide-vue-next'
+import ManualResultImportDialog from '@comic/components/common/ManualResultImportDialog.vue'
 import type { ModelConfig, PromptTemplate } from '@comic/types'
 
 /** 逐条模式下的单个条目（由父组件在打开弹窗 / 切换配置时提供）。 */
@@ -784,18 +817,33 @@ function resetRunState(mode: 'once' | 'per-item') {
   Object.assign(runStates[mode], createRunState())
 }
 
+/**
+ * 三级回填：当前值有效 → 沿用；记忆值（defaultId）有效 → 用记忆值；否则取列表第一个。
+ * 只判空不校验存在性的旧写法，会让已删除模板的失效 id 顶掉默认选中（select 显示占位、prompt 拼出空串）。
+ */
+function pickValidId(current: string, defaultId: string | undefined, list: Array<{ id: string }>): string {
+  if (current && list.some((item) => item.id === current)) return current
+  if (defaultId && list.some((item) => item.id === defaultId)) return defaultId
+  return list[0]?.id ?? ''
+}
+
 watch(() => props.modelValue, (visible) => {
   if (!visible) return
   // 每次打开把两套运行态都清干净，避免上次的结果残留
   resetRunState('once')
   resetRunState('per-item')
   closeConfirmVisible.value = false
-  if (!modelId.value) modelId.value = props.defaultModelId || props.llmModels[0]?.id || ''
-  if (!templateId.value) templateId.value = props.defaultTemplateId || props.templates[0]?.id || ''
+  modelId.value = pickValidId(modelId.value, props.defaultModelId, props.llmModels)
+  templateId.value = pickValidId(templateId.value, props.defaultTemplateId, props.templates)
   // 两种发送方式各自初始化清单文本
   runStates['per-item'].prompt = builtPromptFor('per-item')
   runStates.once.prompt = builtPromptFor('once')
   refreshItems()
+})
+
+// 模板列表变化（删除 / 异步加载完成）后当前模板失效 → 回退第一个，对齐 PanelPromptGenerateModal 的兜底
+watch(() => props.templates, (list) => {
+  if (!list.some((t) => t.id === templateId.value)) templateId.value = list[0]?.id ?? ''
 })
 
 /** 取指定发送方式下的拼装清单文本（用于初始化两套 state.prompt）。 */
@@ -897,6 +945,55 @@ async function copyPrompt() {
   } catch {
     /* 忽略：仅影响复制按钮反馈 */
   }
+}
+
+// ===== 外部 AI 代跑（逐条模式）：复制 / 导入都只针对当前选中条 =====
+
+/** 单条导入弹窗可见性。 */
+const perItemImportVisible = ref(false)
+/** 导入占位文案：带上当前条名字，避免导错条。 */
+const perItemImportPlaceholder = computed(() => {
+  const item = activeItem.value
+  return item
+    ? `粘贴外部 AI 为「${item.assetName} · ${item.variantName}」生成的结果，确认后填入该条的结果视图…`
+    : '粘贴外部 AI 生成的结果…'
+})
+/** 当前条复制反馈。 */
+const copiedActive = ref(false)
+let copiedActiveTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 复制当前选中条的提示词（含手动修改），供外部 AI 单条执行。 */
+async function copyActivePrompt() {
+  const text = activeItem.value?.text.trim()
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    copiedActive.value = true
+    if (copiedActiveTimer) clearTimeout(copiedActiveTimer)
+    copiedActiveTimer = setTimeout(() => { copiedActive.value = false }, 1600)
+  } catch {
+    /* 忽略：仅影响复制按钮反馈 */
+  }
+}
+
+/**
+ * 逐条模式导入：粘贴的整段文本就是这一条的结果，不走「资产名｜状态名」解析。
+ * 填入后与内置模型返回同口径（resultOriginal 记为导入原文、可「重置结果」），并切到结果视图核对；
+ * 同时置 started=true —— 让底部出现「填充到资产」，纯手工逐条导入也能走同一写回流程。
+ */
+function confirmPerItemImport(content: string) {
+  const target = activeItem.value
+  if (!target || target.status === 'running') return
+  target.result = content
+  target.resultOriginal = content
+  target.dirtyResult = false
+  target.status = 'done'
+  target.error = ''
+  state.value.started = true
+  state.value.filled = false
+  state.value.view = 'result'
+  state.value.userPickedView = true
+  perItemImportVisible.value = false
 }
 
 /** 切换当前条目（下拉框 / 前后按钮共用）；标记用户已手动选择，避免生成进度抢焦点。 */

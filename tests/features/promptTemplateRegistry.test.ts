@@ -171,6 +171,66 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
     }
   });
 
+  it('画面描述模板内嵌漫画规则库与气泡规范（写模板正文，用户可改）', () => {
+    for (const type of ['panel-prompt', 'panel-prompt-chapter'] as const) {
+      const content = RECOMMENDED_TEMPLATES[type]!.content;
+      // 规则库：结构 / 占比 / 景深 / 视角一致性 / 光线 / 连续性
+      expect(content).toContain('【漫画画面规则】');
+      expect(content).toContain('人物占比');
+      expect(content).toContain('浅景深');
+      expect(content).toContain('视角一致性');
+      // 气泡规范：含画外音的气尾指向（不得指向画面内人物）
+      expect(content).toContain('【文字气泡与旁白框】');
+      expect(content).toContain('气尾');
+      expect(content).toContain('不得指向画面内的任何人物');
+      expect(content).toContain('旁白');
+      // 资产名指代：绑定扫描靠它，外观交给参考图
+      expect(content).toContain('不要描写人物外貌、服装、发型、配饰与颜色');
+      // 漫画表现元素：拟声词艺术字 / 速度线 / 情绪符号 / 气氛网点 / 留白
+      expect(content).toContain('【漫画表现元素】');
+      expect(content).toContain('拟声词');
+      expect(content).toContain('速度线');
+      expect(content).toContain('情绪符号');
+      expect(content).toContain('留白');
+      // 拟声词属于画面艺术字，不进气泡
+      expect(content).toContain('拟声词不进气泡');
+      // 页面结构（漫画排版）与要素齐全要求
+      expect(content).toContain('页面结构');
+      expect(content).toContain('一个都不能缺');
+      // 输出协议：气泡层是画面的一部分（不再禁止写台词）
+      const format = outputFormatSpec(type);
+      expect(format).toContain('气泡');
+      expect(format).toContain('页面结构：');
+      expect(format).toContain('漫画表现元素');
+      expect(format).toContain('一个都不能缺');
+      expect(format).not.toContain('不要写对白或旁白');
+      expect(content).not.toContain('不写对白与旁白');
+    }
+  });
+
+  it('剧本模板：旁白独立成行（不再折进剧情），声音字段含可画的拟声词', () => {
+    const content = RECOMMENDED_TEMPLATES.script!.content;
+    expect(content).toContain('旁白独立成行');
+    expect(content).toContain('旁白逐字保留');
+    expect(content).toContain('拟声词');
+    // 旧口径「旁白叙述直接写进「剧情」」已翻转
+    expect(content).not.toContain('旁白叙述直接写进「剧情」');
+    const format = outputFormatSpec('script');
+    expect(format).toContain('旁白');
+    expect(format).toContain('原文叙述逐字');
+    expect(format).not.toContain('旁白叙述直接写进「剧情」，不进「对白」');
+  });
+
+  it('分镜模板：旁白有来源/用量/字数/分配规则，音效要求写出可画的拟声词', () => {
+    const content = RECOMMENDED_TEMPLATES.storyboard!.content;
+    expect(content).toContain('【旁白怎么写】');
+    expect(content).toContain('逐字继承剧本的「旁白」行');
+    expect(content).toContain('一格最多一条');
+    expect(content).toContain('每格 ≤ 20 字');
+    expect(content).toContain('短旁白页');
+    expect(content).toContain('拟声词用引号单独写出');
+  });
+
   it('分镜格式说明：只有页头使用 Markdown，格内使用普通文本', () => {
     const spec = outputFormatSpec('storyboard');
     expect(spec).toContain('## 分镜 N');
@@ -205,11 +265,27 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
     expect(recommended).toContain('客观视觉细节以【章节原文】为准');
     expect(recommended).toContain('实体归属和既有状态命名以【已有资产】为准');
     expect(recommended).toContain('不是最终绘画提示词');
-    expect(recommended).toContain('不要求坐标、米数或十个视角');
-    expect(recommended).toContain('依据不足时宁可少写，不得脑补');
+    // 新口径（2026-09-26）：全维度脑补 + 共享空间地图，取代旧的「不脑补、不要求尺寸」口径
+    expect(recommended).not.toContain('不得脑补');
+    expect(recommended).not.toContain('不要求坐标、米数或十个视角');
+    expect(recommended).toContain('脑补原则：全维度填充');
+    expect(recommended).toContain('零矛盾');
+    expect(recommended).toContain('共享空间地图');
+    expect(recommended).toContain('皮肤质感与瑕疵');
+    expect(recommended).toContain('禁止「完美无瑕」');
+    expect(recommended).toContain('9 个维度');
+    expect(recommended).toContain('6 维物理描述');
+    expect(recommended).toContain('瓷娃娃肌');
     expect(recommended).toContain('一个真实对象只建立一个资产实体');
-    expect(recommended).toContain('如果不单独提供该状态，生图是否可能把对象画错');
-    expect(recommended).toContain('一次性显示的台词、数值、测验结果和短暂光效');
+    expect(recommended).toContain('如果不单独提供该状态，生图是否会把人物的时期或服装画错');
+    // 状态口径（2026-09-26 二次收敛）：状态只用于人物时期/服装大跨度，场景/道具只输出一个状态
+    expect(recommended).toContain('视觉状态拆分门槛：只用于人物，跨度要明显');
+    expect(recommended).toContain('单个人物通常 ≤3 个状态');
+    expect(recommended).toContain('指甲刺伤掌心」写进人物默认状态的一句视觉描述即可');
+    expect(recommended).toContain('场景只输出一个视觉状态');
+    expect(recommended).toContain('道具只输出一个视觉状态');
+    expect(recommended).toContain('一闪而过');
+    expect(recommended).toContain('一次性显示的台词、数值、测验结果');
     expect(recommended.match(/\{\{章节原文\}\}/g)?.length).toBe(1);
     expect(recommended.match(/\{\{原文分析\}\}/g)?.length).toBe(1);
     expect(recommended.match(/\{\{漫画剧本\}\}/g)?.length).toBe(1);

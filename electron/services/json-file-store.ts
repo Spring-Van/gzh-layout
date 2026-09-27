@@ -11,6 +11,14 @@ interface JsonFileStoreOptions<T extends VersionedJsonData> {
   createDefault: () => T;
   migrate: (raw: unknown, fromVersion: number) => T;
   logger?: Pick<Console, 'warn' | 'error'>;
+  /**
+   * 写入后回读校验的序列化字节上限（默认 8MB）。
+   *
+   * 回读校验会把刚写出的整份 JSON 再解析一遍：小文件是廉价保险，但数百 MB 的主库
+   * 要额外付出约 1.5s 和同等量级的内存峰值（实测 494MB → 1.5s / 1.5GB），得不偿失。
+   * 超限时跳过回读，改由「先写 .tmp → 原子替换」+ 覆盖前的 .bak 兜底。
+   */
+  verifyMaxBytes?: number;
 }
 
 interface JsonFileSaveOptions {
@@ -18,6 +26,9 @@ interface JsonFileSaveOptions {
 }
 
 export class UnsupportedSchemaVersionError extends Error {}
+
+/** 回读校验的默认字节上限，见 JsonFileStoreOptions.verifyMaxBytes */
+const DEFAULT_VERIFY_MAX_BYTES = 8 * 1024 * 1024;
 
 /** Versioned JSON storage with atomic writes, backups, and recovery. */
 export class JsonFileStore<T extends VersionedJsonData> {
@@ -56,7 +67,7 @@ export class JsonFileStore<T extends VersionedJsonData> {
 
     try {
       this.writeAndSyncTempFile(serialized);
-      JSON.parse(fs.readFileSync(this.tempPath, 'utf8'));
+      this.verifyTempFile(serialized);
 
       if (backupMode === 'previous' && !this.skipNextBackup && fs.existsSync(this.filePath)) {
         fs.copyFileSync(this.filePath, this.backupPath);
@@ -101,6 +112,16 @@ export class JsonFileStore<T extends VersionedJsonData> {
 
   private withCurrentVersion(data: T): T {
     return { ...data, schemaVersion: this.options.currentVersion };
+  }
+
+  /**
+   * 回读临时文件，确认写出的内容是可解析的 JSON。
+   * 仅在文件不超过 verifyMaxBytes 时执行，避免为主库这类大文件付出整份重解析的代价。
+   */
+  private verifyTempFile(serialized: string): void {
+    const limit = this.options.verifyMaxBytes ?? DEFAULT_VERIFY_MAX_BYTES;
+    if (serialized.length > limit) return;
+    JSON.parse(fs.readFileSync(this.tempPath, 'utf8'));
   }
 
   private writeAndSyncTempFile(serialized: string): void {

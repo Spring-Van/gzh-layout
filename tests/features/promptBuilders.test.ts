@@ -147,9 +147,10 @@ describe('builder 关键行为（切换渲染引擎后）', () => {
   it('画面描述：多格页把每格字段（景别/镜头/画面/人物/动作/表情/光效）一并交给模型', () => {
     const panel = {
       id: 'p1', order: 1, content: '汇总画面', shot: '近景/中景',
+      cellLabel: '双格',
       assetBindings: [],
       cells: [
-        { shot: '近景', camera: '从侧脸下摇至小臂', content: '手臂占前景，指节收紧。', cast: '角色A', action: '指节收紧', expression: '侧脸冷硬', lighting: '暖黄顶灯' },
+        { shot: '近景', camera: '从侧脸下摇至小臂', content: '手臂占前景，指节收紧。', cast: '角色A', action: '指节收紧', expression: '侧脸冷硬', lighting: '暖黄顶灯', sfx: '“啪——”灯管熄灭' },
         { shot: '中景', content: '角色B站在室内。', cast: '角色B' },
       ],
     };
@@ -159,6 +160,8 @@ describe('builder 关键行为（切换渲染引擎后）', () => {
       chapterOutline: '',
       prevEntries: [],
     });
+    // 页面结构（分镜声明的格数标签）必须显式传给模型，画面描述层据此决定分格结构与主格
+    expect(prompt).toContain('页面结构：双格（本页 2 格）');
     expect(prompt).toContain('分格详情：');
     expect(prompt).toContain('第1格');
     expect(prompt).toContain('景别：近景');
@@ -167,8 +170,10 @@ describe('builder 关键行为（切换渲染引擎后）', () => {
     expect(prompt).toContain('动作：指节收紧');
     expect(prompt).toContain('表情：侧脸冷硬');
     expect(prompt).toContain('光效：暖黄顶灯');
+    // 拟声词随「音效」进入画面描述，供其画成图上的艺术字
+    expect(prompt).toContain('音效：“啪——”灯管熄灭');
     expect(prompt).toContain('第2格');
-    // 无 cells 的旧数据不出现分格详情，保持既有行为
+    // 无 cells 的旧数据不出现分格详情，保持既有行为；页面结构回落单格
     const legacy = buildPanelPromptPrompt({
       templateContent: '{{当前分镜}}',
       panel: { id: 'p2', order: 2, content: '两人对峙', assetBindings: [] } as any,
@@ -176,5 +181,6 @@ describe('builder 关键行为（切换渲染引擎后）', () => {
       prevEntries: [],
     });
     expect(legacy).not.toContain('分格详情：');
+    expect(legacy).toContain('页面结构：单格（本页 1 格）');
   });
 });

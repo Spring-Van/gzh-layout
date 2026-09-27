@@ -24,9 +24,9 @@
           @update:filter-value="templateTypeFilter = $event"
           @select="onSelectFromList"
           @add="startCreate"
-          @remove="removeItem"
-          @duplicate="duplicateItem"
-          @reorder="reorderItems"
+          @remove="onRemoveItem"
+          @duplicate="onDuplicateItem"
+          @reorder="onReorderItems"
         />
 
         <div class="flex min-w-0 flex-1 flex-col gap-2.5">
@@ -46,7 +46,7 @@
               v-else-if="isModelCategory(activeTab) && (creating || activeModel)"
               :category="activeTab"
               :model="creating ? null : activeModel"
-              @save="saveModel"
+              @save="onModelSave"
               @dirty-change="dirty = $event"
               @test-result="onTestResult"
             />
@@ -54,7 +54,7 @@
             <TemplateEditorForm
               v-else-if="activeTab === 'template' && (creating || activeTemplate)"
               :template="creating ? null : activeTemplate"
-              @save="saveTemplate"
+              @save="onTemplateSave"
               @dirty-change="dirty = $event"
             />
 
@@ -126,7 +126,7 @@ function isModelCategory(tab: SettingsTab): tab is ModelCategory {
 
 const route = useRoute();
 const router = useRouter();
-const { success: toastSuccess } = useToast();
+const { success: toastSuccess, error: toastError } = useToast();
 const wechatStore = useWechatAccountStore();
 
 // ── 状态中枢 ────────────────────────────────────────────────
@@ -314,6 +314,43 @@ watch(() => route.query, (query) => {
   creating.value = create;
   dirty.value = false;
 });
+
+// ── 写库统一出口 ───────────────────────────────────────────
+/**
+ * 所有落库动作都从这里走。
+ * 写盘失败（磁盘满、系统密钥服务不可用、文件被占用等）必须让用户看见——
+ * 否则界面上毫无反应，用户只会认为「点了保存却没保存上」。
+ * 传了 successMessage 的动作（保存类）成功后给一次正向反馈；删除/排序等由各自逻辑决定是否提示。
+ */
+async function runSave(action: () => Promise<void>, successMessage?: string): Promise<void> {
+  try {
+    await action();
+    if (successMessage) toastSuccess(successMessage, 2000);
+  } catch (error) {
+    console.error('[设置] 保存失败', error);
+    toastError(`保存失败：${error instanceof Error ? error.message : String(error)}`, 6000);
+  }
+}
+
+function onModelSave(value: ModelEditorValue) {
+  void runSave(() => saveModel(value), '保存成功');
+}
+
+function onTemplateSave(value: TemplateEditorValue) {
+  void runSave(() => saveTemplate(value), '保存成功');
+}
+
+function onRemoveItem(item: ResourceItem) {
+  void runSave(() => removeItem(item));
+}
+
+function onDuplicateItem(item: ResourceItem) {
+  void runSave(() => duplicateItem(item), '已创建副本');
+}
+
+function onReorderItems(payload: { sourceId: string; targetId: string }) {
+  void runSave(() => reorderItems(payload));
+}
 
 // ── 增删改（逻辑自旧组件上移） ─────────────────────────────
 async function saveModel(value: ModelEditorValue) {

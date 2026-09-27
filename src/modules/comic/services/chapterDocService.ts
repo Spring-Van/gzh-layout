@@ -26,7 +26,7 @@ export function buildAnalysisPrompt(templateContent: string, chapterContent: str
 /**
  * 组装"漫画剧本"提示词：模板（{{章节原文}} / {{原文分析}}）+ 章节原文 + 原文分析。
  * 未选/未配模板时用内置默认模板（与推荐模板同源，自带全部变量）。
- * 产物回答"这一章改成漫画后要讲什么"（场景/剧情/人物/动作/情绪/对白/剧情目的）。
+ * 产物回答"这一章改成漫画后要讲什么"（场景/剧情/人物/动作/情绪/对白/心理外化/声音/剧情目的）。
  */
 export function buildScriptPrompt(templateContent: string, chapterContent: string, analysis?: string): string {
   return renderPromptTemplate({

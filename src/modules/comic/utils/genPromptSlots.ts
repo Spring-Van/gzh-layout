@@ -53,6 +53,36 @@ export function resolveActiveGenSlot(
   }
 }
 
+/**
+ * 生成「用一份新提示词覆盖当前选中条」的数据补丁 —— 批量填充 / 导入回填 / 单条改写等
+ * **所有从弹窗写回提示词的路径**都必须走这里，与 `resolveActiveGenSlot` 的读口径严格对齐：
+ * - 没有候选条：写 `imagePrompt`（单输入框时代口径）；
+ * - 有候选条：覆盖当前选中条（选中失效时第 1 条）的正文，并把选中锚定到该条；
+ *   覆盖第 1 条时同步镜像 `imagePrompt`（不变式：`imagePrompt` ≡ 第 1 条正文，
+ *   见 AssetVariantCard 的 `storedSlots` / `saveAndCloseEditModal`）。
+ *
+ * ⚠️ 直接只写 `imagePrompt` 会造成「写进了库、界面与生图读的却是候选条」的假写入 ——
+ * 一旦该状态建过候选条（哪怕只有 1 条），`resolveActiveGenSlot` 就完全忽略 `imagePrompt`。
+ */
+export function buildOverwriteActiveSlotPatch(
+  source: { genPrompts?: GenPromptSlot[]; activeGenPromptId?: string; imagePrompt?: string } | undefined | null,
+  text: string,
+): { imagePrompt?: string; genPrompts?: GenPromptSlot[]; activeGenPromptId?: string } {
+  const stored = source?.genPrompts ?? []
+  if (!stored.length) return { imagePrompt: text }
+  const normalized = stored.map(normalizeGenPromptSlot)
+  const active = source?.activeGenPromptId
+    ? normalized.find((slot) => slot.id === source.activeGenPromptId)
+    : undefined
+  const picked = active ?? normalized[0]
+  const patch: { imagePrompt?: string; genPrompts?: GenPromptSlot[]; activeGenPromptId?: string } = {
+    genPrompts: normalized.map((slot) => (slot.id === picked.id ? { ...slot, text } : slot)),
+    activeGenPromptId: picked.id,
+  }
+  if (picked.id === normalized[0].id) patch.imagePrompt = text
+  return patch
+}
+
 /** 开关缺省一律按「开」判定（旧数据没有这两个字段）。 */
 export function slotAttachShared(slot?: GenPromptSlot | null): boolean {
   return slot?.attachShared !== false

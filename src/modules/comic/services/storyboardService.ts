@@ -854,8 +854,10 @@ export function patchBlockTextAssetLines(text: string, panel: LongProjectStorybo
 }
 
 /**
- * 格列表 → 画面描述环节可读的多字段文本（每格一段，只给视觉相关信息）。
- * 对白 / 旁白 / 心声不进入这里——它们不是画面内容。
+ * 格列表 → 画面描述环节可读的多字段文本（每格一段）。
+ *
+ * 台词类字段（台词 / 心声 / 画外 / 旁白）**同样进入这里**：画面描述层要按声明的说话方式
+ * 决定气泡的形态与气尾指向、按旁白内容排旁白框，读者才能在图上读到「谁在说什么」。
  */
 export function formatCellsForPrompt(cells: LongProjectStoryboardCell[]): string {
   return cells.map((cell, index) => {
@@ -875,6 +877,13 @@ export function formatCellsForPrompt(cells: LongProjectStoryboardCell[]): string
     push('音效', cell.sfx)
     push('光效', cell.lighting)
     push('备注', cell.note)
+    // 文字层：标签取 delivery（缺省 = 台词）；无人称旁白单独一行
+    const dialogue = cell.dialogue?.trim()
+    if (dialogue) {
+      const speaker = cell.speaker?.trim() ?? ''
+      push(cell.delivery ?? '台词', `${speaker}${speaker ? '：' : ''}${dialogue}`)
+    }
+    push('旁白', cell.narration)
     return lines.join('\n')
   }).join('\n')
 }

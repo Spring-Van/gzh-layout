@@ -10,6 +10,7 @@
 > - `topics/formats.md` — 输出格式口径（全链路 Markdown v5 / 长篇分镜格式 / 模板约定）
 > - `topics/local-debug.md` — 本机调试环境（Bash/PowerShell/Electron/代理/Playwright）/ 工程校验三件套 / 工具用法坑
 > - `topics/cleanup.md` — 项目数据清理（级联删除 / 版本压缩）
+> - `topics/storage.md` — 本地存储分区（设置库 / 项目库拆分）/ 大文件写盘校验 / 卡顿根因
 
 ## 布局与滚动
 
@@ -25,6 +26,8 @@
 - 主题色：`darkMode: 'class'` + CSS 变量；语义色 `-700 dark:-300`；状态色只加标题元素不加容器；`bg-x/50` 对 `var(--...)` 不生效。
 - 左栏分镜列表状态**只反映生图维度**（生图中/生图失败/已成图/未生图）—— 一栏不塞两套状态。
 - 用户 UI 偏好：极简风、小圆角 4px、无多余装饰（详见会话记忆）。
+- **全局提示（Toast）**：`useToastProvider` 必须 provide **ref 本身**（`{ instance }`）；写成 `{ instance: instance.value }` 注入的是 null 快照，全站提示静默丢弃（历史 bug：设置页保存成功/失败都无反馈）。Provider 在 App `onMounted` 注册，晚于子组件 `setup`，只有共享同一 ref 才读得到。Toast 层级 `z-[9999]` + 外层 `pointer-events-none`。
+- 设置页所有落库动作统一走 `runSave(action, successMessage?)`：成功给正向提示，失败必须弹出具体原因（**不许静默**）。
 
 ## 章节阶段（node.stage）只升不降
 
@@ -44,6 +47,7 @@
 - **项目根（`ComicProject`）**：`imageGenConfig`（分镜绘图）、`assetGenConfig`（资产生图，与分镜**数据不互通**）、`comicConfig` 与元信息 → 写 **`mutateProject`**。
 - **`longProjectData`**：节点树 / 资产 / 章节资产 / 分镜版本 / 画面工件 / 提取记录 / 分析 / 剧本 → 写 `mutateLongProjectData`。
 - ⚠️ 用错会出现「DB 写了但页面不刷新」的假成功。
+- **磁盘文件也分两块**（详见 `topics/storage.md`）：设置类（`modelConfigs` / `promptTemplates` / `appSettings` + 全部密钥）在 `comic-settings.json`，项目类在 `comic-gen.json`（内含 base64 图片，可达数百 MB）。**设置写入绝不能落在项目库上**，否则每次保存要重写整库（实测 4.5s 阻塞）。
 
 ## 时间戳语义：判断「内容变过」只能用 createdAt
 
@@ -54,3 +58,7 @@
 - **全链路输出语法统一为 Markdown**（`#` 标题 + `- 字段：内容`），**解析器保持专用**，禁止过度抽象。
 - **能被用户改的拼法必须以用户模板存在**；推荐模板只作新建底稿，**不做「模板缺失时内置兜底」**。
 - 长篇分镜：页头 `## 分镜 N · 双格`、格 `### 第X格`、字段 `- 字段名：内容`；**入库去包装、出库带包装**。
+
+## 候选提示词条（genPrompts）读写口径必须对齐
+
+读走 `resolveActiveGenSlot`（有候选条时**完全忽略 imagePrompt**），写必须走 `buildOverwriteActiveSlotPatch`（genPromptSlots.ts）——直接只写 `imagePrompt` 是假写入（写进库但界面/生图读的是选中条）。不变式：`imagePrompt` ≡ 第 1 条正文，仅第 1 条镜像。分镜 panel 的 imagePrompt 是「画面描述」（与候选条两层），不适用此口径。

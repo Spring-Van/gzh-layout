@@ -18,16 +18,16 @@
           </header>
 
           <div class="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
-            <!-- 发送方式：逐条发送（每镜一次请求）/ 一次性发送（整章一次请求），两者的模板与变量不同 -->
+            <!-- 发送方式：一次性发送（整章一次请求，默认）/ 逐条发送（每镜一次请求），两者的模板与变量不同 -->
             <div v-if="isBatch" class="mb-4 flex items-center gap-4">
               <span class="text-xs text-text-secondary">发送方式</span>
               <label class="flex cursor-pointer items-center gap-1.5 text-xs text-text-secondary">
-                <input v-model="source" type="radio" value="per-panel" class="h-3 w-3 accent-cyan-400" />
-                逐条发送
-              </label>
-              <label class="flex cursor-pointer items-center gap-1.5 text-xs text-text-secondary">
                 <input v-model="source" type="radio" value="chapter" class="h-3 w-3 accent-cyan-400" />
                 一次性发送
+              </label>
+              <label class="flex cursor-pointer items-center gap-1.5 text-xs text-text-secondary">
+                <input v-model="source" type="radio" value="per-panel" class="h-3 w-3 accent-cyan-400" />
+                逐条发送
               </label>
             </div>
 
@@ -70,22 +70,9 @@
                 <span class="text-xs text-text-secondary">
                   {{ isBatch ? (isChapter ? '整章提示词（一次发送，按 ## 分镜 N 标题分段产出）' : '首个目标分镜的提示词示例（批量时逐镜按模板重新拼装，此处仅预览）') : '最终发送的提示词（可在本次执行前修改）' }}
                 </span>
-                <div class="flex items-center gap-3">
-                  <button
-                    v-if="prompt"
-                    class="text-xs text-cyan-400 hover:text-cyan-300"
-                    :title="copyTitle"
-                    @click="copyPrompt"
-                  >{{ copied ? '已复制 ✓' : copyTitle }}</button>
-                  <!-- 一次性发送：整章提示词复制到外部 AI 后，可把结果按分镜标记对位导入 -->
-                  <button
-                    v-if="isChapter && prompt"
-                    class="text-xs text-cyan-400 hover:text-cyan-300"
-                    title="粘贴外部 AI 生成的整章画面描述，按分镜标记对位写入各镜"
-                    @click="emit('import')"
-                  >导入外部 AI 结果</button>
-                  <button v-if="!isBatch && builtPrompt" class="text-xs text-cyan-400 hover:text-cyan-300" title="恢复系统拼装的提示词" @click="prompt = builtPrompt">重置</button>
-                </div>
+              <div class="flex items-center gap-3">
+                <button v-if="!isBatch && builtPrompt" class="text-xs text-cyan-400 hover:text-cyan-300" title="恢复系统拼装的提示词" @click="prompt = builtPrompt">重置</button>
+              </div>
               </div>
               <textarea
                 v-if="!isBatch || prompt"
@@ -103,6 +90,22 @@
           <footer class="flex shrink-0 items-center justify-between border-t border-border-subtle px-5 py-3">
             <p class="text-xs text-text-muted">{{ prompt.length.toLocaleString() }} 个字符</p>
             <div class="flex items-center gap-3">
+              <!-- 外部 AI 代跑入口（与批量生成绘画提示词弹窗的底部按钮一致）：
+                   一次性 = 复制整章提示词 / 导入外部结果按分镜对位；逐条 = 复制全章提示词 -->
+              <button
+                v-if="prompt"
+                class="secondary-button"
+                :disabled="busy"
+                :title="copyTitle"
+                @click="copyPrompt"
+              ><Copy :size="14" />{{ copied ? '已复制 ✓' : copyTitle }}</button>
+              <button
+                v-if="isChapter && prompt"
+                class="secondary-button"
+                :disabled="busy"
+                title="粘贴外部 AI 生成的整章画面描述，按分镜标记对位写入各镜"
+                @click="emit('import')"
+              ><ClipboardPaste :size="14" />导入外部 AI 结果</button>
               <button class="secondary-button" :disabled="busy" @click="handleClose">取消</button>
               <button class="primary-button h-9 px-4 text-xs" :disabled="!canConfirm || busy" @click="handleConfirm">
                 <LoaderCircle v-if="busy" :size="15" class="animate-spin" />
@@ -121,7 +124,7 @@
  * 分镜画面描述推导确认弹窗：单镜模式可编辑最终 prompt；批量模式选发送方式、预览首镜示例（始终全部重新推导）。
  */
 import { computed, ref, watch } from 'vue'
-import { LoaderCircle, X } from 'lucide-vue-next'
+import { ClipboardPaste, Copy, LoaderCircle, X } from 'lucide-vue-next'
 import type { ModelConfig, PromptTemplate } from '@comic/types'
 
 const props = defineProps<{
@@ -161,7 +164,7 @@ export type PromptSource = 'per-panel' | 'chapter'
 const modelId = ref('')
 const templateId = ref('')
 const prompt = ref('')
-const source = ref<PromptSource>('per-panel')
+const source = ref<PromptSource>('chapter')
 const creating = ref(false)
 
 const isBatch = computed(() => props.mode === 'batch')
@@ -186,12 +189,13 @@ const canConfirm = computed(() => {
 
 watch(() => props.modelValue, (visible) => {
   if (!visible) return
+  // 先定发送方式（默认一次性发送），模板列表随发送方式变化，之后再回填模板
+  if (isBatch.value) {
+    source.value = 'chapter'
+  }
   if (!modelId.value) modelId.value = props.defaultModelId || props.llmModels[0]?.id || ''
   // 模板记忆按类型隔离：记忆里的模板属于当前生成方式时回填，否则默认选中第一个模板
   templateId.value = activeTemplates.value.some((t) => t.id === props.defaultTemplateId) ? (props.defaultTemplateId ?? '') : (activeTemplates.value[0]?.id ?? '')
-  if (isBatch.value) {
-    source.value = 'per-panel'
-  }
   prompt.value = builtPrompt.value
 })
 

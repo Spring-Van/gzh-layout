@@ -40,7 +40,7 @@
         <footer class="flex shrink-0 items-center justify-between border-t border-border-subtle px-5 py-3">
           <p class="text-xs text-text-muted">{{ content.length.toLocaleString() }} 个字符</p>
           <div class="flex items-center gap-3">
-            <button v-if="parse" class="secondary-button" :disabled="!content.trim()" @click="runParse">解析预览</button>
+            <button v-if="parse" class="secondary-button" :disabled="!content.trim() || parsing" @click="runParse"><LoaderCircle v-if="parsing" :size="14" class="animate-spin" />{{ parsing ? '解析中…' : '解析预览' }}</button>
             <button class="secondary-button" @click="close">取消</button>
             <button
               class="primary-button h-9 px-4 text-xs"
@@ -62,7 +62,7 @@
  * - 有 parse（分镜/资产提取）：先「解析预览」展示结构化摘要，解析失败红字提示且不可确认导入。
  * 确认后 emit('confirm', content) 由调用方走落库逻辑（与 LLM 路径共用）。
  */
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { ArrowRight, X } from 'lucide-vue-next'
 import { sanitizeExternalAiResult } from '@comic/services/manualImportService'
 
@@ -119,8 +119,11 @@ function handleInput(event: Event) {
   preview.value = []
 }
 
-/** 解析预览：调用 parse 解析内容，成功则展示标题与摘要列表。 */
-function runParse() {
+/** 解析预览：调用 parse 解析内容，成功则展示标题与摘要列表。
+ *  先点亮「解析中…」再让出一帧，随后才跑解析（分镜很多时解析是秒级同步重活，直接跑会让按钮看起来没反应）。 */
+const parsing = ref(false)
+
+async function runParse() {
   const sanitized = sanitizeExternalAiResult(content.value)
   if (sanitized.removedThinking) {
     content.value = sanitized.content
@@ -130,12 +133,16 @@ function runParse() {
   preview.value = []
   previewTitle.value = ''
   if (!props.parse || !content.value.trim()) return
+  parsing.value = true
+  await nextTick()
   try {
     const result = props.parse(content.value)
     previewTitle.value = result.title
     preview.value = result.items
   } catch (error) {
     parseError.value = error instanceof Error ? error.message : '解析失败，请检查内容格式。'
+  } finally {
+    parsing.value = false
   }
 }
 
