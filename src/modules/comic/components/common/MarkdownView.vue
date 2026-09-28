@@ -20,6 +20,11 @@ const html = computed(() => renderMarkdown(props.content ?? '', props.emptyText 
 .markdown-view :deep(h3){color:#67e8f9}
 .markdown-view :deep(p){margin:.35rem 0;white-space:pre-wrap}
 .markdown-view :deep(ul){margin:.4rem 0;padding-left:1.25rem;list-style:disc}
+.markdown-view :deep(ol){margin:.4rem 0;padding-left:1.5rem;list-style:decimal}
 .markdown-view :deep(li){margin:.2rem 0}
+/* 行内样式：粗体/斜体/行内代码——缺这些规则时标签虽然生成了，视觉上仍与普通文本无异 */
+.markdown-view :deep(strong){font-weight:600;color:var(--text-primary)}
+.markdown-view :deep(em){font-style:italic}
+.markdown-view :deep(code){padding:.1rem .35rem;border-radius:4px;background:var(--bg-elevated);color:#67e8f9;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.9em}
 .markdown-view :deep(.empty-preview){color:var(--text-muted)}
 </style>

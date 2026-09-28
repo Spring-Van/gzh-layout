@@ -23,6 +23,7 @@
         :focus-target="focusTarget"
         :mutate-long-project-data="mutateLongProjectData"
         @retry-extraction="retryExtraction"
+        @open-workbench="assetView = 'workbench'"
       >
         <!-- 信息视图：资产提取操作区 + 确认本章资产 -->
         <template v-if="assetView === 'info'" #actions>
@@ -47,7 +48,7 @@
             title="本章无原文（从剧本开始创作），提取将以漫画剧本作为底稿"
           >剧本兜底</span>
 
-          <!-- 确认本章资产：唯一行为（本次结果为准），跨章影响在确认弹窗里列明细 -->
+          <!-- 确认本章资产：唯一行为（本次结果为准），跨章影响在确认弹窗里列明细；已确认过的可重复执行 -->
           <button
             class="primary-button h-9 shrink-0 px-3 text-xs"
             :disabled="!assetTabRef?.canConfirmReview"
@@ -55,7 +56,7 @@
             @click="confirmAssets()"
           >
             <CheckCircle2 :size="14" />
-            确认本章资产
+            {{ assetTabRef?.reviewConfirmed ? '重新确认本章资产' : '确认本章资产' }}
           </button>
         </template>
 
@@ -105,6 +106,7 @@
     <ConfirmExtractionDialog
       v-model="confirmDialogVisible"
       :items="dropPlan"
+      :reconfirm="Boolean(assetTabRef?.reviewConfirmed)"
       @confirm="runConfirm"
     />
   </div>
@@ -206,7 +208,9 @@ const dropPlan = computed(() => {
 
 const confirmDialogVisible = ref(false)
 const confirmButtonTitle = computed(() => assetTabRef.value?.canConfirmReview
-  ? '以本次提取结果为准保存本章资产，并重算分镜绑定'
+  ? (assetTabRef.value?.reviewConfirmed
+    ? '再次以本次提取结果为准保存本章资产，并重算分镜绑定（幂等，可重复执行）'
+    : '以本次提取结果为准保存本章资产，并重算分镜绑定')
   : '暂无待审核的资产提取结果，请先执行提取')
 
 /** 点确认：先弹明细弹窗（跨章影响必须先看见），确认后才真正执行。 */
@@ -215,10 +219,11 @@ function confirmAssets() {
   confirmDialogVisible.value = true
 }
 
-/** 弹窗内确认：执行覆盖并关闭。 */
+/** 弹窗内确认：执行覆盖并关闭；确认成功后直接进生图工作台（下一步就是生成提示词与参考图）。 */
 async function runConfirm() {
   confirmDialogVisible.value = false
   await assetTabRef.value?.confirmReview()
+  assetView.value = 'workbench'
 }
 
 // ========== 派生数据 ==========

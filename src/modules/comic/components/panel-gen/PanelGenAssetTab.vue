@@ -32,11 +32,21 @@
         <p>资产在分镜之前提取（新管线正常顺序）：基于原文（或剧本兜底）、分析与剧本上下文提取；候选出现次数按剧本文本统计，生成资产参考图后进入分镜。</p>
       </div>
 
+      <!-- 本次结果还没确认：提示去确认，确认后可直接进生图工作台 -->
+      <div v-if="pendingConfirm" class="flex shrink-0 items-center gap-2 border-b border-amber-400/30 bg-amber-400/10 px-4 py-2 text-xs text-amber-700 dark:text-amber-300">
+        <AlertTriangle :size="14" class="mt-0.5 shrink-0" />
+        <p class="min-w-0 flex-1">本次识别的结果尚未确认，还没写入本章资产。核对/增删后点右上角「确认本章资产」，即可进入生图工作台生成提示词与参考图。</p>
+        <button class="shrink-0 rounded-md border border-amber-500/40 px-2 py-1 text-[11px] transition-colors hover:bg-amber-500/15" @click="emit('open-workbench')">去生图工作台</button>
+      </div>
+
       <LongProjectAssetExtractionReview
         v-if="latestRun && (latestRun.status === 'completed' || latestRun.status === 'confirmed')"
         :candidates="latestRun.candidates"
         :assets="assets"
         @update="updateExtractionCandidate"
+        @create-asset="createModalVisible = true"
+        @delete-asset="requestDeleteAsset"
+        @remove-candidate="removeExtractionCandidate"
       />
 
       <!-- 提取中 -->
@@ -76,6 +86,14 @@
         <div class="flex h-14 w-14 items-center justify-center rounded-lg border border-border-subtle bg-surface"><ScanText :size="24" class="text-text-muted" /></div>
         <h3 class="mt-4 text-sm font-medium text-text-primary">本章尚未提取资产</h3>
         <p class="mt-2 max-w-sm text-xs leading-5 text-text-secondary">在页面顶部选择模型与模板执行「提取资产」，结合原文分析、剧本与分镜，识别需要固定长相的人物、场景和道具。也可在执行栏「发送前确认」弹窗内复制提示词到外部 AI，再把结果导入进来。</p>
+        <button
+          class="secondary-button mt-5 h-9 gap-1.5 px-4 text-xs"
+          title="手动建立一条资产并归属本章；适合补录提取时漏掉的人物、场景或道具"
+          @click="createModalVisible = true"
+        >
+          <Plus :size="13" />
+          手动新建资产
+        </button>
       </div>
     </div>
 
@@ -117,6 +135,18 @@
       @confirm="confirmLink"
     />
 
+    <!-- 手动新建资产：名称 + 类型 + 描述，建资产与默认视觉状态并归属当前章 -->
+    <AssetCreateModal v-model="createModalVisible" @confirm="createAssetManually" />
+
+    <!-- 删除整条资产确认：正文列出受影响的章节与镜头数 -->
+    <ConfirmDialog
+      v-model="deleteAssetVisible"
+      title="删除资产"
+      :content="deleteAssetContent"
+      confirm-text="确认删除"
+      @confirm="confirmDeleteAsset"
+    />
+
     <!-- 移出本章：只删本章的引用条目，不动原章节的图 -->
     <ConfirmDialog
       v-model="detachVisible"
@@ -145,11 +175,12 @@
  */
 import { computed, ref } from "vue";
 import { v4 as uuidv4 } from "uuid";
-import { FileText, Images, Info, LoaderCircle, MapPin, Package, Palette, ScanText, UserRound } from "lucide-vue-next";
+import { AlertTriangle, FileText, Images, Info, LoaderCircle, MapPin, Package, Palette, Plus, ScanText, UserRound } from "lucide-vue-next";
 import LongProjectAssetExtractionReview from "@comic/components/LongProjectAssetExtractionReview.vue";
 import LongProjectChapterAssets from "@comic/components/LongProjectChapterAssets.vue";
 import LongProjectAssetWorkbench from "@comic/components/LongProjectAssetWorkbench.vue";
 import ChapterAssetLinkModal from "@comic/components/ChapterAssetLinkModal.vue";
+import AssetCreateModal from "@comic/components/AssetCreateModal.vue";
 import ConfirmDialog from "@comic/components/ConfirmDialog.vue";
 import { useToast } from "@comic/composables/useToast";
 import { countCandidatesAppearances, sortAssetsByExtractionOrder } from "@comic/services/assetExtractionService";
@@ -161,6 +192,7 @@ import type {
   ComicProject,
   LongProjectAsset,
   LongProjectAssetExtractionRun,
+  LongProjectAssetType,
   LongProjectAssetVariant,
   LongProjectChapterAsset,
   LongProjectNode,
@@ -201,6 +233,8 @@ const emit = defineEmits<{
   (e: "update:view", value: AssetView): void;
   /** 失败视图「重新提取」：由页面沿用上次提示词重跑。 */
   (e: "retry-extraction"): void;
+  /** 信息 tab 提示条「去生图工作台」：切到工作台子 tab。 */
+  (e: "open-workbench"): void;
 }>();
 
 const toast = useToast();
@@ -272,6 +306,55 @@ function confirmDetach() {
   detachTarget.value = null;
 }
 
+// ========== 手动新建 / 删除资产（确认入口） ==========
+
+const createModalVisible = ref(false);
+const deleteAssetVisible = ref(false);
+const deleteAssetTarget = ref<LongProjectAsset | null>(null);
+
+/**
+ * 删除确认文案：列出该资产涉及的章节与在用镜头数。
+ * 数据取自 `assetUsage`（状态级「被 N 章 · M 镜引用」），
+ * 让用户在点确认前就知道会影响哪些地方，而不是删完才发现分镜里少了东西。
+ */
+const deleteAssetContent = computed(() => {
+  const asset = deleteAssetTarget.value;
+  if (!asset) return "";
+  const variantCount = asset.variants.length;
+  const imageCount = asset.variants.reduce((count, variant) => count
+    + (variant.generatedImageIds ?? []).length
+    + (variant.uploadedImageIds ?? []).length
+    + variant.referenceImageIds.length, 0);
+  const chapterNames = new Set<string>();
+  const assetChapters = assetUsage.value.assets.get(asset.id) ?? [];
+  assetChapters.forEach((name) => chapterNames.add(name));
+  // panelCount 已按 panelId 去重（跨章节全项目口径），各状态求和即为该资产的在场镜头数
+  const panelCount = asset.variants.reduce((count, variant) => count
+    + (assetUsage.value.variants.get(variant.id)?.panelCount ?? 0), 0);
+  const scope = [
+    `${variantCount} 个视觉状态`,
+    imageCount ? `${imageCount} 张图` : "",
+    chapterNames.size ? `${chapterNames.size} 个章节的引用（${[...chapterNames].join("、")}）` : "",
+    panelCount ? `${panelCount} 个分镜绑定` : "",
+  ].filter(Boolean).join("、");
+  const impact = panelCount
+    ? `其中 ${panelCount} 个分镜正在使用它，删除后这些绑定会被清除，分镜里将不再出现该资产。`
+    : "当前没有分镜在使用它。";
+  return `将删除资产「${asset.name}」，连同 ${scope}。${impact}此操作不可撤销，是否确认？`;
+});
+
+function requestDeleteAsset(payload: { asset: LongProjectAsset }) {
+  deleteAssetTarget.value = payload.asset;
+  deleteAssetVisible.value = true;
+}
+
+function confirmDeleteAsset() {
+  const asset = deleteAssetTarget.value;
+  if (!asset) return;
+  void deleteAsset(asset);
+  deleteAssetTarget.value = null;
+}
+
 const assetTabs: Array<{ id: AssetView; label: string; icon: typeof FileText }> = [
   { id: "info", label: "信息", icon: FileText },
   { id: "workbench", label: "生图工作台", icon: Palette },
@@ -295,6 +378,12 @@ const chapterRuns = computed(() =>
 const latestRun = computed(() => chapterRuns.value[0] ?? null);
 const selectedChapterAssets = computed(() => props.chapterAssets.filter((entry) => entry.chapterId === props.chapter.id));
 
+/**
+ * 本次识别结果尚未确认（有新结果没入库）：信息 tab 顶部给提示 + 去工作台的入口。
+ * 只对「新跑/重新导入后还没确认」的 completed 状态成立；confirmed 表示已写库，不再提示。
+ */
+const pendingConfirm = computed(() => latestRun.value?.status === "completed");
+
 // ========== 进度概览（tab 栏右侧 chips） ==========
 
 /**
@@ -312,8 +401,7 @@ const workbenchAssets = computed(() => {
   return sortAssetsByExtractionOrder(filtered, latestRun.value);
 });
 
-const totalVariants = computed(() => workbenchAssets.value.reduce((count, asset) => count + asset.variants.length, 0));
-const promptProgress = computed(() => `${workbenchAssets.value.reduce((count, asset) => count + asset.variants.filter((v) => v.imagePrompt?.trim()).length, 0)}/${totalVariants.value}`);
+const totalVariants = computed(() => workbenchAssets.value.reduce((count, asset) => count + asset.variants.length, 0));const promptProgress = computed(() => `${workbenchAssets.value.reduce((count, asset) => count + asset.variants.filter((v) => v.imagePrompt?.trim()).length, 0)}/${totalVariants.value}`);
 const imageProgress = computed(() => `${workbenchAssets.value.reduce((count, asset) => count + asset.variants.filter((v) => (v.generatedImageIds ?? []).length).length, 0)}/${totalVariants.value}`);
 
 /**
@@ -388,6 +476,20 @@ function updateExtractionCandidate(candidate: LongProjectAssetExtractionRun["can
   void updateRun(run.id, {
     candidates: candidates.map((item) => ({ ...item, panelAppearances: counts[item.id] ?? 0 })),
   });
+}
+
+/** 审核页把某条候选从**本次识别结果**里划掉：只改 run.candidates，不动已入库资产。
+ * 纯新识别（未入库）走这里；已命中已有资产的删除走 requestDeleteAsset（那才是动库）。 */
+function removeExtractionCandidate(payload: { candidateId: string }) {
+  const run = latestRun.value;
+  if (!run) return;
+  const candidateId = payload.candidateId;
+  if (run.status === "confirmed") {
+    // 已确认的 run 再改候选没有出口（不会重新写库），提示用户重新确认
+    toast.error("本次结果已确认，如需调整请点右上角「重新确认本章资产」");
+    return;
+  }
+  void updateRun(run.id, { candidates: run.candidates.filter((item) => item.id !== candidateId) });
 }
 
 /** 确认提取结果：写回资产/章节引用，回填分镜绑定，推进章节阶段（由页面顶栏触发）。
@@ -494,11 +596,104 @@ function updateAssetGenConfig(config: AssetGenConfig) {
   });
 }
 
+// ========== 手动新增 / 删除资产 ==========
+
+/**
+ * 手动新建资产：建一条章节范围资产 + 一个默认视觉状态 + 本章引用。
+ *
+ * ⚠️ **章节引用必须走 extraction 口径（不写 `origin`）**：
+ * `buildExtractionConfirmResult` 重建本章引用时只保留 `origin === 'manual'` 的条目，
+ * 若这里写成 `'manual'`，下次「确认本章资产」会保留成一条指向**已被剔除的资产**的悬空引用，
+ * 而 manual 引用又不参与悬空清理，就变成清不掉的死数据。
+ */
+function createAssetManually(payload: { type: LongProjectAssetType; name: string; description: string }) {
+  const chapterId = props.chapter.id;
+  const now = Date.now();
+  const variantId = uuidv4();
+  void props.mutateLongProjectData((data) => {
+    const asset: LongProjectAsset = {
+      id: uuidv4(),
+      type: payload.type,
+      name: payload.name,
+      content: payload.description,
+      aliases: [],
+      description: payload.description,
+      fixedTraits: [],
+      sourceChapterIds: [chapterId],
+      status: "confirmed",
+      scope: "chapter",
+      variants: [{
+        id: variantId,
+        name: "默认",
+        description: payload.description,
+        anchor: "全章默认",
+        firstAppearanceChapterId: chapterId,
+        chapterRange: { startChapterId: chapterId },
+        referenceImageIds: [],
+        sourceChapterIds: [chapterId],
+        createdAt: now,
+        updatedAt: now,
+      }],
+      createdAt: now,
+      updatedAt: now,
+    };
+    data.assets = [...(data.assets ?? []), asset];
+    data.chapterAssets = [...(data.chapterAssets ?? []), {
+      id: uuidv4(),
+      chapterId,
+      assetId: asset.id,
+      variantId,
+      appearance: "introduced",
+      evidence: [],
+      origin: "extraction",
+      createdAt: now,
+      updatedAt: now,
+    }];
+    // 资产已就绪：阶段只升不降
+    data.nodes = (data.nodes ?? []).map((node) => {
+      if (node.id !== chapterId) return node;
+      const current = LONG_CHAPTER_STAGE_ORDER.indexOf(node.stage ?? "empty");
+      return current < LONG_CHAPTER_STAGE_ORDER.indexOf("assets-ready")
+        ? { ...node, stage: "assets-ready" as const, updatedAt: Date.now() }
+        : node;
+    });
+  });
+  toast.success(`已新建「${payload.name}」，可在生图工作台生成提示词与参考图`);
+}
+
+/**
+ * 删除整条资产（连同全部视觉状态与图片）。
+ * 删除后统一收尾：章节引用里指向它的条目被丢弃/回落，全项目分镜里指向已删状态的绑定被修复。
+ * 视觉状态级别不单独提供删除入口，用户在工作台的编辑框内自行增删内容。
+ */
+async function deleteAsset(asset: LongProjectAsset) {
+  const assetId = asset.id;
+  await props.mutateLongProjectData((data) => {
+    // 先落回 assets，后面的悬空清理一律基于「删完之后」的列表判断
+    const nextAssets = (data.assets ?? []).filter((item) => item.id !== assetId);
+    data.assets = nextAssets;
+    const chapterOrders = chapterOrderMap(data);
+    const repaired = repairDanglingChapterAssets(data.chapterAssets ?? [], nextAssets, chapterOrders);
+    data.chapterAssets = repaired.chapterAssets;
+    data.storyboardRuns = (data.storyboardRuns ?? []).map((item) => {
+      const repairedPanels = repairDanglingBindings(item.panels, nextAssets, item.chapterId, chapterOrders);
+      return repairedPanels === item.panels ? item : { ...item, panels: repairedPanels, updatedAt: Date.now() };
+    });
+  });
+  toast.success(`已删除资产「${asset.name}」`);
+}
+
 // ========== 暴露给页面顶栏：按子 tab 切换的操作按钮所需状态与方法 ==========
 
 defineExpose({
-  /** 信息 tab：是否存在待确认的提取结果（最近一次 run 已完成未确认）。 */
-  canConfirmReview: computed(() => latestRun.value?.status === "completed"),
+  /**
+   * 信息 tab：是否存在可确认的提取结果。
+   * **`confirmed` 也放行** —— 确认是幂等操作（本次结果为准重写 + 重算绑定），
+   * 允许重复执行；否则用户手改过候选后想再刷一遍绑定，就被迫重新跑一次提取。
+   */
+  canConfirmReview: computed(() => latestRun.value?.status === "completed" || latestRun.value?.status === "confirmed"),
+  /** 该结果是否已经确认过一次（确认按钮文案据此区分「确认 / 重新确认」）。 */
+  reviewConfirmed: computed(() => latestRun.value?.status === "confirmed"),
   /** 信息 tab：确认本章资产（本次结果为准，唯一行为；调用方 await 后即可认为已写回）。 */
   confirmReview: () => confirmExtraction(),
   /** 生图工作台 tab：工作台实例（批量操作按钮转发；非工作台 tab 时为 null）。 */

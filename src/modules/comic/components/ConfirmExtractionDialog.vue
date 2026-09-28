@@ -9,7 +9,7 @@
       <div class="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-border-subtle bg-surface">
         <div class="flex shrink-0 items-center gap-2 border-b border-border-subtle px-4 py-3">
           <AlertTriangle :size="15" class="shrink-0 text-amber-400" />
-          <h3 class="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">确认本章资产</h3>
+          <h3 class="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">{{ reconfirm ? '重新确认本章资产' : '确认本章资产' }}</h3>
           <button class="shrink-0 text-text-muted transition-colors hover:text-text-primary" title="关闭" @click="close">
             <X :size="15" />
           </button>
@@ -20,6 +20,7 @@
             以本次提取结果为准：命中的同名视觉状态会
             <span class="text-text-primary">复用原状态</span>
             （已生成的参考图、生成图与分镜绑定保留），其余字段按本次重写。
+            <span v-if="reconfirm" class="mt-1 block text-text-muted">本次为重新确认：结果与已保存的一致时不会有任何变化，可安全重复执行。</span>
           </p>
 
           <div v-if="items.length" class="mt-3">
@@ -75,6 +76,8 @@ export interface ExtractionDropItem {
 const props = defineProps<{
   modelValue: boolean
   items: ExtractionDropItem[]
+  /** 该结果此前已确认过（再次执行时标题与文案改成「重新确认」口径）。 */
+  reconfirm?: boolean
 }>()
 
 const emit = defineEmits<{

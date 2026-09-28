@@ -83,6 +83,25 @@
 - **提示**：候选缺 `suggestedAssetId` 时确认会 toast 报错（防御性分支，当前审核页没有改归属的入口，解析器也不会产出这种组合）。
 - **遗留观察（未改）**：`appearance` 按**候选**粒度标（`candidate.suggestedAssetId ? 'reused' : 'introduced'`），所以「复用已有资产但新增了状态」也记 reused，语义略不准。
 
+## 三之三、信息 tab 的手动增删（2026-09-28 新增）
+
+资产 tab 下分三个子视图：**信息**（识别与建档）/ **生图工作台**（生产）/ **图片**（浏览）。手动增删只在**信息** tab，工作台是纯生产视图（已还原，不留入口）。
+
+**新建**：审核页左列底部「＋ 新建资产」→ `AssetCreateModal`（z-130，类型三选一 + 名称 + 描述）→ `PanelGenAssetTab.createAssetManually()`：建 `scope:'chapter'` 资产 + 一条名为「默认」的视觉状态（anchor「全章默认」）+ 本章引用 → 阶段只升不降推到 `assets-ready`。
+
+**⚠️ 建资产写章节引用必须用 `origin: 'extraction'`（或不写 origin），绝不能写 `'manual'`。** `buildExtractionConfirmResult` 重建本章引用时只保留 `origin === 'manual'` 的条目，而 `scope:'chapter'` 的资产本体会被过滤掉 —— 引用写成 manual，下次「确认本章资产」就留下指向已删资产的**悬空引用**，且 manual 引用不参与悬空清理，成为清不掉的死数据。
+
+**删除**：审核页左列**每一行**候选项 hover 出垃圾桶图标（scoped CSS，非 Tailwind `group`）。含义随候选是否命中已有资产而分：
+
+| 情况 | 判定 | 动作 |
+|---|---|---|
+| 命中已有资产 | `candidate.suggestedAssetId` 能在 `assets` 找到 | emit `delete-asset` → `PanelGenAssetTab.deleteAsset()`：改 `data.assets` 后**基于删完的列表**跑 `repairDanglingChapterAssets` + 全项目 `repairDanglingBindings`。确认文案从 `assetUsage` 列「N 状态 / M 图 / K 章节 / J 绑定」 |
+| 纯新识别（未入库） | 找不到对应资产 | emit `remove-candidate` → `removeExtractionCandidate()`：只改 `run.candidates`（`updateRun`），**不动库**。已 `confirmed` 的 run 拒绝并提示重新确认 |
+
+**「确认本章资产」可重复执行**：`canConfirmReview` 放行 `completed` 或 `confirmed`，`confirmExtraction()` 本身幂等（同名状态复用 id、重算绑定），按钮文案随之切「确认」↔「重新确认」。确认成功后 `LongProjectAssetTab.runConfirm()` 自动把视图切到 `workbench`。
+
+**「本次识别」与「本章已有」不做两套清单**（用户明确否掉）：信息 tab 只展示本次识别，未确认时顶部给琥珀色提示条 +「去生图工作台」按钮（`pendingConfirm` = `latestRun.status === 'completed'`）。「识别遗漏的资产」应在提取阶段解决，不靠第二套清单兜底。
+
 ## 四、确认后分镜绑定回填
 
 `backfillPanelAutoBindings` → `promptAssetService.syncPanelsAutoBindings`（分镜编辑/合并/拆分也跑同一引擎）：

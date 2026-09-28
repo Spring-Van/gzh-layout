@@ -17,6 +17,7 @@
 - `custom-scrollbar` 只改外观不设 `overflow`；能滚三件套：父链一路 `min-h-0` + `flex-1` + `overflow-y-auto`。
 - 弹窗统一 `fixed inset-0` + Teleport 到 body；**Teleport 浮层必须自己写 `position: fixed`**。z-index 谱系：z-40 菜单｜**z-50** 常规弹窗｜z-100/101 全屏抽屉｜z-120 覆盖确认｜**z-[130]/z-[131] 抽屉内子弹窗**｜z-140 导入弹窗｜z-200 大图预览｜z-300/9999 PageSync/Toast（Tailwind 裸值 `z-130` 无效）。通用组件用 `zIndexClass` prop。
 - 组件 scoped 样式（0,2,0）压过 Tailwind 工具类（0,1,0）—— 局部覆盖必须在 scoped 里写同层级类，且定义在基类之后。
+- ⚠️ **Tailwind `group` / `peer` 不可用**：`tailwind.config.js` **没有 `safelist`**，`group` 类在构建时被 purge 掉，`group-hover:` 永远不生效（症状：悬停该行不出现操作按钮）。需要「父行 hover 才显形子按钮」时，写 **scoped CSS**：`.row:hover .row-action { opacity:1 }` + `.row-action { opacity:0 }`（Vue 会给两个选择器都加上 data-v 属性，构建后仍成立）。
 
 ## UI 约定
 
@@ -28,6 +29,7 @@
 - 用户 UI 偏好：极简风、小圆角 4px、无多余装饰（详见会话记忆）。
 - **全局提示（Toast）**：`useToastProvider` 必须 provide **ref 本身**（`{ instance }`）；写成 `{ instance: instance.value }` 注入的是 null 快照，全站提示静默丢弃（历史 bug：设置页保存成功/失败都无反馈）。Provider 在 App `onMounted` 注册，晚于子组件 `setup`，只有共享同一 ref 才读得到。Toast 层级 `z-[9999]` + 外层 `pointer-events-none`。
 - 设置页所有落库动作统一走 `runSave(action, successMessage?)`：成功给正向提示，失败必须弹出具体原因（**不许静默**）。
+- **资产三个子 tab 分工不能混**：**信息** = 识别与建档（提取审核 + **资产增删入口**，**只展示「本次识别」一套清单**，不再另列「本章已有」）｜**生图工作台** = 生产（提示词/参考图）｜**图片** = 浏览。提取结果未确认时信息 tab 给提示条 +「去生图工作台」，确认成功后自动切到工作台。
 
 ## 章节阶段（node.stage）只升不降
 
@@ -57,7 +59,10 @@
 
 - **全链路输出语法统一为 Markdown**（`#` 标题 + `- 字段：内容`），**解析器保持专用**，禁止过度抽象。
 - **能被用户改的拼法必须以用户模板存在**；推荐模板只作新建底稿，**不做「模板缺失时内置兜底」**。
+- **推荐模板是两层拼成的**：`RECOMMENDED_TEMPLATE_BASE[type].content`（正文）+ `OUTPUT_FORMAT_SPECS[type]`（返回格式）→ `withFormatSpec()` → `RECOMMENDED_TEMPLATES[type]`。**改规则两处都要改**（正文写做法、格式段写硬约束），只改一处会导致「填入推荐模板」后约束缺一半。
+- **存量模板优先**：设置页存过的模板存在 `comic-settings.json.promptTemplates`，`defaultTemplateContent(type)` 只在该类型无用户模板时生效 —— 改了默认模板对已有用户不生效，需让用户重点「填入推荐模板」。
 - 长篇分镜：页头 `## 分镜 N · 双格`、格 `### 第X格`、字段 `- 字段名：内容`；**入库去包装、出库带包装**。
+- **资产提取（extract）口径**：人物的服装/鞋袜/配饰/随身武器属于**人物视觉状态**（第 7／8 维），**不得再作为独立「道具」资产提取**；道具只收能脱离人物单独出图的独立物件。例外：剧情围绕某件服装/配饰本身、需单独特写时才建道具。
 
 ## 候选提示词条（genPrompts）读写口径必须对齐
 

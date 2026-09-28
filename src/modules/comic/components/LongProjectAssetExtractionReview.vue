@@ -1,7 +1,7 @@
 <template>
   <section class="flex min-h-0 flex-1 flex-col bg-app-bg">
     <div class="flex min-h-0 flex-1">
-      <!-- 左：候选资产列表（按类型分组，不再渲染归属标记） -->
+      <!-- 左：本次识别候选列表（按类型分组）；每条都能 hover 删除 -->
       <aside class="custom-scrollbar w-60 shrink-0 overflow-y-auto border-r border-border-subtle bg-surface p-3">
         <div class="mb-3 flex items-center justify-between px-1">
           <span class="text-xs font-medium text-text-secondary">本次识别</span>
@@ -9,17 +9,40 @@
         </div>
         <template v-for="group in groups" :key="group.type">
           <p v-if="group.items.length" class="mb-1 mt-3 px-2 text-[11px] font-medium text-text-muted">{{ group.label }} {{ group.items.length }}</p>
-          <button
+          <div
             v-for="candidate in group.items"
             :key="candidate.id"
-            class="mb-1 flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-text-secondary hover:bg-elevated"
+            class="owned-row mb-1 flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-text-secondary hover:bg-elevated"
             :class="selectedId === candidate.id ? 'bg-cyan-500/12 text-text-primary' : ''"
-            @click="selectCandidate(candidate.id)"
           >
-            <component :is="group.icon" :size="15" class="shrink-0 text-text-muted" />
-            <span class="min-w-0 flex-1 truncate">{{ candidate.name }}</span>
-          </button>
+            <button class="flex min-w-0 flex-1 items-center gap-2 text-left" @click="selectCandidate(candidate.id)">
+              <component :is="group.icon" :size="15" class="shrink-0 text-text-muted" />
+              <span class="min-w-0 flex-1 truncate">{{ candidate.name }}</span>
+            </button>
+            <!--
+              删除：含义随该候选是否命中已有资产而不同 ——
+              命中已有资产 = 删掉库里那条资产（含全部状态与图片，写库）；
+              纯新识别 = 只把这条候选从本次结果里划掉（确认时不会建档，写库由容器负责）。
+            -->
+            <button
+              class="owned-remove flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-muted transition-colors hover:bg-red-500/10 hover:text-red-400"
+              :title="deleteTitleOf(candidate.id)"
+              @click.stop="requestRemove(candidate.id)"
+            >
+              <Trash2 :size="12" />
+            </button>
+          </div>
         </template>
+
+        <!-- 手动新建资产：提取漏掉的对象在这里补录（建资产 + 默认视觉状态，归属本章） -->
+        <button
+          class="mt-3 flex w-full items-center gap-1.5 rounded-md border border-dashed border-border-strong px-2 py-1.5 text-[11px] text-text-muted transition-colors hover:border-cyan-500/50 hover:text-cyan-400"
+          title="手动建立一条资产并归属本章；适合补录提取时漏掉的人物、场景或道具"
+          @click="emit('create-asset')"
+        >
+          <Plus :size="12" class="shrink-0" />
+          新建资产
+        </button>
       </aside>
 
       <template v-if="activeCandidate">
@@ -78,6 +101,15 @@
 
       <div v-else class="flex flex-1 items-center justify-center text-sm text-text-muted">本次没有识别到可审核的资产</div>
     </div>
+
+    <!-- 删除确认：区分「删库里的资产」与「划掉本次候选」两种含义 -->
+    <ConfirmDialog
+      v-model="removeConfirmVisible"
+      :title="removePlan?.kind === 'asset' ? '删除资产' : '从本次识别中移除'"
+      :content="removePlan?.content ?? ''"
+      :confirm-text="removePlan?.kind === 'asset' ? '确认删除' : '确认移除'"
+      @confirm="confirmRemove"
+    />
   </section>
 </template>
 
@@ -92,14 +124,26 @@
  * 确认动作由页面顶栏「确认本章资产」承载（唯一行为：本次结果为准，明细在确认弹窗里逐条列出）。
  */
 import { computed, ref, watch } from 'vue'
-import { MapPin, Package, UserRound } from 'lucide-vue-next'
+import { MapPin, Package, Plus, Trash2, UserRound } from 'lucide-vue-next'
+import ConfirmDialog from '@comic/components/ConfirmDialog.vue'
 import { getCandidateStates, matchVariantForState, parseCandidateContent } from '@comic/services/assetExtractionService'
 import { selectDroppedVariants } from '@comic/services/assetExtractionConfirm'
 import { renderMarkdown } from '@comic/utils/markdown'
 import type { LongProjectAsset, LongProjectAssetExtractionCandidate, LongProjectExtractedState } from '@comic/types'
 
-const props = defineProps<{ candidates: LongProjectAssetExtractionCandidate[]; assets: LongProjectAsset[] }>()
-const emit = defineEmits<{ (event: 'update', candidate: LongProjectAssetExtractionCandidate): void }>()
+const props = defineProps<{
+  candidates: LongProjectAssetExtractionCandidate[]
+  assets: LongProjectAsset[]
+}>()
+const emit = defineEmits<{
+  (event: 'update', candidate: LongProjectAssetExtractionCandidate): void
+  /** 手动新建资产：弹窗与写库由容器负责（它才有章节 id 与章节引用表）。 */
+  (event: 'create-asset'): void
+  /** 删除整条已有资产（含全部视觉状态）：确认与写库由容器负责（需要项目级引用与分镜修复）。 */
+  (event: 'delete-asset', payload: { asset: LongProjectAsset }): void
+  /** 纯新识别：只把这条候选从本次结果里划掉（写库由容器负责，需要改 run.candidates）。 */
+  (event: 'remove-candidate', payload: { candidateId: string }): void
+}>()
 
 const selectedId = ref<string | null>(props.candidates[0]?.id ?? null)
 const editing = ref(false)
@@ -108,6 +152,53 @@ watch(selectedId, () => { editing.value = false })
 
 const activeCandidate = computed(() => props.candidates.find((item) => item.id === selectedId.value) ?? null)
 const groups = computed(() => [{ type: 'character' as const, label: '人物', icon: UserRound, items: props.candidates.filter((item) => item.type === 'character') }, { type: 'scene' as const, label: '场景', icon: MapPin, items: props.candidates.filter((item) => item.type === 'scene') }, { type: 'prop' as const, label: '道具', icon: Package, items: props.candidates.filter((item) => item.type === 'prop') }])
+/** 该候选命中的**已有**资产（有则可直接删库里的资产，无则只是从本次结果里划掉）。 */
+function assetOfCandidate(candidateId: string): LongProjectAsset | null {
+  const candidate = props.candidates.find((item) => item.id === candidateId)
+  if (!candidate?.suggestedAssetId) return null
+  return props.assets.find((item) => item.id === candidate.suggestedAssetId) ?? null
+}
+
+/**
+ * 删除按钮的两种含义（同一枚图标，标题与后续动作不同）：
+ * - 命中已有资产 → 删除库里那条资产（连同全部视觉状态与图片）；
+ * - 纯新识别 → 只把这条候选从本次识别结果里划掉，确认时不会为它建档。
+ */
+function deleteTitleOf(candidateId: string): string {
+  return assetOfCandidate(candidateId)
+    ? '删除资产（连同全部视觉状态与图片）；被分镜引用时会先提示影响面'
+    : '从本次识别中移除（确认时不会为它建立资产）'
+}
+
+const removeConfirmVisible = ref(false)
+const removePlan = ref<{ kind: 'asset' | 'candidate'; asset?: LongProjectAsset; candidateId: string; content: string } | null>(null)
+
+/** 点删除：先弹确认（两种含义文案不同），确认后才真正执行。 */
+function requestRemove(candidateId: string) {
+  const candidate = props.candidates.find((item) => item.id === candidateId)
+  if (!candidate) return
+  const asset = assetOfCandidate(candidateId)
+  if (asset) {
+    removePlan.value = {
+      kind: 'asset', asset, candidateId,
+      content: `将删除已有资产「${asset.name}」（连同 ${asset.variants.length} 个视觉状态与全部图片）。此操作不可撤销，是否确认？`,
+    }
+  } else {
+    removePlan.value = {
+      kind: 'candidate', candidateId,
+      content: `将从本次识别结果中移除「${candidate.name}」。该对象尚未入库，移除后确认时不会为它建立资产；重新提取可以恢复。是否确认？`,
+    }
+  }
+  removeConfirmVisible.value = true
+}
+
+function confirmRemove() {
+  const plan = removePlan.value
+  if (!plan) return
+  if (plan.kind === 'asset' && plan.asset) emit('delete-asset', { asset: plan.asset })
+  else emit('remove-candidate', { candidateId: plan.candidateId })
+  removePlan.value = null
+}
 /** 当前资产类型色调（人物青 / 场景绿 / 道具琥珀），驱动右侧 tag 与预览视觉状态高亮。 */
 const typeTone = computed<'character' | 'scene' | 'prop'>(() => activeCandidate.value?.type ?? 'character')
 /** 视觉状态 tag 配色：与图片 tab 资产卡一致（人物青 / 场景绿 / 道具琥珀）。 */
@@ -214,4 +305,10 @@ html.dark .dropped-note-dot{background:#f09595}
 .state-tag-character{border-color:rgba(34,211,238,.45);color:#22d3ee}
 .state-tag-scene{border-color:rgba(52,211,153,.45);color:#34d399}
 .state-tag-prop{border-color:rgba(251,191,36,.45);color:#fbbf24}
+/* 「本章已有」行的删除图标：默认隐藏，鼠标移到该行才出现。
+   不用 Tailwind 的 group-hover —— 本项目 tailwind.config.js 没有 safelist，
+   `group` 类在构建时会被 purge 掉，group-hover: 就永远不生效（现象是悬停不显示按钮）。 */
+.owned-remove{opacity:0}
+.owned-row:hover .owned-remove,
+.owned-remove:focus-visible{opacity:1}
 </style>
