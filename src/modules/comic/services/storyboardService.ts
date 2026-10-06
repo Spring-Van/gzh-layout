@@ -119,7 +119,12 @@ function findAsset(name: string, assets: LongProjectAsset[]) {
 export function defaultVariant(asset: LongProjectAsset | undefined, chapterId: string, chapterOrders: Record<string, number>) {
   if (!asset) return undefined
   const currentOrder = chapterOrders[chapterId] ?? Number.MAX_SAFE_INTEGER
-  const active = asset.variants
+  // `origin: 'manual'` 的状态是资料性状态（如场景「机位图」九宫格），锚点写明不参与分镜画面：
+  // 它们没有剧情范围（firstAppearanceChapterId 为空 → 排序落到 -1），当资产只剩这类状态时
+  // 会被当成"唯一可用状态"返回，分镜就会把九宫格参考图绑进画面。只在这类状态之外挑默认。
+  const dramatic = asset.variants.filter((variant) => variant.origin !== 'manual')
+  const pool = dramatic.length ? dramatic : asset.variants
+  const active = pool
     .filter((variant) => {
       const start = chapterOrders[variant.chapterRange?.startChapterId ?? variant.firstAppearanceChapterId ?? ''] ?? -1
       const end = variant.chapterRange?.endChapterId ? chapterOrders[variant.chapterRange.endChapterId] : undefined
@@ -136,7 +141,7 @@ export function defaultVariant(asset: LongProjectAsset | undefined, chapterId: s
     return undefined
   }
   // 没有任何适用于当前章节的范围时，仅允许无范围状态兜底，避免使用已经结束或尚未开始的状态。
-  return asset.variants.find((variant) => !variant.chapterRange && !variant.firstAppearanceChapterId)
+  return pool.find((variant) => !variant.chapterRange && !variant.firstAppearanceChapterId)
 }
 
 /** 「出场资产」单项的编号前缀：`A1 林小雨（礼服）` → code `A1`、rest `林小雨（礼服）`。 */

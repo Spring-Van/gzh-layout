@@ -32,7 +32,8 @@ export const comicDb = {
   // Projects
   getAllProjects: (): Promise<ComicProject[]> => getComicApi().db.getAllProjects(),
   getProject: (id: string): Promise<ComicProject | null> => getComicApi().db.getProject(id),
-  saveProject: (project: ComicProject): Promise<{ success: boolean }> => getComicApi().db.saveProject(project),
+  saveProject: (project: ComicProject): Promise<{ success: boolean; project: ComicProject }> =>
+    getComicApi().db.saveProject(project),
   deleteProject: (id: string): Promise<{ success: boolean }> => getComicApi().db.deleteProject(id),
 
   // ModelConfigs

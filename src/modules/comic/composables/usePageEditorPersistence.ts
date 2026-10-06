@@ -30,7 +30,7 @@ export function usePageEditorPersistence(
       // 直接传引用：Electron IPC 序列化时自带快照，避免在渲染主线程
       // 对含 base64 图片的大对象做 JSON.parse(JSON.stringify()) 深拷贝（批量生图时的主要卡顿源）
       const pageData = refs.comicData.value as unknown as NonNullable<typeof project.pageData>;
-      await comicDb.saveProject({
+      const { project: saved } = await comicDb.saveProject({
         ...project,
         pageData,
         generatedImages: refs.generatedImages.value,
@@ -39,6 +39,16 @@ export function usePageEditorPersistence(
         imageGenConfig: refs.imageConfig.value,
         updatedAt: Date.now(),
       });
+      // 主进程写库时会把内联图片外置成 `app-image://` 引用，用返回值就地刷新本地 ref：
+      // 不回写的话内存里一直压着 base64，此后每次自动保存都要重新搬运几十 MB。
+      //
+      // 用 `Object.assign` 就地改属性、而不是整体替换 `ref.value` ——
+      // `generatedImages` 上挂了 `watch(..., savePageData)`，整体替换会改变引用从而
+      // 再次触发保存，形成「保存 → 回写 → 再保存」的死循环。浅 watch 不感知属性改动。
+      Object.assign(refs.generatedImages.value, (saved.generatedImages ?? {}) as Record<number, string>);
+      Object.assign(refs.pageModelOverrides.value, (saved.pageModelOverrides ?? {}) as Record<number, string>);
+      if (saved.pageRefImages) refs.pageRefImages.value = saved.pageRefImages;
+      if (saved.imageGenConfig) refs.imageConfig.value = saved.imageGenConfig;
       sessionStorage.setItem(storageKey, JSON.stringify(pageData));
     } catch (error) {
       console.error('保存页面数据失败:', error);

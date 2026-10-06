@@ -38,7 +38,7 @@
         <button
           class="mt-3 flex w-full items-center gap-1.5 rounded-md border border-dashed border-border-strong px-2 py-1.5 text-[11px] text-text-muted transition-colors hover:border-cyan-500/50 hover:text-cyan-400"
           title="手动建立一条资产并归属本章；适合补录提取时漏掉的人物、场景或道具"
-          @click="emit('create-asset')"
+          @click="requestCreateAsset"
         >
           <Plus :size="12" class="shrink-0" />
           新建资产
@@ -53,7 +53,7 @@
               <span class="min-w-0 truncate text-[11px] text-text-muted">{{ editing ? 'Markdown 编辑 · 视觉状态改动自动同步右侧标签' : '资产信息' }}</span>
             </div>
             <div class="flex shrink-0 items-center gap-0.5">
-              <button class="mode-button" :class="!editing ? 'mode-button-active' : ''" @click="editing = false">预览</button>
+              <button class="mode-button" :class="!editing ? 'mode-button-active' : ''" @click="exitEdit">预览</button>
               <button class="mode-button" :class="editing ? 'mode-button-active' : ''" @click="editing = true">编辑</button>
             </div>
           </div>
@@ -123,7 +123,7 @@
  * 右列 header 显示沿用数量、底部提示「本次未出现的旧状态覆盖时会被删除」。
  * 确认动作由页面顶栏「确认本章资产」承载（唯一行为：本次结果为准，明细在确认弹窗里逐条列出）。
  */
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { MapPin, Package, Plus, Trash2, UserRound } from 'lucide-vue-next'
 import ConfirmDialog from '@comic/components/ConfirmDialog.vue'
 import { getCandidateStates, matchVariantForState, parseCandidateContent } from '@comic/services/assetExtractionService'
@@ -150,7 +150,29 @@ const editing = ref(false)
 watch(() => props.candidates, (items) => { if (!items.some((item) => item.id === selectedId.value)) selectedId.value = items[0]?.id ?? null }, { deep: true })
 watch(selectedId, () => { editing.value = false })
 
-const activeCandidate = computed(() => props.candidates.find((item) => item.id === selectedId.value) ?? null)
+/**
+ * 编辑草稿：Markdown 编辑框每次按键都会走到 `emit('update')` → 容器落库，
+ * 而长篇项目单次写库要序列化整份项目（含内联图片，实测 ≈2.5s）——
+ * 逐字写库会让输入直接卡死（旧实现就是如此，10 个字就是 25s 的写库队列）。
+ *
+ * 现在改为：按键只更新本地草稿（界面即时反映、右列标签即时同步），
+ * 停止输入 500ms 后才把草稿提交落库；切换候选 / 切回预览 / 删除 / 新建 / 卸载前强制冲刷，
+ * 保证任何离开编辑上下文的动作都不会丢掉最后一次输入。
+ */
+const draft = ref<LongProjectAssetExtractionCandidate | null>(null)
+/** 最近一次已提交落库的草稿内容：多次 flush 时避免把同一份草稿重复写库。 */
+let emittedContent: string | null = null
+const FLUSH_DELAY = 500
+let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+const activeCandidate = computed(() => {
+  const fromProps = props.candidates.find((item) => item.id === selectedId.value) ?? null
+  const local = draft.value
+  // 草稿内容与已落库内容不一致期间以草稿为准（写库要等秒级，不能让编辑框回退成旧文本）；
+  // 写库追上后内容一致，自然回到 props 的权威版本。
+  if (local && local.id === selectedId.value && fromProps?.content !== local.content) return local
+  return fromProps
+})
 const groups = computed(() => [{ type: 'character' as const, label: '人物', icon: UserRound, items: props.candidates.filter((item) => item.type === 'character') }, { type: 'scene' as const, label: '场景', icon: MapPin, items: props.candidates.filter((item) => item.type === 'scene') }, { type: 'prop' as const, label: '道具', icon: Package, items: props.candidates.filter((item) => item.type === 'prop') }])
 /** 该候选命中的**已有**资产（有则可直接删库里的资产，无则只是从本次结果里划掉）。 */
 function assetOfCandidate(candidateId: string): LongProjectAsset | null {
@@ -173,8 +195,9 @@ function deleteTitleOf(candidateId: string): string {
 const removeConfirmVisible = ref(false)
 const removePlan = ref<{ kind: 'asset' | 'candidate'; asset?: LongProjectAsset; candidateId: string; content: string } | null>(null)
 
-/** 点删除：先弹确认（两种含义文案不同），确认后才真正执行。 */
+/** 点删除：先把编辑中的草稿落库，再弹确认（两种含义文案不同），确认后才真正执行。 */
 function requestRemove(candidateId: string) {
+  flushDraft()
   const candidate = props.candidates.find((item) => item.id === candidateId)
   if (!candidate) return
   const asset = assetOfCandidate(candidateId)
@@ -237,15 +260,33 @@ const previewHtml = computed(() => {
     .replace(/<li>((?:视觉状态|视觉版本)[：:])/g, `<li class="${cls}">$1`)
 })
 
-function selectCandidate(id: string) { selectedId.value = id }
+function selectCandidate(id: string) {
+  flushDraft()
+  selectedId.value = id
+}
 
 /**
- * 编辑资产信息 Markdown 后，同步下方结构化字段与视觉状态列表。
+ * 立即把草稿提交落库（切换候选 / 退出编辑 / 删除 / 新建 / 卸载前调用）。
+ * **不清空草稿**：写库是秒级的，清掉会让编辑框在这段时间回退成库里的旧文本。
+ * 草稿在 props 追上后自动失效（activeCandidate 回落到 props）。
+ */
+function flushDraft() {
+  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null }
+  const pending = draft.value
+  if (!pending || pending.content === emittedContent) return
+  emittedContent = pending.content
+  emit('update', pending)
+}
+
+/**
+ * 编辑资产信息 Markdown：只更新本地草稿 + 防抖提交（见 draft 注释）。
  * 同名状态沿用原 id；未沿用的状态尝试与匹配到的已有资产自动沿用。
  */
 function patchContent(value: string) {
   const candidate = activeCandidate.value
   if (!candidate) return
+  // 换了候选 → 上一份草稿的提交记录失效，否则内容恰好相同会被误判为「已提交」
+  if (draft.value?.id !== candidate.id) emittedContent = null
   const parsed = parseCandidateContent(value)
   const suggested = candidate.suggestedAssetId ? props.assets.find((item) => item.id === candidate.suggestedAssetId) : undefined
   const prevStates = new Map(getCandidateStates(candidate).map((state) => [state.name.trim(), state]))
@@ -255,7 +296,7 @@ function patchContent(value: string) {
     const matchedVariantId = suggested ? matchVariantForState(state, suggested) : undefined
     return matchedVariantId ? { ...state, suggestedVariantId: matchedVariantId, matchSource: 'model' as const } : state
   })
-  emit('update', {
+  draft.value = {
     ...candidate,
     content: value,
     aliases: parsed.aliases.length ? parsed.aliases : candidate.aliases,
@@ -264,8 +305,25 @@ function patchContent(value: string) {
     evidence: parsed.evidence.length ? parsed.evidence : candidate.evidence,
     attributes: Object.keys(parsed.attributes).length ? parsed.attributes : candidate.attributes,
     states: value.trim() ? states : getCandidateStates(candidate),
-  })
+  }
+  if (flushTimer) clearTimeout(flushTimer)
+  flushTimer = setTimeout(() => { flushTimer = null; flushDraft() }, FLUSH_DELAY)
 }
+
+/** 切回只读预览：先把草稿落库，右列标签与预览据此刷新。 */
+function exitEdit() {
+  flushDraft()
+  editing.value = false
+}
+
+/** 手动新建资产：先落库当前编辑，避免切走时丢掉最后一段输入。 */
+function requestCreateAsset() {
+  flushDraft()
+  emit('create-asset')
+}
+
+// 任何离开编辑上下文的动作都要先把草稿落库，避免丢掉最后一次输入
+onBeforeUnmount(flushDraft)
 
 /** 视觉状态标签悬停文案：名称 + 描述 + 归属（匹配到已有状态时）。 */
 function stateTitle(state: LongProjectExtractedState): string {

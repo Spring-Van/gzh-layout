@@ -657,11 +657,19 @@ async function doSave() {
   try {
     const project = await comicDb.getProject(projectId)
     if (project) {
-      await comicDb.saveProject({
+      const { project: saved } = await comicDb.saveProject({
         ...project,
         syncData: comicSync.exportData(),
         updatedAt: Date.now(),
       })
+      // 主进程写库时会把封面生成图外置成 `app-image://`，用返回值回写 store ——
+      // 不回写的话 store 里一直是几 MB 的 base64，2 秒一次的自动保存每次都要重搬一遍。
+      // 只在真的变了时才写：无脑回写会让 store 变更被当成新一轮编辑，保存停不下来。
+      const persistedCover = saved.syncData?.cover
+      if (persistedCover
+        && persistedCover.generatedCoverImage !== comicSync.coverConfig.generatedCoverImage) {
+        comicSync.updateCoverConfig({ generatedCoverImage: persistedCover.generatedCoverImage })
+      }
       lastSavedAt.value = true
       setTimeout(() => { lastSavedAt.value = false }, 2000)
     }

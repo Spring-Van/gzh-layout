@@ -97,6 +97,7 @@
       title="手动导入资产"
       placeholder="粘贴外部 AI 生成的资产提取结果…"
       z-index-class="z-[140]"
+      :busy="extractImporting"
       :parse="parseExtractionPreview"
       @confirm="confirmExtractionImport"
       @close="extractImportVisible = false"
@@ -122,7 +123,7 @@
  * 确认后写回资产与章节引用，并按文本自动回填本章分镜绑定（旧顺序章节有分镜时）。
  * 顶部操作按钮经 #actions 插槽注入子 tab 行右侧（信息 = 提取 + 确认；生图工作台 = 批量提示词/生图/配置）。
  */
-import { computed, ref, watch, type Ref } from 'vue'
+import { computed, nextTick, ref, watch, type Ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
 import { CheckCircle2, LoaderCircle, Settings2, Sparkles } from 'lucide-vue-next'
 import { useToast } from '@comic/composables/useToast'
@@ -359,6 +360,8 @@ function retryExtraction() {
 // ========== 资产手动导入（外部 AI 代跑） ==========
 
 const extractImportVisible = ref(false)
+/** 导入落库进行中：长篇项目单次写库要序列化整份项目（秒级），期间按钮转圈避免「点了没反应」。 */
+const extractImporting = ref(false)
 
 /** 资产导入解析预览：返回标题与候选摘要（解析失败抛错）。 */
 function parseExtractionPreview(content: string): { title: string; items: string[] } {
@@ -374,8 +377,11 @@ function parseExtractionPreview(content: string): { title: string; items: string
 /** 确认导入资产：解析为候选 → 创建 completed run → 复用 AssetExtractionReview 审核确认链路。 */
 async function confirmExtractionImport(content: string) {
   const chapter = currentChapter.value
-  if (!chapter || !content.trim()) return
+  if (!chapter || !content.trim() || extractImporting.value) return
   if (latestExtractRun.value && !window.confirm('本章已有资产提取结果，导入将生成新一版候选，是否继续？')) return
+  extractImporting.value = true
+  // 先让「导入中…」渲染出来，再跑解析与写库（两者都是同步重活，不然按钮看起来没反应）
+  await nextTick()
   try {
     const candidates = parseAssetExtractionResponse(content, assets.value)
     if (!candidates.length) throw new Error('未识别到任何资产，请检查格式。')
@@ -399,6 +405,8 @@ async function confirmExtractionImport(content: string) {
     toast.success(`已导入 ${candidates.length} 项资产候选，请审核确认`)
   } catch (error) {
     toast.error(error instanceof Error ? error.message : '资产解析失败')
+  } finally {
+    extractImporting.value = false
   }
 }
 </script>

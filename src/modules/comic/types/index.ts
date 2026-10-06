@@ -141,6 +141,15 @@ export interface LongProjectAssetVariant {
   genPrompts?: GenPromptSlot[]
   /** 当前选中用于生图的提示词条 id。 */
   activeGenPromptId?: string
+  /**
+   * 视觉状态的来源（2026-10-05）：`manual` = 不由「资产提取」产出，而是用户手工新建或
+   * 程序按机械规则补建（典型：场景 3×3 九宫格「机位图」空间锚定资料）。
+   *
+   * **重新提取确认时会被保留**：确认流程按候选状态整表重建变体，`extract` 模板永远
+   * 不会输出「机位图」这类资料性状态，若不豁免会在下一次提取确认时被静默删除。
+   * 缺省（旧数据 + 提取产出）一律按 `extraction` 处理，照旧可被重建删除。
+   */
+  origin?: 'extraction' | 'manual'
   sourceChapterIds: string[]
   createdAt: number
   updatedAt: number

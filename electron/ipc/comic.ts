@@ -32,13 +32,14 @@ export function registerComicIpc(): void {
     return comicDbService.getProject(id);
   });
 
-  ipcMain.handle('comic:db:saveProject', (_e, project: any) => {
-    comicDbService.saveProject(project);
-    return { success: true };
+  ipcMain.handle('comic:db:saveProject', async (_e, project: any) => {
+    // 主进程写盘时会把内联图片外置，返回外置后的 project 供渲染层整体替换
+    const saved = await comicDbService.saveProject(project);
+    return { success: true, project: saved };
   });
 
-  ipcMain.handle('comic:db:deleteProject', (_e, id: string) => {
-    comicDbService.deleteProjectCascade(id);
+  ipcMain.handle('comic:db:deleteProject', async (_e, id: string) => {
+    await comicDbService.deleteProjectCascade(id);
     return { success: true };
   });
 
@@ -84,18 +85,18 @@ export function registerComicIpc(): void {
     return comicDbService.getAllProjectAssets();
   });
 
-  ipcMain.handle('comic:db:saveProjectAsset', (_e, asset: any) => {
-    comicDbService.saveProjectAsset(asset);
+  ipcMain.handle('comic:db:saveProjectAsset', async (_e, asset: any) => {
+    await comicDbService.saveProjectAsset(asset);
     return { success: true };
   });
 
-  ipcMain.handle('comic:db:deleteProjectAsset', (_e, id: string) => {
-    comicDbService.deleteProjectAsset(id);
+  ipcMain.handle('comic:db:deleteProjectAsset', async (_e, id: string) => {
+    await comicDbService.deleteProjectAsset(id);
     return { success: true };
   });
 
-  ipcMain.handle('comic:db:deleteProjectAssetsByProjectId', (_e, projectId: string) => {
-    comicDbService.deleteProjectAssetsByProjectId(projectId);
+  ipcMain.handle('comic:db:deleteProjectAssetsByProjectId', async (_e, projectId: string) => {
+    await comicDbService.deleteProjectAssetsByProjectId(projectId);
     return { success: true };
   });
 
@@ -109,13 +110,13 @@ export function registerComicIpc(): void {
     return comicDbService.getMaterialsByProjectId(projectId);
   });
 
-  ipcMain.handle('comic:db:saveMaterial', (_e, material: any) => {
-    comicDbService.saveMaterial(material);
+  ipcMain.handle('comic:db:saveMaterial', async (_e, material: any) => {
+    await comicDbService.saveMaterial(material);
     return { success: true };
   });
 
-  ipcMain.handle('comic:db:deleteMaterial', (_e, id: string) => {
-    comicDbService.deleteMaterial(id);
+  ipcMain.handle('comic:db:deleteMaterial', async (_e, id: string) => {
+    await comicDbService.deleteMaterial(id);
     return { success: true };
   });
 

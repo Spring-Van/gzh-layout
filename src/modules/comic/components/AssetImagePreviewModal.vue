@@ -29,10 +29,11 @@
 
         <div class="max-w-7xl max-h-screen p-8" @click.stop>
           <img
-            :src="currentImage"
+            :src="displayImage"
             :alt="alt"
             class="max-w-full max-h-[85vh] object-contain mx-auto transition-opacity duration-150"
             :class="imageReady ? 'opacity-100' : 'opacity-0'"
+            decoding="async"
             @load="imageReady = true"
             @error="imageReady = true"
           />
@@ -68,6 +69,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import { ChevronLeft, ChevronRight, LoaderCircle, X } from 'lucide-vue-next'
+import { toFastDisplayImageUrl } from '@/shared/image/imageUrl'
 
 interface Props {
   modelValue: boolean
@@ -97,17 +99,22 @@ watch(() => props.modelValue, (visible) => {
 })
 
 const currentImage = computed(() => props.images[currentIndex.value] || '')
+/** 交给 `<img>` 的地址：内联 dataURL 换缓存的 blob URL（见 toFastDisplayImageUrl）。 */
+const displayImage = computed(() => toFastDisplayImageUrl(currentImage.value))
 
 /** 当前大图是否已加载完成（未完成前显示占位过渡，避免白屏干等的卡顿感）。 */
 const imageReady = ref(false)
 watch(currentImage, () => { imageReady.value = false })
 
-/** 预加载当前图前后各 2 张：多状态资产左右切换时不再现等网络（远程大图是主要卡因）。 */
+/**
+ * 预加载当前图前后各 2 张：多状态资产 / 多张成图左右切换时不再现等。
+ * 预加载走同一个 blob URL —— 既让浏览器提前解码，又顺手把转换缓存热好，切换时直接命中。
+ */
 watch([() => props.modelValue, currentIndex], ([visible]) => {
   if (!visible) return
   for (const offset of [-2, -1, 1, 2]) {
     const url = props.images[currentIndex.value + offset]
-    if (url) { const probe = new Image(); probe.src = url }
+    if (url) { const probe = new Image(); probe.src = toFastDisplayImageUrl(url) }
   }
 }, { immediate: true })
 

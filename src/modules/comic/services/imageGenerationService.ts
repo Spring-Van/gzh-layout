@@ -1,4 +1,5 @@
 import type { ModelConfig, OpenAIImageParams } from '@comic/types'
+import { resolveModelInputImages } from '@/shared/image/imageUrl'
 import { grsaiService } from './grsaiService'
 import { duomiService } from './duomiService'
 import { openaiImageService } from './openaiImageService'
@@ -45,14 +46,18 @@ export const imageGenerationService = {
     const apiSource = modelConfig.apiSource || 'grsai'
 
     try {
+      // 参考图统一在入口归一化：图片外置后字段里存的是 app-image:// 私有协议，
+      // 而 grsai / duomi / agnes / openai 四个服务都是把参考图**原样塞进请求体**，
+      // 不在这里还原就会让第三方拿到取不到的本地协议 → 出图静默丢参考。
+      const inputImages = await resolveModelInputImages(imageUrls)
       if (apiSource === 'duomi') {
-        return await this.generateWithDuomiModel(modelConfig, prompt, imageUrls, aspectRatio, quality, onProgress, onTaskCreated)
+        return await this.generateWithDuomiModel(modelConfig, prompt, inputImages, aspectRatio, quality, onProgress, onTaskCreated)
       } else if (apiSource === 'agnes') {
-        return await this.generateWithAgnesModel(modelConfig, prompt, imageUrls, aspectRatio, resolution, onProgress)
+        return await this.generateWithAgnesModel(modelConfig, prompt, inputImages, aspectRatio, resolution, onProgress)
       } else if (apiSource === 'openai') {
-        return await this.generateWithOpenAIModel(modelConfig, prompt, imageUrls, aspectRatio, resolution, quality, onProgress)
+        return await this.generateWithOpenAIModel(modelConfig, prompt, inputImages, aspectRatio, resolution, quality, onProgress)
       }
-      return await this.generateWithGrsaiModel(modelConfig, prompt, imageUrls, aspectRatio, resolution, quality, onProgress, onTaskCreated)
+      return await this.generateWithGrsaiModel(modelConfig, prompt, inputImages, aspectRatio, resolution, quality, onProgress, onTaskCreated)
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : '未知错误' }
     }

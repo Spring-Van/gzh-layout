@@ -70,11 +70,20 @@ export function buildBuiltinTemplateHtml(
  * 从 HTML 中提取本地图片路径（排除 http/https/data: 协议的 URL）
  * 支持 file:/// URL、绝对路径、相对路径
  * 同时提取 <img src> 和 CSS background-image 中的路径
+ *
+ * ⚠️ 外置图片引用（`app-image://comic/...`）**原样保留、不做 decodeURIComponent**：
+ * 主进程上传时会把它解析成磁盘路径，且正文 HTML 里的 src 必须与 contentImagePaths
+ * 里的字符串逐字一致（`split().join()` 依赖这一点）。这里一旦解码，中文目录名就会
+ * 与未解码的那一份对不上，导致微信正文里残留取不到的图。
  */
 export function extractLocalImagePaths(html: string): string[] {
   const paths: string[] = [];
 
   function addLocalPath(src: string) {
+    if (src.startsWith('app-image://')) {
+      if (!paths.includes(src)) paths.push(src);
+      return;
+    }
     if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) {
       return;
     }

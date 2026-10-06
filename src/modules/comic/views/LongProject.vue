@@ -547,6 +547,9 @@ const saveScript = (content: string) => {
 type ImportKind = 'analysis' | 'script' | null
 const importKind = ref<ImportKind>(null)
 
+/** 导入落库进行中（防重入；长篇项目写库是秒级，期间不允许再次触发）。 */
+const importing = ref(false)
+
 /** 手动导入弹窗标题与占位文案。 */
 const importDialogConfig = computed(() => {
   if (importKind.value === 'analysis') return { title: '手动导入原文分析', placeholder: '粘贴外部 AI 生成的原文分析结果…' }
@@ -554,8 +557,12 @@ const importDialogConfig = computed(() => {
   return { title: '', placeholder: '' }
 })
 
-/** 打开手动导入弹窗（kind 决定写入目标）。 */
+/** 打开手动导入弹窗（kind 决定写入目标）。上一次导入仍在落库时不重复打开。 */
 function openManualImport(kind: Exclude<ImportKind, null>) {
+  if (importing.value) {
+    toast.info('正在导入，请稍候…')
+    return
+  }
   importKind.value = kind
 }
 
@@ -565,19 +572,38 @@ const importConfirmVisible = ref(false);
 const importConfirmContent = ref("");
 const pendingImport = ref<{ kind: Exclude<ImportKind, null>; chapterId: string; content: string } | null>(null);
 
-/** 真正写入导入结果（与内置大模型路径共用落库逻辑）。 */
+/**
+ * 写入导入结果（与内置大模型路径共用落库逻辑）。
+ * 弹窗在调用前已关闭，而落库是秒级同步重活，因此用常驻 toast 告知「正在导入」，
+ * 结束后替换为结果，避免用户以为点了没反应。
+ */
 async function applyManualImport(kind: Exclude<ImportKind, null>, chapterId: string, content: string) {
-  await importDoc(kind, { chapterId, content: content.trim(), sourceContent: draftContent.value });
-  importKind.value = null;
-  toast.success(`已导入${kind === 'analysis' ? '原文分析' : '漫画剧本'}`);
+  const label = kind === 'analysis' ? '原文分析' : '漫画剧本';
+  importing.value = true;
+  const pendingToastId = toast.info(`正在导入${label}…`, 0);
+  try {
+    // 先快照：下面有 await，期间用户可能切换章节或继续编辑
+    const sourceContent = draftContent.value;
+    if (isDirty.value) await saveCurrentChapter(false);
+    await importDoc(kind, { chapterId, content: content.trim(), sourceContent });
+    toast.success(`已导入${label}`);
+  } catch (error) {
+    console.error(`导入${label}失败`, error);
+    toast.error(`导入${label}失败，请重试`);
+  } finally {
+    if (pendingToastId) toast.remove(pendingToastId);
+    importing.value = false;
+  }
 }
 
-/** 确认导入分析/剧本：本章已有文档时先弹系统确认弹窗，避免直接覆盖。 */
+/**
+ * 确认导入分析/剧本：本章已有文档时先弹系统确认弹窗避免直接覆盖；
+ * 无冲突时立即关闭导入弹窗（与分镜/资产导入一致），落库过程由常驻提示反馈。
+ */
 async function confirmManualImport(content: string) {
   const chapter = selectedChapter.value;
   const kind = importKind.value;
-  if (!chapter || !kind || !content.trim()) return;
-  if (isDirty.value) await saveCurrentChapter(false);
+  if (!chapter || !kind || !content.trim() || importing.value) return;
   const existing = getDoc(kind, chapter.id);
   if (existing) {
     pendingImport.value = { kind, chapterId: chapter.id, content };
@@ -585,6 +611,7 @@ async function confirmManualImport(content: string) {
     importConfirmVisible.value = true;
     return;
   }
+  importKind.value = null;
   await applyManualImport(kind, chapter.id, content);
 }
 
@@ -593,6 +620,7 @@ async function handleImportConfirm() {
   const pending = pendingImport.value;
   pendingImport.value = null;
   if (!pending) return;
+  importKind.value = null;
   await applyManualImport(pending.kind, pending.chapterId, pending.content);
 }
 

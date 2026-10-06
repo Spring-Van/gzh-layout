@@ -19,8 +19,9 @@
     <div class="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3">
       <div v-if="currentImage" class="group relative flex h-full max-h-full w-full items-center justify-center">
         <img
-          :src="currentImage"
+          :src="displayImage"
           class="max-h-full max-w-full cursor-zoom-in rounded-lg border border-border-subtle object-contain"
+          decoding="async"
           :alt="`分镜${panel.order}成图`"
           @click="$emit('preview', { images: images, index: currentIndex })"
         />
@@ -78,6 +79,7 @@
 import { computed, ref } from 'vue'
 import { ChevronLeft, ChevronRight, ImageIcon, LoaderCircle, Trash2 } from 'lucide-vue-next'
 import ConfirmDialog from '@comic/components/ConfirmDialog.vue'
+import { toFastDisplayImageUrl } from '@/shared/image/imageUrl'
 import type { LongProjectPanelArtwork, LongProjectStoryboardPanel } from '@comic/types'
 
 const props = defineProps<{
@@ -115,6 +117,11 @@ const currentIndex = computed(() => {
 })
 
 const currentImage = computed(() => images.value[currentIndex.value])
+/**
+ * 交给 `<img>` 的地址：内联 dataURL 换成缓存的 blob URL（见 toFastDisplayImageUrl）。
+ * 分镜成图单张 3~11MB，直接用 dataURL 的话每切一次都要重新解析+主线程解码，切图会明显发涩。
+ */
+const displayImage = computed(() => toFastDisplayImageUrl(currentImage.value))
 
 /** 删除确认弹窗（本组件内确认后上抛 delete-image）。 */
 const deleteConfirmVisible = ref(false)

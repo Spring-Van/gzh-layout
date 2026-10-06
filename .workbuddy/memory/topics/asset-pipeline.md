@@ -224,3 +224,97 @@ visualVersionName: variant?.name ?? (asset ? undefined : visualVersionName)
 - 排查同类问题的顺手工具：真实数据在 `%APPDATA%/gzh-layout/comic-gen.json`（project → `longProjectData`），
   可直接读 `storyboardRuns[].panels[].assetBindings` 判定「数据层」是否有责，再决定查 UI 还是查解析。
 
+
+### 7.7 视觉状态的来源标记 `origin` 与「非提取产出」豁免（2026-10-05 定稿）
+
+`LongProjectAssetVariant` 新增 `origin?: 'extraction' | 'manual'`，语义与 `LongProjectChapterAsset.origin` **完全同款**：
+**缺省（旧数据 + 提取产出）一律按 `extraction`**，所以旧库行为不变。
+
+- `manual` = 不由「资产提取」产出：用户手工新建，或程序按机械规则补建。目前的唯一生产者是
+  `sceneRefSheetNeeds.buildRefSheetVariantDraft`（场景 3×3 九宫格「机位图」空间锚定资料）。
+- **为什么必须存在**：`assetExtractionConfirm.applyCandidatesToAsset` 的口径是「视觉状态按候选状态**整表重建**，
+  本次未出现的旧状态一律删除」，而 `extract` 模板**永远不会输出「机位图」** → 用户下一次确认提取结果时，
+  刚生成的九宫格状态连同已出的图会被**静默删除**（无提示、不可恢复）。
+
+三处消费口径（**新增同类状态时必须三处一起过**）：
+
+| 位置 | 口径 |
+|---|---|
+| `applyCandidatesToAsset` | 重建后**追加保留** manual 状态；同名/同 id 被候选命中的已走正常重建分支，不会重复两条 |
+| `selectDroppedVariants` | manual 状态**不算「本次未出现」**（审核页提示 + 影响面统计共用此函数） |
+| `storyboardService.defaultVariant` | 只从**非 manual** 状态里挑默认；仅当资产只剩 manual 状态时才退化为全体（此时才可能返回 undefined） |
+
+⚠️ 另有一条**尚未修**的资产级风险：用户**手工新建**的章节资产（`PanelGenAssetTab.vue` 的 createAsset 流程）
+在 `buildExtractionConfirmResult` 里会被 `nextAssets` 过滤器整条丢弃（判定只看 `scope`/本章引用/跨章引用/`suggestedAssetId`），
+且变体级的 manual 豁免对它无效 —— 属资产级覆盖语义，改动前需先与用户确认。
+
+### 7.8 场景机位图需求判定 `sceneRefSheetNeeds`（2026-10-05 新增模块）
+
+场景要出**两种**样式：① **空间全景版式（establishing shot）**＝默认状态，每个场景都要；
+② **3×3 九宫格机位图版式**＝状态名含「机位图」时，满足任一触发条件才出。
+
+**触发条件只能由程序判**（模板层拿不到）：`extract` 发生在分镜之前没有页数；
+`asset-prompt` 的输入 `buildTargetList` 每行只有 `资产名｜类型｜状态名｜资产描述｜视觉描述｜固定特征｜attributes 前 8 项`，
+**没有页数、章节引用、镜头信息**。
+
+- 模块：`src/modules/comic/services/sceneRefSheetNeeds.ts`，**不 import 任何 service**（避免
+  `promptAssetService ← storyboardService ← panelPromptService` 循环依赖），纯函数、只读审计、不写库。
+- 入口：`auditSceneRefSheetNeeds({ assets, panels, chapterAssets?, chapterId? })`；
+  草稿：`buildRefSheetVariantDraft({ sourceChapterId? })`（带 `origin: 'manual'`，见 §7.7）。
+- 常量：`REF_SHEET_VARIANT_NAME = '机位图'`（**资产提示词模板按这个名字选九宫格版式，不要改**）。
+- 触发口径：单章出镜 ≥2 页（**页级 + 格级绑定都算**，同页多次只算一页）｜跨章复用（引用章节数 ≥2 或任一 `appearance: 'reused'`）
+  ｜场景内机位变化（镜头语汇命中 **≥2 类**：`高机位` / `低机位` / `反打`）。
+- **`过肩`、`POV` 刻意不收** —— 它们是景别取值、对话戏里高频出现，收进来会让几乎所有场景都被判定需要机位图。
+- 接入：`LongProjectAssetWorkbench.vue` 左栏顶部青色提示条「补建场景机位图状态 N」
+  → `PanelGenAssetTab.vue:addRefSheetVariants` 一次性写库（**不循环写**），
+  同时为每个新状态写一条 `origin: 'manual'` 的章节引用（否则新状态不在本章 variantId 集合里、生图工作台看不见它）。
+
+**机位图交付命名**：`LOC-<场景名>-机位图.png`（场景名原样，不加章节号与序号）；空间全景版式不加后缀。已写进 `asset-prompt` 模板的机位图版式段。
+
+### 7.9 人物四联设定版式：**整张图只保留一处高分辨率人脸**（2026-10-05 定稿）
+
+`asset-prompt` 人物版式已从「右侧大脸 + 等宽三视图」改为**横向 1×4 非等宽四联图**：
+
+| 格 | 内容 |
+|---|---|
+| 1 | **2:3 竖幅**脸部大特写（明显最宽），裁切至锁骨、脸部占该格主要面积、直视镜头 |
+| 2 | 正面全身 A-POSE，**画幅从颈部中段以下开始、头部完全在画幅之外** |
+| 3 | 3/4 前侧全身 A-POSE，**同样从颈部中段以下开始** |
+| 4 | 背面全身 A-POSE，**完整保留头部至脚部**（只给后脑与发型背面），背对镜头看不到脸 |
+
+背景光线：影棚中性灰（18%）无缝背景 + 柔和伦勃朗光（45° 侧上方主光、柔和三角光斑）+ 自然阴影与清晰皮肤细节。**无文字、无标注**（旧版的「基础信息卡」与 `FRONT/SIDE/BACK` 标志已删）。
+
+**为什么**（用户实践结论，属参考图可读性红线）：一张图总像素有限，全身格里再容一个人头，脸只剩几十像素 → 下游分镜生图参考到的是**糊脸**。人脸只在第 1 格以高分辨率出现一次，其余格把画幅让给服装。
+
+⚠️ **写这类「反直觉裁切」版式时必须显式声明「这是刻意的」**：模板里必须有
+`这是刻意的版式，把画幅让给服装，不是裁切失误，不要补画头部与五官`。
+图像模型见「全身照缺头」会当失误主动补上——**不写这句，机制当天失效**。
+同理，背面格要单独说明「完整保留头部，但背对镜头看不到脸」，否则「裁头」规则会被套用到背面格、丢掉发型背面资料。
+
+⚠️ 连带口径（改版式必查这四处，否则同口径留双份自相矛盾）：【转译要求】「最小必要补全」举例、
+【禁止项】版式类否定句清单、【自查】、模板 `description`。
+
+### 7.10 缺图门禁 `panelRefReadiness`（2026-10-05 新增模块）
+
+绑定审计**不看图存不存在**：绑定齐全、审计全绿，但该视觉状态没有成品图时，
+`buildPanelRefManifest` 的 `if (!image) continue` 会**静默剔除**（少发参考图、零告警）。
+补齐者：`src/modules/comic/services/panelRefReadiness.ts` 的 `auditPanelRefReadiness`
+（与生图共用 `resolvePanelAssetStates` + `resolvePanelRefImage`，判定必然一致）。
+
+三条口径（新增同类门禁时照此）：
+1. **必须独立成模块** —— 依赖方向 `promptAssetService` ← `storyboardService` ← `panelPromptService`，放 `promptAssetService` 会成环；
+2. **顺序按 `ASSET_REF_ORDER` 自己再排** —— `resolvePanelAssetStates` 返回的是**绑定声明序**，`buildPanelRefManifest` 才重排编号；
+3. 中栏「缺参考图」占位就是它（amber + `ImageOff`），**不要再新增占位种类**。
+
+生图前**只提示不拦截**。
+
+### 7.11 `fixedTraits`（固定特征）是**空字段**
+
+两条生图路径（`buildTargetList` / `buildSingleAssetPrompt`）都读它，但 `assetExtractionConfirm` 写死 `[]`，
+**全项目没有任何写入方**。想让它生效需改 5 处。
+
+### 7.12 时间戳语义：判断「内容变过」只能用 `createdAt`
+
+`updatedAt` 会被绑定重算 / 悬空修复 / 覆盖确认反复推高，拿它比对必然误判
+（分镜页 `assetsChangedAfterStoryboard` 用 `run.createdAt`）。
+一键重推必须复用顶栏链路，不要另写生成逻辑。

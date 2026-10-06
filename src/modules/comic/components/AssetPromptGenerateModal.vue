@@ -257,7 +257,7 @@
                 </template>
               </template>
 
-              <button class="secondary-button" :disabled="running" @click="handleClose">{{ started ? '关闭' : '取消' }}</button>
+              <button class="secondary-button" :disabled="running || saving" @click="handleClose">{{ started ? '关闭' : '取消' }}</button>
 
               <template v-if="started">
                 <!-- 只重跑失败/未完成项（逐条模式且有失败项时才出现） -->
@@ -281,10 +281,10 @@
 
                 <button
                   class="primary-button h-9 px-4 text-xs"
-                  :disabled="running || !resultCount"
+                  :disabled="running || saving || !resultCount"
                   :title="run.filled ? '把当前结果再写回资产一次' : '把生成结果写回资产（会覆盖这些视觉状态已有的绘画提示词）'"
                   @click="handleFill"
-                >{{ run.filled ? '重新填充' : `填充到资产（${resultCount}）` }}</button>
+                ><LoaderCircle v-if="saving" :size="15" class="animate-spin" />{{ saving ? '写入中…' : (run.filled ? '重新填充' : `填充到资产（${resultCount}）`) }}</button>
               </template>
 
               <button
@@ -488,6 +488,11 @@ interface Props {
   buildItems?: (template: PromptTemplate) => Array<AssetPromptRunItem & { prompt: string }>
   /** 批量模式：允许选择发送方式（一次性 / 逐条）。 */
   allowSendMode?: boolean
+  /**
+   * 填充到资产（异步写库）。返回 Promise 让弹窗能等真正写回后再显示「已填充」——
+   * 早前 emit 是同步的，弹窗会在写库还排着队时就标「已填充」，用户看到的是「点了没反应 + 假保存」。
+   */
+  saveResults?: (results: AssetPromptRunResult[]) => Promise<void>
 }
 
 const props = defineProps<Props>()
@@ -1101,12 +1106,27 @@ function collectResults(from: RunState = state.value): AssetPromptRunResult[] {
 }
 
 /** 填充到资产：把结果写回（不关弹窗，方便继续核对或重新生成）。 */
-function handleFill() {
-  if (running.value) return
+const saving = ref(false)
+
+async function handleFill(): Promise<boolean> {
+  if (running.value || saving.value) return false
   const results = collectResults()
-  if (!results.length) return
-  emit('save', results)
+  if (!results.length) return false
+  if (props.saveResults) {
+    saving.value = true
+    try {
+      await props.saveResults(results)
+    } catch {
+      // 失败提示由上层负责（写库统一出口），这里保持「未填充」态让用户可以重试
+      return false
+    } finally {
+      saving.value = false
+    }
+  } else {
+    emit('save', results)
+  }
   state.value.filled = true
+  return true
 }
 
 /**
@@ -1129,7 +1149,7 @@ function handleRegenerate(scopeMode: 'failed' | 'all') {
 const closeConfirmVisible = ref(false)
 
 function handleClose() {
-  if (running.value) return
+  if (running.value || saving.value) return
   if (resultCount.value > 0 && !state.value.filled) {
     closeConfirmVisible.value = true
     return
@@ -1143,11 +1163,12 @@ function closeWithoutFill() {
   emit('update:modelValue', false)
 }
 
-/** 填充并关闭。 */
-function fillAndClose() {
+/** 填充并关闭（等写库真正完成再关，避免关掉后还在写、用户以为已保存）。 */
+async function fillAndClose() {
+  if (saving.value) return
   closeConfirmVisible.value = false
-  handleFill()
-  emit('update:modelValue', false)
+  const filled = await handleFill()
+  if (filled) emit('update:modelValue', false)
 }
 
 defineExpose({ applyProgress, items, started })

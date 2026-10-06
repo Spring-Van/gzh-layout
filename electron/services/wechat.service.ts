@@ -1,6 +1,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import { Buffer } from 'node:buffer';
+import { isComicImageUrl, resolveComicImageToFsPath } from './project-image-store';
 
 const WECHAT_API_BASE = 'https://api.weixin.qq.com';
 const TOKEN_EXPIRE_BUFFER = 300;
@@ -214,9 +215,22 @@ class WechatService {
     if (!imagePath) {
       throw new Error('图片路径为空，无法上传');
     }
+    // 外置图片引用（app-image://comic/...）是本地文件的代理，读盘前会解析成真实路径
+    if (isComicImageUrl(imagePath)) return;
     if (/^(data:|blob:|https?:)/i.test(imagePath)) {
       throw new Error('图片必须是本地文件路径，data URL、blob URL 和网络 URL 请先转换为本地文件');
     }
+  }
+
+  /**
+   * 外置引用 → 磁盘绝对路径；其他形式（绝对路径 / file:// 由调用方处理）原样返回。
+   *
+   * 之所以在主进程做这层解析而不是让渲染层先换掉：HTML 正文里的 `src` 必须与
+   * `contentImagePaths` 里的字符串**逐字一致**（上层用 `split().join()` 替换成微信 URL），
+   * 渲染层只要染指就多一处不一致的可能。
+   */
+  private toDiskPath(imagePath: string): string {
+    return resolveComicImageToFsPath(imagePath) ?? imagePath;
   }
 
   async uploadCoverImage(
@@ -224,8 +238,9 @@ class WechatService {
     imagePath: string
   ): Promise<CoverUploadResult> {
     this.assertLocalImagePath(imagePath);
-    const buffer = await fs.readFile(imagePath);
-    const fileName = path.basename(imagePath);
+    const diskPath = this.toDiskPath(imagePath);
+    const buffer = await fs.readFile(diskPath);
+    const fileName = path.basename(diskPath);
     const ext = path.extname(fileName).toLowerCase();
     const mimeMap: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif' };
     if (ext === '.webp') {
@@ -255,8 +270,9 @@ class WechatService {
     imagePath: string
   ): Promise<ContentImageResult> {
     this.assertLocalImagePath(imagePath);
-    const buffer = await fs.readFile(imagePath);
-    const fileName = path.basename(imagePath);
+    const diskPath = this.toDiskPath(imagePath);
+    const buffer = await fs.readFile(diskPath);
+    const fileName = path.basename(diskPath);
     const ext = path.extname(fileName).toLowerCase();
     const mimeMap: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif' };
     if (ext === '.webp') {

@@ -32,18 +32,25 @@
               :title="`${entry.asset?.name ?? entry.binding.assetName} · ${currentVariantOf(entry)?.name ?? ''}（点击放大预览）`"
               @click="inspectEntry(entry)"
             >
-              <img :src="selectedImage(entry)" class="h-16 w-16 object-cover" :alt="`${entry.binding.assetName}参考图`" />
+              <img :src="thumbSrc(selectedImage(entry))" class="h-16 w-16 object-cover" loading="lazy" decoding="async" :alt="`${entry.binding.assetName}参考图`" />
               <span
                 v-if="manifestIndexOf(entry) > 0"
                 class="pointer-events-none absolute inset-x-0 bottom-0 bg-black/60 px-0.5 text-center text-[9px] leading-4 text-white"
               >图{{ manifestIndexOf(entry) }}</span>
             </button>
+            <!-- 缺参考图：绑定与资产都在，但该视觉状态没有任何可用成品图。
+                 生图时会**静默少发这一张**（`buildPanelRefManifest` 里 `if (!image) continue`），
+                 模型自由发挥 → 这一镜的角色与其它镜不是同一个人。所以这里不能只写「无图」，
+                 必须点明后果，否则用户会以为「有绑定就没问题」。 -->
             <button
               v-else
-              class="flex h-16 w-16 shrink-0 items-center justify-center rounded border border-dashed border-border-subtle text-[10px] text-text-muted transition-colors hover:border-cyan-400 hover:text-cyan-400"
-              :title="`${entry.asset?.name ?? entry.binding.assetName}：无参考图（点击打开参考图抽屉）`"
+              class="flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-0.5 rounded border border-dashed border-amber-400/60 text-amber-500 transition-colors hover:border-amber-400 hover:bg-amber-400/5"
+              :title="`${entry.asset?.name ?? entry.binding.assetName} · ${currentVariantOf(entry)?.name ?? '默认'}：缺参考图。该视觉状态还没有成品图，生图时不会发出这张图；点击打开参考图抽屉`"
               @click="openDrawer(bottomTab)"
-            >无图</button>
+            >
+              <ImageOff :size="14" />
+              <span class="w-full truncate px-0.5 text-center text-[9px] leading-3">缺参考图</span>
+            </button>
           </template>
 
           <!-- 待绑定占位：出场资产有缺口时直接给空位，点一下按缺省状态绑定（幂等，连点不会重复添加） -->
@@ -183,9 +190,11 @@
                     <div v-if="drawerImages(entry).length" class="flex flex-wrap gap-2">
                       <button v-for="image in drawerImages(entry)" :key="image" class="relative" @click="pickDrawerImage(entry, image)">
                         <img
-                          :src="image"
+                          :src="thumbSrc(image)"
                           class="h-16 w-16 rounded border object-cover"
                           :class="drawerSelected(entry) === image ? 'border-cyan-400' : 'border-border-subtle opacity-60 hover:opacity-90'"
+                          loading="lazy"
+                          decoding="async"
                           :alt="`${entry.binding.assetName}候选图`"
                         />
                         <span
@@ -199,7 +208,7 @@
                       </button>
                       <p class="w-full text-[10px] leading-4 text-text-muted">选第一张 = 恢复默认（资产换图后自动跟随）</p>
                     </div>
-                    <p v-else class="text-[10px] text-text-muted">该视觉状态暂无生成图（去资产工作台生成；上传的参考图不进分镜）</p>
+                    <p v-else class="text-[10px] leading-4 text-amber-600 dark:text-amber-400">该视觉状态还没有成品图，生图时会少发这张参考图，模型会自由发挥。请到资产工作台为该状态生成；上传的参考图只用于给该状态生图，不进分镜。</p>
                   </template>
                 </div>
               </template>
@@ -247,12 +256,13 @@
  * （`assetUsageService`）三处一致，统一走 `resolvePanelRefImage`，否则会「标了在用其实没用」。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Check, ChevronRight, Plus, X } from 'lucide-vue-next'
+import { Check, ChevronRight, ImageOff, Plus, X } from 'lucide-vue-next'
 import type { LongProjectAsset, LongProjectAssetType, LongProjectAssetVariant, LongProjectStoryboardAssetBinding, LongProjectStoryboardPanel } from '@comic/types'
 import { effectiveVariantRefImages, resolvePanelBindings, resolvePanelRefImage, type RuntimeRefManifest } from '@comic/services/panelPromptService'
 import { bindingIdentityKey, type PanelBindingFix } from '@comic/services/promptAssetService'
 import { defaultVariant } from '@comic/services/storyboardService'
 import { ASSET_TYPE_ORDER, assetTypeLabel } from '@comic/utils/assetTypeTheme'
+import { toFastDisplayImageUrl } from '@/shared/image/imageUrl'
 import AssetBindingTag from '@comic/components/AssetBindingTag.vue'
 
 type BindingEntry = { index: number; binding: LongProjectStoryboardAssetBinding; asset?: LongProjectAsset }
@@ -472,6 +482,11 @@ function selectedImage(entry: BindingEntry): string | undefined {
   const resolved = resolvedOf(entry)
   if (!resolved) return entry.binding.referenceImageIds?.[0]
   return resolvePanelRefImage(resolved.variant, resolved.binding)
+}
+
+/** 缩略图地址：内联 dataURL 换缓存的 blob URL（见 toFastDisplayImageUrl），避免一屏小图反复主线程解码。 */
+function thumbSrc(image?: string): string {
+  return toFastDisplayImageUrl(image)
 }
 
 /** 选中图在候选里的下标（点击资产 tag 预览时的定位）。 */

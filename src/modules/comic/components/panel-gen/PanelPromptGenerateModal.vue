@@ -17,7 +17,9 @@
             <button class="icon-button" title="关闭" @click="handleClose"><X :size="18" /></button>
           </header>
 
-          <div class="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
+          <!-- 弹满剩余高度：输入框用 flex-1 撑到底部，不预留固定空白；
+               上方多出元素（发送方式 / 未建模板提示）时输入框自动收缩，窗口过小则整体滚动 -->
+          <div class="custom-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto p-5">
             <!-- 发送方式：一次性发送（整章一次请求，默认）/ 逐条发送（每镜一次请求），两者的模板与变量不同 -->
             <div v-if="isBatch" class="mb-4 flex items-center gap-4">
               <span class="text-xs text-text-secondary">发送方式</span>
@@ -65,8 +67,8 @@
               </div>
             </div>
 
-            <div class="mt-4 flex flex-col gap-1.5">
-              <div class="flex items-center justify-between">
+            <div class="mt-4 flex flex-1 flex-col gap-1.5">
+              <div class="flex shrink-0 items-center justify-between">
                 <span class="text-xs text-text-secondary">
                   {{ isBatch ? (isChapter ? '整章提示词（一次发送，按 ## 分镜 N 标题分段产出）' : '首个目标分镜的提示词示例（批量时逐镜按模板重新拼装，此处仅预览）') : '最终发送的提示词（可在本次执行前修改）' }}
                 </span>
@@ -77,11 +79,11 @@
               <textarea
                 v-if="!isBatch || prompt"
                 v-model="prompt"
-                class="custom-scrollbar h-[300px] w-full resize-none rounded-md border border-border-subtle bg-app-bg p-3 font-mono text-xs leading-6 text-text-primary outline-none focus:border-cyan-500/50"
+                class="custom-scrollbar min-h-[140px] w-full flex-1 resize-none rounded-md border border-border-subtle bg-app-bg p-3 font-mono text-xs leading-6 text-text-primary outline-none focus:border-cyan-500/50"
                 :readonly="isBatch"
                 aria-label="提示词预览"
               />
-              <p v-else class="flex h-[300px] items-center justify-center rounded-md border border-dashed border-border-subtle bg-app-bg text-xs text-text-muted">
+              <p v-else class="flex min-h-[140px] flex-1 items-center justify-center rounded-md border border-dashed border-border-subtle bg-app-bg text-xs text-text-muted">
                 选择模板后这里会显示将发送给模型的完整提示词
               </p>
             </div>

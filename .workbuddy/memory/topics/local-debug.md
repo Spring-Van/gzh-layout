@@ -103,3 +103,24 @@ C:\Users\admin\AppData\Roaming\gzh-layout\comic-gen.json     # 真实数据（�
 **修复类改动的验收同样用真实数据（别只看单测绿）**：把真实 `storyboardRuns[].panels` + `panelArtworks[].imagePrompt` + `assets`
 喂进服务层，用 `buildPanelBindingFixes` 统计「待核对项数量」做前后对比。本次「画面描述写入后回填绑定」的验收即
 **13 → 0**（13 镜 / 18 条描述）—— 这类可度量数字才是「用户抱怨的那个漏绑真的没了」的唯一证据。
+
+### 写 `promptTemplateRegistry.ts` 的模板字符串：**不能再写反引号**（2026-10-05 踩坑）
+
+模板正文是**反引号字面量**，正文里想引一段代码片段（如 `` `LOC-<场景>-机位图.png` ``）会**把字符串就地截断**，
+esbuild 直接报解析失败、测试一条都跑不起来（`Test Files 1 failed / Tests no tests`）。
+要引代码片段用「」或不加引号。
+
+**工程校验三件套**（本机）：`npx vitest run <file>` → 单文件快；
+完整套件 `npx vitest run` 约 4~5 分钟，**前台易被 SIGTERM（exit 137）杀掉** → 用后台跑；
+`npx vue-tsc --noEmit` 与完整套件**不要并行**（同时跑会有一个被 SIGTERM）。
+
+### 抓微信公众号文章正文图片（2026-10-05，可复用）
+
+**不需要浏览器**，全过程 curl + python3：
+1. `curl -sL -A "Mozilla/5.0 ... Chrome/120" "<文章URL>" -o wx.html`（HTML 约 2~3MB，正文在其中）
+2. 用 **python3 正则**取图片 URL：`re.findall(r'(?:https?:)?//mmbiz\.qpic\.cn/[^\s"\'<>\\]+', html)`（相对协议要补 `https:`）
+3. 下载：`curl -sL -A 'Mozilla/5.0' -e 'https://mp.weixin.qq.com/' <imgURL> -o p00.jpg`
+4. 直接 **Read 读图**（多模态可看排版）
+
+⚠️ 坑：`grep -o` 在中文/含 `??` 的 URL 上会因 shell locale 失配返回 0 条，**一律改用 python3 正则**；
+`data-src="…"` 提不到正文图（微信是 JS 懒加载），要靠 `mmbiz.qpic.cn` 全局正则。

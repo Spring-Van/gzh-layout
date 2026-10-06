@@ -11,6 +11,19 @@
           </label>
         </div>
         <button
+          v-if="refSheetPending.length"
+          class="mx-1 mb-1.5 flex w-[calc(100%-0.5rem)] flex-col items-start gap-0.5 rounded-md border border-cyan-500/40 bg-cyan-500/10 px-2 py-1.5 text-left text-[11px] text-cyan-700 transition-colors hover:bg-cyan-500/20 dark:text-cyan-300"
+          :title="refSheetPendingTitle"
+          @click="emit('add-ref-sheet-variants', refSheetPending.map((need) => need.assetId))"
+        >
+          <span class="flex w-full items-center gap-1.5">
+            <LayoutGrid :size="12" class="shrink-0" />
+            <span class="min-w-0 flex-1 truncate">补建场景机位图状态</span>
+            <span class="shrink-0 font-medium">{{ refSheetPending.length }}</span>
+          </span>
+          <span class="w-full truncate text-[10px] opacity-80">{{ refSheetPendingHint }}</span>
+        </button>
+        <button
           v-if="orphanCount"
           class="mx-1 mb-1.5 flex w-[calc(100%-0.5rem)] items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-700 transition-colors hover:bg-amber-500/20 dark:text-amber-300"
           title="项目范围内没有任何章节引用（也没有分镜绑定）的视觉状态与章节资产，多为反复提取累积下来的死数据；点击查看并清理"
@@ -122,9 +135,9 @@
       :busy="promptBatchBusy"
       :build-prompt="buildPromptPreview"
       :build-items="buildPromptItems"
+      :save-results="savePromptResults"
       @confirm="runBatchPrompts"
       @retry="retryFailedPrompts"
-      @save="savePromptResults"
       @import-request="promptImportVisible = true"
     />
 
@@ -147,6 +160,7 @@
       title="导入外部 AI 生成的绘画提示词"
       placeholder="粘贴外部 AI 按清单生成的结果，格式为逐条「## 资产名｜状态名」标题 + 提示词正文…"
       z-index-class="z-[140]"
+      :busy="promptImporting"
       :parse="parsePromptImportPreview"
       @confirm="confirmPromptImport"
       @close="promptImportVisible = false"
@@ -239,7 +253,7 @@
  * 右侧视觉状态多状态时以 tab 切换展示，单卡片不再上下滚动。
  */
 import { computed, nextTick, reactive, ref, toRaw, watch } from 'vue'
-import { Boxes, Check, Copy, Eraser, LoaderCircle, MapPin, Package, UserRound, X } from 'lucide-vue-next'
+import { Boxes, Check, Copy, Eraser, LayoutGrid, LoaderCircle, MapPin, Package, UserRound, X } from 'lucide-vue-next'
 import AssetVariantCard from './AssetVariantCard.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import AssetPromptGenerateModal, { type AssetPromptRetryPayload, type AssetPromptRunItem, type AssetPromptRunResult } from './AssetPromptGenerateModal.vue'
@@ -255,7 +269,8 @@ import { buildOverwriteActiveSlotPatch, resolveActiveGenSlot, slotAttachShared }
 import { buildAssetPromptPrompt, buildSingleAssetPrompt, buildStyleContext, buildTargetList, generateAssetPrompts, rewriteAssetPrompt, type AssetPromptTarget } from '@comic/services/assetPromptService'
 import { AssetPromptParseError, describeParseFailure, parseAssetPromptResponse, type AssetPromptParseDiagnostics } from '@comic/services/assetPromptParser'
 import type { AssetUsageIndex } from '@comic/services/assetUsageService'
-import type { AssetGenConfig, GenPromptSlot, LongProjectAsset, LongProjectAssetVariant, LongProjectChapterAsset, ModelConfig, PromptTemplate } from '@comic/types'
+import { auditSceneRefSheetNeeds, formatSceneRefSheetReasons } from '@comic/services/sceneRefSheetNeeds'
+import type { AssetGenConfig, GenPromptSlot, LongProjectAsset, LongProjectAssetVariant, LongProjectChapterAsset, LongProjectStoryboardPanel, ModelConfig, PromptTemplate } from '@comic/types'
 
 interface Props {
   /** 本章涉及的资产（已按章节引用过滤出相关 variants） */
@@ -279,6 +294,14 @@ interface Props {
   chapterAssets?: LongProjectChapterAsset[]
   /** 章节 id → 名称（角标与删除影响提示里用可读名）。 */
   chapterNames?: Record<string, string>
+  /**
+   * 批量回写视觉状态（由容器提供，一次 mutate 写库）。
+   * 「填充到资产」可能一次回填十几条，逐条 emit 会逐条全量写盘 —— 必须攒成一批提交。
+   * 返回 Promise 让弹窗能 await 写库完成后再显示「已填充」（避免假保存提示）。
+   */
+  applyVariantPatches?: (payloads: Array<{ assetId: string; variantId: string; patch: Partial<LongProjectAssetVariant> }>) => Promise<void>
+  /** 本章分镜：场景机位图触发条件（出镜页数 / 机位变化）判定用。 */
+  panels?: LongProjectStoryboardPanel[]
 }
 
 const props = defineProps<Props>()
@@ -293,6 +316,8 @@ const emit = defineEmits<{
   (e: 'link-chapter', payload: { asset: LongProjectAsset; variant: LongProjectAssetVariant }): void
   /** 移出本章：只删本章引用条目，不动原章节的图。 */
   (e: 'detach-chapter', payload: { asset: LongProjectAsset; variant: LongProjectAssetVariant }): void
+  /** 为命中机位图触发条件的场景补建「机位图」视觉状态（写库由容器一次提交）。 */
+  (e: 'add-ref-sheet-variants', assetIds: string[]): void
 }>()
 
 const toast = useToast()
@@ -336,6 +361,23 @@ const workAssets = computed(() => props.assets.map((asset) => ({
 const visibleAssets = computed(() => filterMissing.value ? workAssets.value.filter((item) => item.missing) : workAssets.value)
 /** 左列表按类型分组（人物 → 场景 → 道具），顺序由 assets 入参决定（PanelGenAssetTab 已按提取顺序排好）。 */
 const visibleGroups = computed(() => ASSET_TYPE_META.map((meta) => ({ ...meta, items: visibleAssets.value.filter((item) => item.asset.type === meta.type) })))
+
+/**
+ * 场景机位图需求：出镜 ≥2 页 / 跨章复用 / 场景内机位变化这三条触发条件在模板层拿不到
+ * （提取发生在分镜之前，状态清单里也没有页数与章节引用），只能由程序机械判定。
+ */
+const refSheetNeeds = computed(() => auditSceneRefSheetNeeds({
+  assets: props.assets,
+  panels: props.panels ?? [],
+  chapterAssets: props.chapterAssets,
+  chapterId: props.chapterId,
+}))
+/** 命中触发条件、但还没有「机位图」状态的场景（= 待补建）。 */
+const refSheetPending = computed(() => refSheetNeeds.value.filter((need) => !need.hasRefSheetVariant))
+const refSheetPendingHint = computed(() => refSheetPending.value
+  .map((need) => `${need.assetName}（${formatSceneRefSheetReasons(need.reasons)}）`)
+  .join('；'))
+const refSheetPendingTitle = computed(() => `下列场景满足机位图触发条件，点击为它们各补建一个「机位图」视觉状态（3×3 九宫格）：\n${refSheetPendingHint.value}`)
 const selectedItem = computed(() => workAssets.value.find((item) => item.asset.id === selectedAssetId.value) ?? visibleAssets.value[0] ?? null)
 /** 当前选中的视觉状态（id 失效或未选时回退第一个）。 */
 const selectedVariant = computed(() => {
@@ -688,25 +730,40 @@ async function retryFailedPrompts(payload?: AssetPromptRetryPayload) {
 }
 
 /**
- * 填充到资产：把弹窗内（可能被用户修改过的）生成结果逐条回填到视觉状态。
+ * 填充到资产：把弹窗内（可能被用户修改过的）生成结果**一次性**回填到视觉状态。
  * **只回填模型产出（含用户在结果视图里的修改）**，绝不拿模板拼装文本顶替；
  * 回填后**不关闭弹窗**（弹窗侧会切到「已填充」态），用户可以继续核对、重新生成或手动关闭。
+ *
+ * 性能：全部 patch 攒成一批交给容器，只走一次 read-modify-write。
+ * 早前逐条 `emit('update:asset')` 的写法，10 条提示词 = 10 次「读整份项目 + 写整份项目」，
+ * 长篇项目单次 ≈2.5s，用户看到的就是点一下「填充」后界面卡死几十秒。
  */
-function savePromptResults(results: AssetPromptRunResult[]) {
-  let filled = 0
-  for (const result of results) {
-    if (!result.assetId || !result.variantId || result.variantId === 'batch-once') continue
-    // 覆盖「当前选中条」：该状态建过候选条时只写 imagePrompt 是假写入（界面与生图读的是候选条）
-    const variant = props.assets.find((asset) => asset.id === result.assetId)?.variants.find((v) => v.id === result.variantId)
-    emit('update:asset', {
-      assetId: result.assetId,
-      variantId: result.variantId,
-      patch: buildOverwriteActiveSlotPatch(variant, result.imagePrompt),
+async function savePromptResults(results: AssetPromptRunResult[]): Promise<void> {
+  const payloads = results
+    .filter((result) => result.assetId && result.variantId && result.variantId !== 'batch-once')
+    .map((result) => {
+      // 覆盖「当前选中条」：该状态建过候选条时只写 imagePrompt 是假写入（界面与生图读的是候选条）
+      const variant = props.assets.find((asset) => asset.id === result.assetId)?.variants.find((v) => v.id === result.variantId)
+      return {
+        assetId: result.assetId,
+        variantId: result.variantId,
+        patch: buildOverwriteActiveSlotPatch(variant, result.imagePrompt),
+      }
     })
-    filled += 1
+  if (!payloads.length) return
+  try {
+    if (props.applyVariantPatches) {
+      await props.applyVariantPatches(payloads)
+    } else {
+      // 兜底：没接批量入口时退回逐条 emit（容器未升级时仍可用）
+      for (const payload of payloads) emit('update:asset', payload)
+    }
+  } catch (error) {
+    toast.error(`填充失败：${error instanceof Error ? error.message : String(error)}`)
+    throw error
   }
   emit('prompt-completed')
-  if (filled) toast.success(`已填充 ${filled} 条提示词到资产`)
+  toast.success(`已填充 ${payloads.length} 条提示词到资产`)
 }
 
 /** 持久化本次使用的模型/模板为项目默认。 */
@@ -717,6 +774,8 @@ function saveGenConfigSelection(options: BatchPromptOptions) {
 // ========== 外部 AI 代跑（仅一次性发送）：复制提示词 → 外部生成 → 导入解析回填 ==========
 
 const promptImportVisible = ref(false)
+/** 导入解析进行中：解析 + 回填弹窗是同步重活，先点亮按钮再跑，避免「点了没反应」。 */
+const promptImporting = ref(false)
 
 /** 解析外部 AI 返回的逐条提示词：与内置批量共用同一目标清单与同一解析器。 */
 function parseImportedAssetPrompts(content: string) {
@@ -740,32 +799,42 @@ function parsePromptImportPreview(content: string) {
  * 结果只留在弹窗内，等用户核对后点「填充到资产」才写回。
  * 同时补记执行上下文（模型/模板取项目默认配置），让导入后也能用「重新生成」走内置模型。
  */
-function confirmPromptImport(content: string) {
-  const items = parseImportedAssetPrompts(content)
-  // 解析成功即关闭导入弹窗（解析失败会抛错，弹窗保持打开让用户修改内容）
-  promptImportVisible.value = false
-  if (!batchRuns.once) {
-    const model = props.llmModels.find((m) => m.id === props.assetGenConfig?.promptModelId) ?? props.llmModels[0]
-    const template = assetPromptTemplates.value.find((t) => t.id === props.assetGenConfig?.promptTemplateId) ?? assetPromptTemplates.value[0]
-    if (model && template) batchRuns.once = { model, template, targets: allPromptTargets.value }
-  }
-  reportItemProgress('batch-once', 'done', {
-    items: items.map((item) => ({
-      assetId: item.assetId,
-      variantId: item.variantId,
-      assetName: item.assetName,
-      variantName: item.variantName,
-      imagePrompt: item.imagePrompt,
-      // 非精确命中（模糊匹配 / 顺序兜底）在弹窗里标出来，提醒用户核对归属
-      match: item.match,
-    })),
-  })
-  emit('prompt-completed')
-  const expected = totalVariantCount.value
-  if (items.length < expected) {
-    toast.warning(`已导入 ${items.length} 条，有 ${expected - items.length} 个状态未返回（已在弹窗内标出，可修改后再次导入或单条 AI 重写）`)
-  } else {
-    toast.success(`已导入 ${items.length} 条提示词，请核对后点「填充到资产」写回`)
+async function confirmPromptImport(content: string) {
+  if (promptImporting.value) return
+  promptImporting.value = true
+  // 解析与回填都是同步重活，先让「导入中…」渲染出来再跑
+  await nextTick()
+  try {
+    const items = parseImportedAssetPrompts(content)
+    // 解析成功即关闭导入弹窗（解析失败会抛错，弹窗保持打开让用户修改内容）
+    promptImportVisible.value = false
+    if (!batchRuns.once) {
+      const model = props.llmModels.find((m) => m.id === props.assetGenConfig?.promptModelId) ?? props.llmModels[0]
+      const template = assetPromptTemplates.value.find((t) => t.id === props.assetGenConfig?.promptTemplateId) ?? assetPromptTemplates.value[0]
+      if (model && template) batchRuns.once = { model, template, targets: allPromptTargets.value }
+    }
+    reportItemProgress('batch-once', 'done', {
+      items: items.map((item) => ({
+        assetId: item.assetId,
+        variantId: item.variantId,
+        assetName: item.assetName,
+        variantName: item.variantName,
+        imagePrompt: item.imagePrompt,
+        // 非精确命中（模糊匹配 / 顺序兜底）在弹窗里标出来，提醒用户核对归属
+        match: item.match,
+      })),
+    })
+    emit('prompt-completed')
+    const expected = totalVariantCount.value
+    if (items.length < expected) {
+      toast.warning(`已导入 ${items.length} 条，有 ${expected - items.length} 个状态未返回（已在弹窗内标出，可修改后再次导入或单条 AI 重写）`)
+    } else {
+      toast.success(`已导入 ${items.length} 条提示词，请核对后点「填充到资产」写回`)
+    }
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : '提示词解析失败')
+  } finally {
+    promptImporting.value = false
   }
 }
 

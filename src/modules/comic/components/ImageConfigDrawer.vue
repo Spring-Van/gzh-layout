@@ -985,11 +985,16 @@ const autoSaveConfig = async () => {
       toast.error("项目不存在，无法自动保存配置");
       return;
     }
-    await comicDb.saveProject({
+    const saved = await comicDb.saveProject({
       ...project,
       imageGenConfig: plainConfig,
       updatedAt: Date.now(),
     });
+    // 写库时共用属性参考图会被外置成 app-image:// 引用，本地 config 要同步换成外置后的版本：
+    // 否则内存里一直压着几 MB base64，每次自动保存都要重新搬一遍（图片外置的收益会被吃掉）
+    if (saved?.project?.imageGenConfig) {
+      config.value = migrateLegacyImageGenConfig(saved.project.imageGenConfig);
+    }
   } catch (e) {
     console.error("自动保存绘图配置失败:", e);
     toast.error("自动保存失败（可能是本地图片过大）");

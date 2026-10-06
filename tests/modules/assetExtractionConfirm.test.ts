@@ -524,3 +524,107 @@ describe('pruneOrphanEntries（按扫描结果剔除）', () => {
     expect(pruned).toBe(assets);
   });
 });
+
+/**
+ * `origin: 'manual'` 的状态（用户手工新建 / 程序按机械规则补建的资料性状态，典型是场景「机位图」）
+ * 不由 `extract` 产出，按候选整表重建就等于无条件删除 —— 这里是防回归的锚点。
+ */
+describe('非提取产出的状态（origin: manual）在重新提取确认时被保留', () => {
+  /** 场景资产 + 一条程序补建的「机位图」状态（已生成过九宫格图）。 */
+  function makeSceneAsset(partial: Partial<LongProjectAsset> = {}): LongProjectAsset {
+    return makeAsset({
+      id: 'scene-1',
+      type: 'scene',
+      name: '城隍庙老街',
+      variants: [
+        makeVariant({ id: 'variant-default', name: '全章默认', description: '白天，青石板路' }),
+        makeVariant({
+          id: 'variant-camera',
+          name: '机位图',
+          description: '同一空间的 3×3 九宫格机位图',
+          origin: 'manual',
+          generatedImageIds: ['img-1'],
+        }),
+      ],
+      ...partial,
+    });
+  }
+
+  function makeSceneCandidate(partial: Partial<LongProjectAssetExtractionCandidate> = {}): LongProjectAssetExtractionCandidate {
+    return makeCandidate({
+      id: 'candidate-scene',
+      type: 'scene',
+      name: '城隍庙老街',
+      suggestedAssetId: 'scene-1',
+      states: [{ id: 's1', name: '全章默认', description: '白天，青石板路', matchSource: 'model', suggestedVariantId: 'variant-default' }],
+      ...partial,
+    });
+  }
+
+  it('overrideAssetWithCandidate 不删除它，且排在重建结果之后', () => {
+    const overridden = overrideAssetWithCandidate(makeSceneAsset(), makeSceneCandidate(), CHAPTER);
+
+    expect(overridden.variants.map((item) => item.id)).toEqual(['variant-default', 'variant-camera']);
+    // 已生成的图必须跟着状态一起留下
+    expect(overridden.variants[1].generatedImageIds).toEqual(['img-1']);
+  });
+
+  it('候选状态与它同名时按普通状态走重建分支，不会重复出现两条', () => {
+    const candidate = makeSceneCandidate({
+      states: [
+        { id: 's1', name: '全章默认', description: '白天', matchSource: 'model', suggestedVariantId: 'variant-default' },
+        { id: 's2', name: '机位图', description: '模型这次也输出了同名状态', matchSource: 'model' },
+      ],
+    });
+
+    const overridden = overrideAssetWithCandidate(makeSceneAsset(), candidate, CHAPTER);
+
+    expect(overridden.variants.map((item) => item.name)).toEqual(['全章默认', '机位图']);
+    expect(overridden.variants.filter((item) => item.name === '机位图')).toHaveLength(1);
+  });
+
+  it('selectDroppedVariants 不把它算进「本次未出现」，避免误导用户以为成果要丢', () => {
+    const dropped = selectDroppedVariants(makeSceneAsset(), makeSceneCandidate());
+
+    expect(dropped.map((item) => item.name)).toEqual([]);
+  });
+
+  it('提取产出的状态照旧可被删除（豁免只认 manual，不放宽原有口径）', () => {
+    const candidate = makeSceneCandidate({
+      states: [{ id: 's1', name: '全章默认', description: '白天', matchSource: 'model', suggestedVariantId: 'variant-default' }],
+    });
+    const asset = makeSceneAsset({
+      variants: [
+        makeVariant({ id: 'variant-default', name: '全章默认' }),
+        makeVariant({ id: 'variant-night', name: '夜晚' }),
+        makeVariant({ id: 'variant-camera', name: '机位图', origin: 'manual' }),
+      ],
+    });
+
+    const overridden = overrideAssetWithCandidate(asset, candidate, CHAPTER);
+
+    expect(overridden.variants.map((item) => item.id)).toEqual(['variant-default', 'variant-camera']);
+    expect(selectDroppedVariants(asset, candidate).map((item) => item.id)).toEqual(['variant-night']);
+  });
+
+  it('buildExtractionConfirmResult 走完整确认链路时同样保留', () => {
+    const result = buildExtractionConfirmResult(
+      makeRun([makeSceneCandidate()]),
+      CHAPTER,
+      [makeSceneAsset()],
+      [],
+    );
+
+    const scene = result.assets.find((item) => item.id === 'scene-1')!;
+    expect(scene.variants.map((item) => item.id)).toEqual(['variant-default', 'variant-camera']);
+  });
+
+  it('候选一个有效状态都没给时保持原口径：不重建、不删除任何状态', () => {
+    const candidate = makeSceneCandidate({ states: [] });
+
+    const overridden = overrideAssetWithCandidate(makeSceneAsset(), candidate, CHAPTER);
+
+    expect(overridden.variants.map((item) => item.id)).toEqual(['variant-default', 'variant-camera']);
+  });
+});
+

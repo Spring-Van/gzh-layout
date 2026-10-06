@@ -15,11 +15,27 @@ import {
   type VibePreset,
 } from './comic-secure-image';
 import { comicDbService } from './comic-database.service';
+import { resolveComicImageToFsPath } from './project-image-store';
 
 /** 用于绕过证书验证的 HTTPS Agent（仅开发测试用） */
 const httpsAgent = new https.Agent({
   rejectUnauthorized: false,
 });
+
+/**
+ * 取图片扩展名（含点）。
+ * 外置引用（`app-image://comic/...`）看本地文件名；其余走 URL pathname。
+ * 解析不出时返回空串，由调用方兜底成 `.jpg`。
+ */
+function imageExtension(url: string): string {
+  const localPath = resolveComicImageToFsPath(url);
+  if (localPath) return path.extname(localPath);
+  try {
+    return path.extname(new URL(url).pathname);
+  } catch {
+    return '';
+  }
+}
 
 /**
  * 带重试的下载函数
@@ -32,6 +48,16 @@ async function downloadWithRetry(
   retries = 3,
   delayMs = 1000
 ): Promise<Buffer> {
+  // 项目里外置的图片是 `app-image://comic/...` 本地引用，不是网络地址 ——
+  // 交给 axios 会直接失败。这里直接读盘（路径解析已含目录穿越校验）。
+  const localPath = resolveComicImageToFsPath(url);
+  if (localPath) {
+    if (!fs.existsSync(localPath)) {
+      throw new Error(`图片文件不存在：${path.basename(localPath)}`);
+    }
+    return fs.readFileSync(localPath);
+  }
+
   let lastError: Error | null = null;
 
   for (let i = 0; i < retries; i++) {
@@ -127,7 +153,7 @@ export class ComicDownloadService {
 
     try {
       const data = await downloadWithRetry(url);
-      const ext = path.extname(new URL(url).pathname) || '.jpg';
+      const ext = imageExtension(url) || '.jpg';
       const safeFilename = filename
         ? `${filename.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')}${ext}`
         : `image_${Date.now()}${ext}`;
@@ -225,7 +251,7 @@ export class ComicDownloadService {
             imageData = originalData;
           }
 
-          const ext = path.extname(new URL(url).pathname) || '.jpg';
+          const ext = imageExtension(url) || '.jpg';
           const filename = `image_${String(index + 1).padStart(3, '0')}${ext}`;
           archive.append(imageData, { name: filename });
           return { success: true, filename };

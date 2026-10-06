@@ -111,7 +111,7 @@
                 :key="idx"
                 class="group relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-border-subtle"
               >
-                <img :src="url" class="h-full w-full object-cover" alt="本条参考图" />
+                <img :src="toFastDisplayImageUrl(url)" class="h-full w-full object-cover" loading="lazy" decoding="async" alt="本条参考图" />
                 <!-- 图号：接在这一条实际会发的图之后，随开关实时变。 -->
                 <span
                   class="absolute bottom-0 left-0 rounded-tr bg-black/60 px-1 text-[10px] font-medium text-cyan-300"
@@ -277,6 +277,7 @@ import { processImage, uploadImage, type ImageStorageMode } from '@comic/service
 import { composeFinalPrompt, slotRefManifest } from '@comic/services/panelPromptService'
 import { createGenPromptSlot, normalizeGenPromptSlot } from '@comic/utils/genPromptSlots'
 import type { PanelRefManifest } from '@comic/services/panelRefManifest'
+import { toFastDisplayImageUrl } from '@/shared/image/imageUrl'
 import { useToast } from '@comic/composables/useToast'
 import { auditPanelAssetBindings, buildAssetNameIndex, formatPanelBindingAuditIssues } from '@comic/services/promptAssetService'
 

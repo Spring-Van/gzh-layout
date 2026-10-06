@@ -118,11 +118,14 @@
       :chapter-id="chapter.id"
       :chapter-assets="chapterAssets"
       :chapter-names="chapterNames"
+      :apply-variant-patches="applyVariantPatches"
+      :panels="panels"
       @update:asset="updateAssetVariant"
       @update:gen-config="updateAssetGenConfig"
       @clear-orphans="clearOrphans"
       @link-chapter="openLinkModal"
       @detach-chapter="requestDetach"
+      @add-ref-sheet-variants="addRefSheetVariants"
     />
 
     <!-- 引用其他章节已生成的图：选章节 → 选该章有图的视觉状态 → 写一条 origin='manual' 的章节引用 -->
@@ -186,6 +189,7 @@ import { useToast } from "@comic/composables/useToast";
 import { countCandidatesAppearances, sortAssetsByExtractionOrder } from "@comic/services/assetExtractionService";
 import { backfillPanelAutoBindings, buildExtractionConfirmResult, findOrphanEntries, pruneOrphanEntries, repairDanglingBindings, repairDanglingChapterAssets } from "@comic/services/assetExtractionConfirm";
 import { buildAssetUsageIndex } from "@comic/services/assetUsageService";
+import { REF_SHEET_VARIANT_NAME, buildRefSheetVariantDraft } from "@comic/services/sceneRefSheetNeeds";
 import { LONG_CHAPTER_STAGE_ORDER } from "@comic/types";
 import type {
   AssetGenConfig,
@@ -277,6 +281,55 @@ function confirmLink(payload: { chapterId: string; assetId: string; variantId: s
     });
   });
   toast.success("已引用，本章生图工作台可见");
+}
+
+// ========== 场景机位图：为命中触发条件的场景补建「机位图」视觉状态 ==========
+
+/**
+ * 补建场景机位图状态（由资产工作台的提示条触发）。
+ *
+ * 触发条件（出镜页数 / 跨章复用 / 机位变化）在模板层拿不到，只能由 `auditSceneRefSheetNeeds` 机械判定；
+ * 本函数只负责**落库**，一次提交写一次库（可能一次补建多个场景）。
+ *
+ * 同时写一条 `origin: 'manual'` 的章节引用：否则新状态不在本章 `chapterAssets` 的 variantId 集合里，
+ * 会被 `workbenchAssets` 过滤掉、生图工作台看不到它。
+ * 幂等：已有「机位图」状态的场景会被跳过。
+ */
+async function addRefSheetVariants(assetIds: string[]) {
+  const targets = new Set(assetIds.filter(Boolean));
+  if (!targets.size) return;
+  const pending = props.assets.filter((asset) => targets.has(asset.id)
+    && !asset.variants.some((variant) => variant.name.includes(REF_SHEET_VARIANT_NAME)));
+  if (!pending.length) return;
+  const pendingIds = new Set(pending.map((asset) => asset.id));
+  const drafts = new Map(pending.map((asset) => [asset.id, buildRefSheetVariantDraft({ sourceChapterId: props.chapter.id })]));
+  const chapterId = props.chapter.id;
+  await props.mutateLongProjectData((data) => {
+    data.assets = (data.assets ?? []).map((asset) => {
+      if (!pendingIds.has(asset.id)) return asset;
+      if (asset.variants.some((variant) => variant.name.includes(REF_SHEET_VARIANT_NAME))) return asset;
+      const draft = drafts.get(asset.id)!;
+      return { ...asset, variants: [...asset.variants, draft], updatedAt: Date.now() };
+    });
+    data.chapterAssets ??= [];
+    for (const [assetId, draft] of drafts) {
+      const exists = data.chapterAssets.some((entry) => entry.chapterId === chapterId
+        && entry.assetId === assetId && entry.variantId === draft.id);
+      if (exists) continue;
+      data.chapterAssets.push({
+        id: uuidv4(),
+        chapterId,
+        assetId,
+        variantId: draft.id,
+        appearance: "reused",
+        evidence: [],
+        origin: "manual",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    }
+  });
+  toast.success(`已补建 ${pending.length} 个场景机位图状态，可逐个生成九宫格图`);
 }
 
 // ========== 移出本章：只删本章引用，不动原章节的资产与图 ==========
@@ -533,37 +586,51 @@ async function confirmExtraction() {
 
 // ========== 生图工作台回写 ==========
 
+/** 视觉状态局部修改载荷（批量回填时一次提交多条）。 */
+interface AssetVariantPatch {
+  assetId: string;
+  variantId: string;
+  patch: Partial<LongProjectAssetVariant>;
+}
+
 /**
  * 资产工作台回写：在持久化队列内基于最新数据 patch 视觉状态。
+ *
+ * **批量一次写库**：「填充到资产」可能一次回填十几条提示词，逐条调用会逐条走一遍
+ * 「读整份项目 → 改 → 写整份项目（长篇项目含内联图片，单次 ≈2.5s）」，还必须逐次替换
+ * project ref 让整棵组件树重渲染 —— 是「填充时卡死好几秒甚至几十秒」的直接原因。
+ * 这里把一批 patch 收在同一份草稿上依次应用，只写一次库、只刷新一次页面数据。
  *
  * patch 移除了图片（生成图 / 参考图删除）时，同步清扫 storyboardRuns 里所有分镜
  * 绑定 `selectedImageIds` 对这些图的引用 —— `resolvePanelRefImage` 虽然对悬空选中
  * 自愈（回落第一张），但数据里不留死引用才是真正的「删除无残留」。
  */
-function updateAssetVariant(payload: { assetId: string; variantId: string; patch: Partial<LongProjectAssetVariant> }) {
-  void props.mutateLongProjectData((data) => {
-    let removedImages: string[] = [];
-    data.assets = (data.assets ?? []).map((asset) => {
-      if (asset.id !== payload.assetId) return asset;
-      const oldVariant = asset.variants.find((item) => item.id === payload.variantId);
-      if (!oldVariant) return asset;
-      // 差集 = 本次被删掉的图 id（仅删除类 patch 会产生，追加/重排时为空）
-      removedImages = [
-        ...(oldVariant.generatedImageIds ?? []),
-        ...(oldVariant.referenceImageIds ?? []),
-      ].filter((id) =>
-        !(payload.patch.generatedImageIds ?? oldVariant.generatedImageIds ?? []).includes(id)
-        && !(payload.patch.referenceImageIds ?? oldVariant.referenceImageIds ?? []).includes(id),
-      );
-      return {
-        ...asset,
-        variants: asset.variants.map((item) => item.id === payload.variantId ? { ...item, ...payload.patch, updatedAt: Date.now() } : item),
-        updatedAt: Date.now(),
-      };
-    });
+function updateAssetVariants(payloads: AssetVariantPatch[]): Promise<void> {
+  if (!payloads.length) return Promise.resolve();
+  return props.mutateLongProjectData((data) => {
+    const removed = new Set<string>();
+    let assets = data.assets ?? [];
+    for (const payload of payloads) {
+      assets = assets.map((asset) => {
+        if (asset.id !== payload.assetId) return asset;
+        const oldVariant = asset.variants.find((item) => item.id === payload.variantId);
+        if (!oldVariant) return asset;
+        // 差集 = 本次被删掉的图 id（仅删除类 patch 会产生，追加/重排时为空）
+        const nextGenerated = payload.patch.generatedImageIds ?? oldVariant.generatedImageIds ?? [];
+        const nextReference = payload.patch.referenceImageIds ?? oldVariant.referenceImageIds ?? [];
+        for (const id of [...(oldVariant.generatedImageIds ?? []), ...(oldVariant.referenceImageIds ?? [])]) {
+          if (!nextGenerated.includes(id) && !nextReference.includes(id)) removed.add(id);
+        }
+        return {
+          ...asset,
+          variants: asset.variants.map((item) => item.id === payload.variantId ? { ...item, ...payload.patch, updatedAt: Date.now() } : item),
+          updatedAt: Date.now(),
+        };
+      });
+    }
+    data.assets = assets;
     // 清扫分镜绑定里指向已删图片的单选引用（页级 + 格级绑定）
-    if (removedImages.length) {
-      const removed = new Set(removedImages);
+    if (removed.size) {
       data.storyboardRuns = (data.storyboardRuns ?? []).map((run) => ({
         ...run,
         panels: run.panels.map((panel) => ({
@@ -585,6 +652,17 @@ function updateAssetVariant(payload: { assetId: string; variantId: string; patch
     }
   });
 }
+
+/** 单条回写（模板各处的 emit 入口）。 */
+function updateAssetVariant(payload: AssetVariantPatch) {
+  void updateAssetVariants([payload]);
+}
+
+/**
+ * 供生图工作台直接调用的批量回写入口（作为 prop 下传，便于 await 写库结果）。
+ * 定义在 setup 里一次，函数标识稳定，不会因父组件重渲染而失效。
+ */
+const applyVariantPatches = (payloads: AssetVariantPatch[]) => updateAssetVariants(payloads);
 
 /**
  * 保存资产生图配置（项目级，存在 longProjectData.assetGenConfig）。

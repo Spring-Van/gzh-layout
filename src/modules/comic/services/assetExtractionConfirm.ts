@@ -24,6 +24,25 @@ function nameKey(value: string): string {
 }
 
 /**
+ * 该视觉状态是否**不由提取产出**（用户手工新建 / 程序按机械规则补建，如场景「机位图」）。
+ * 这类状态不参与「整表重建」：`extract` 模板永远不会输出它们，按候选重建就等于无条件删除。
+ * 口径与 `LongProjectChapterAsset.origin` 一致：缺省一律按提取产出处理。
+ */
+function isManualVariant(variant: LongProjectAssetVariant): boolean {
+  return variant.origin === 'manual'
+}
+
+/**
+ * 覆盖候选后仍要保留的「非提取产出」状态，按已有顺序返回。
+ * 被候选状态命中的（同名/同 id）不在此列 —— 它们由重建分支接管，不会重复。
+ */
+function preservableManualVariants(asset: LongProjectAsset, keptIds: Set<string>, keptNames: Set<string>): LongProjectAssetVariant[] {
+  return asset.variants.filter((variant) => isManualVariant(variant)
+    && !keptIds.has(variant.id)
+    && !keptNames.has(variant.name.trim()))
+}
+
+/**
  * 由候选创建章节范围新资产（候选 → 新资产的字段映射）。
  * 提取自长篇主页面确认流程，供资产确认环节复用。
  */
@@ -45,6 +64,8 @@ export function createAssetFromCandidate(candidate: LongProjectAssetExtractionCa
 /**
  * 覆盖某候选后会被删掉的旧视觉状态。
  * 保留口径与 overrideAssetWithCandidate 完全一致：候选的建议 id 命中、或状态名与旧状态同名，都算留下。
+ * 另有 `origin: 'manual'` 的状态（用户手工新建 / 程序补建的资料性状态，如场景「机位图」）**一律不算待删** ——
+ * 它们不会被重建删除，列进"本次未出现"的删除提示会让用户以为成果要丢。
  * 审核页的「本次未出现」提示与确认前的影响面统计共用此函数，避免三处口径漂移。
  */
 export function selectDroppedVariants(asset: LongProjectAsset, candidate: LongProjectAssetExtractionCandidate): LongProjectAssetVariant[] {
@@ -56,7 +77,7 @@ export function selectDroppedVariants(asset: LongProjectAsset, candidate: LongPr
     if (state.suggestedVariantId) keptIds.add(state.suggestedVariantId)
     keptNames.add(name)
   }
-  return asset.variants.filter((variant) => !keptIds.has(variant.id) && !keptNames.has(variant.name.trim()))
+  return asset.variants.filter((variant) => !isManualVariant(variant) && !keptIds.has(variant.id) && !keptNames.has(variant.name.trim()))
 }
 
 /**
@@ -72,7 +93,8 @@ function resolveStateVariant(asset: LongProjectAsset, state: Pick<LongProjectExt
 /**
  * 把一组候选（通常来自同一次提取、且都指向同一资产）合并到已有资产上（本次结果优先）：
  * 资产级 content/description/attributes 以候选为准（候选为空时回退已有值，避免把资产清空）；
- * 视觉状态按候选状态**整表重建**，本次未出现的旧状态一律删除。
+ * 视觉状态按候选状态**整表重建**，本次未出现的旧状态一律删除
+ * ——**唯一例外**是 `origin: 'manual'` 的状态（用户手工新建 / 程序补建的资料性状态），它们不来自候选，原样追加保留。
  *
  * ⚠️ 两条去重是必须的，否则会产出重复视觉状态（用户反馈的"没被覆盖反而新增"）：
  * 1. **同目标去重** —— 两个候选状态都命中同一条已有状态（模糊匹配典型场景：「少年」与「少年期」都命中「少年期」）时只保留第一条；
@@ -126,9 +148,13 @@ function applyCandidatesToAsset(
     attributes: { ...acc.attributes, ...candidate.attributes },
     sourceChapterIds: uniqueStrings([...acc.sourceChapterIds, chapterId]),
   }), asset)
+  const preserved = preservableManualVariants(asset, new Set(variants.map((variant) => variant.id)), new Set(variants.map((variant) => variant.name.trim())))
   return {
     ...merged,
-    variants: variants.length ? variants : asset.variants,
+    // 非提取产出的状态（`origin: 'manual'`，如场景「机位图」）追加在重建结果之后：
+    // 它们不来自候选，按候选重建就等于无条件删除 —— 那是已经生成过图的空间锚定资料，删掉不可恢复。
+    // 候选一个有效状态都没给时保持原口径（不做任何删除），`asset.variants` 本身就含这些 manual 状态。
+    variants: variants.length ? [...variants, ...preserved] : asset.variants,
     updatedAt: now,
   }
 }
@@ -242,7 +268,8 @@ export function pruneOrphanEntries(assets: LongProjectAsset[], scan: OrphanScanR
 /**
  * 资产提取确认的纯数据变换：以本次审核结果作为当前章节唯一生效版本（唯一行为，无模式选择）。
  * 每次确认前移除本章旧章节引用（**手工引用 `origin: 'manual'` 除外**）与未被引用的章节资产，再按候选生成或覆盖：
- * 命中已有资产 → 整表重建视觉状态（同名状态复用原 id 保住已生成的图），本次未出现的旧状态删除；
+ * 命中已有资产 → 整表重建视觉状态（同名状态复用原 id 保住已生成的图），本次未出现的旧状态删除
+ * （`origin: 'manual'` 的状态除外，见 `applyCandidatesToAsset`）；
  * 同一资产同一视觉状态只保留一条章节引用。历史提取任务仍保留，由调用方标记 confirmed。
  *
  * ⚠️ **先按资产归组，再一次性重建**：模型把同一资产拆成多个候选（或同一次提取里同名条目重复）

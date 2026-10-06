@@ -114,7 +114,7 @@
             <PanelPreview
               :panel="currentPanel"
               :artwork="currentArtwork"
-              :is-generating="currentArtwork?.genStatus === 'running'"
+              :is-generating="currentPanelGenerating"
               :prompt-ready="Boolean(currentActiveSlot.text?.trim())"
               @generate="generateCurrentFromActiveSlot"
               @switch-image="switchPanelImage"
@@ -184,7 +184,7 @@
             :artwork="currentArtwork"
             :assets="assets"
             :prompt-busy="promptBusyIds.has(currentPanel.id)"
-            :generating="currentArtwork?.genStatus === 'running'"
+            :generating="currentPanelGenerating"
             :repairing-bindings="repairBindingsBusy"
             :ref-groups="currentRefGroups"
             :ref-manifest="currentRefManifest"
@@ -358,7 +358,7 @@
  * 数据持久化走 panelArtworks（panelId 关联），重跑分镜由迁移逻辑保留/标记过期；
  * 项目数据与持久化队列共享主页面实例（props 注入），不再独立读写。
  */
-import { computed, nextTick, onMounted, reactive, ref, toRaw, watch, type Ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, toRaw, watch, type Ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
 import { ArrowRight, Download, ListTree, LoaderCircle, SlidersHorizontal, Sparkles, Undo2 } from 'lucide-vue-next'
 import { comicDb, comicDownload } from '@/api/comic'
@@ -383,6 +383,7 @@ import {
 import { buildPanelRefManifest, groupManifestByType } from '@comic/services/panelRefManifest'
 import { resolveActiveGenSlot, slotAttachShared, slotUseAssetRefs } from '@comic/utils/genPromptSlots'
 import { auditPanelAssetBindings, bindingIdentityKey, buildAssetNameIndex, buildPanelBindingFixes, formatPanelBindingAuditIssues, reapplyVariantContinuation, summarizePanelBindingHealth, summarizePanelsBindingHealth, type PanelBindingFix } from '@comic/services/promptAssetService'
+import { auditPanelRefReadiness, formatPanelRefReadinessIssues, summarizePanelsRefReadiness } from '@comic/services/panelRefReadiness'
 import { bindingsFromValue, buildStoryboardPrompt, buildVariantCodeMap, cellCountLabel, parseStoryboardResponse, patchBlockTextAssetLines, polishPanelBlock, serializeBindings, serializePanelBlock, summarizeCellBindings, summarizeCells, type ChapterAssetContext } from '@comic/services/storyboardService'
 import { useStoryboardRun } from '@comic/composables/useStoryboardRun'
 import { useStoryboardOps } from '@comic/composables/useStoryboardOps'
@@ -473,6 +474,35 @@ const batchGenBusy = ref(false)
 const batchGenDone = ref(0)
 const batchGenTotal = ref(0)
 let batchGenCancelled = false
+
+/**
+ * 「生图中」的权威来源（渲染层，本页持有）。
+ *
+ * 为什么不能只看 `artwork.genStatus === 'running'`：运行态以前只写在项目数据的内存补丁上，
+ * 而任何一次落库（补绑同步、其他页面自动保存、生图结果写回）都会用 DB 数据整体替换 project，
+ * 顺手把这个补丁冲掉 —— 于是「生图中」提前消失，但真正的生图还要跑十几秒才出图。
+ * 生图进度是渲染层的瞬时状态、不是业务数据，因此放在页面自己手里：
+ * 只要本页还在等这次生图，标记就在，不受任何落库影响。
+ */
+const runningPanelIds = reactive(new Set<string>())
+
+/** 是否正在为某镜生图：渲染层标记优先，兼容历史数据里的 running。 */
+function isPanelGenerating(panelId: string): boolean {
+  return runningPanelIds.has(panelId) || artworkMap.value.get(panelId)?.genStatus === 'running'
+}
+
+/**
+ * 「当前显示第几张」的渲染层覆盖（panelId → 图片）。
+ *
+ * 切图是高频浏览动作，而一次落库要整库重写（长篇项目实测秒级）。若切图直接写数据，
+ * 一是连点箭头每次都要等写盘、卡成幻灯片，二是写盘完成时 `project` 被整体替换，
+ * 会把切换期间的新选择打回旧值。所以**显示以本覆盖为准**，数据落库在后台慢慢追，
+ * 追上后覆盖自动消散（见 syncSelectedImageOverlay）。
+ */
+const selectedImageOverlay = reactive(new Map<string, string>())
+/** 待落库的切图：浏览期间攒着，停手后合并成一次写盘。 */
+const pendingSelectedImages = new Map<string, string>()
+let selectedImageFlushTimer: ReturnType<typeof setTimeout> | null = null
 
 const promptModalVisible = ref(false)
 const singleModalVisible = ref(false)
@@ -587,21 +617,41 @@ const latestChapterRun = computed(() => {
     .sort((a, b) => b.updatedAt - a.updatedAt)[0]
 })
 
-/** panelId → artwork 映射（仅本章）。 */
+/** panelId → artwork 映射（仅本章）。切图的显示覆盖（selectedImageOverlay）在这里生效。 */
 const artworkMap = computed(() => {
   const map = new Map<string, LongProjectPanelArtwork>()
   if (!currentChapter.value) return map
   for (const artwork of panelArtworks.value) {
-    if (artwork.chapterId === currentChapter.value.id) map.set(artwork.panelId, artwork)
+    if (artwork.chapterId !== currentChapter.value.id) continue
+    const override = selectedImageOverlay.get(artwork.panelId)
+    map.set(
+      artwork.panelId,
+      override && override !== artwork.selectedImageId ? { ...artwork, selectedImageId: override } : artwork,
+    )
   }
   return map
 })
 
+/** 落库追上后撤掉切图覆盖（覆盖只负责"还没写进库"的那段时间）。 */
+watch(panelArtworks, () => {
+  for (const [panelId, imageId] of [...selectedImageOverlay]) {
+    const artwork = panelArtworks.value.find((item) => item.panelId === panelId)
+    if (!artwork || artwork.selectedImageId === imageId) selectedImageOverlay.delete(panelId)
+  }
+})
+
 const panelItems = computed<PanelListItem[]>(() =>
-  panels.value.map((panel) => ({ panel, artwork: artworkMap.value.get(panel.id) })),
+  panels.value.map((panel) => ({
+    panel,
+    artwork: artworkMap.value.get(panel.id),
+    // 左栏状态也吃渲染层的生图标记，避免落库把 running 冲掉后列表提前变「已成图」
+    generating: runningPanelIds.has(panel.id),
+  })),
 )
 const currentPanel = computed(() => panels.value[currentIndex.value] ?? panels.value[0])
 const currentArtwork = computed(() => (currentPanel.value ? artworkMap.value.get(currentPanel.value.id) : undefined))
+/** 当前镜是否在生图（中栏预览与右栏面板共用，见 isPanelGenerating 的说明）。 */
+const currentPanelGenerating = computed(() => (currentPanel.value ? isPanelGenerating(currentPanel.value.id) : false))
 
 /** 章节顺序表（章节 ID → 序号），视觉状态章节范围默认值计算用。 */
 const chapterOrders = computed(() => Object.fromEntries(chapters.value.map((item) => [item.id, item.order])))
@@ -1115,6 +1165,10 @@ async function confirmStoryboardImport(content: string) {
     if (health.missingPanelCount) risks.push(`${health.missingPanelCount} 镜未声明出场资产`)
     if (health.unmatchedCount) risks.push(`${health.unmatchedCount} 项资产未匹配`)
     if (health.missingVariantCount) risks.push(`${health.missingVariantCount} 项状态未确定`)
+    // 缺参考图：绑定齐全、资产也在，只是该视觉状态还没成品图 —— 生图时会静默少发这张图。
+    // 正常流程里资产生图（assets-ready）在分镜（storyboard-ready）之前，所以导入时就该报出来。
+    const refSummary = summarizePanelsRefReadiness(imported, assets.value)
+    if (refSummary.stateCount) risks.push(`${refSummary.stateCount} 项缺参考图（涉及 ${refSummary.panelCount} 镜）`)
     if (risks.length) toast.warning(`已导入 ${imported.length} 个分镜，${risks.join('，')}，请在中栏资产 tab 核对`)
     else toast.success(`已导入 ${imported.length} 个分镜，共 ${health.bindingCount} 条资产绑定`)
     notifyDroppedPrompts(droppedPromptCount)
@@ -1330,9 +1384,10 @@ watch(
   },
 )
 
-/** 章节切换（主页面侧栏选章）：重置分镜选中索引。 */
+/** 章节切换（主页面侧栏选章）：重置分镜选中索引，并把待落库的切图冲刷掉。 */
 watch(chapterId, () => {
   currentIndex.value = 0
+  flushSelectedImage()
 })
 
 // ========== 画面描述推导 ==========
@@ -1698,6 +1753,23 @@ async function repairCurrentPanelBindings(prompt: string) {
 
 // ========== 生图 ==========
 
+/** 开始某镜生图：点亮渲染层标记，并在数据里补一个 running（供刷新/其他视图兜底）。 */
+function beginPanelGeneration(panelId: string) {
+  runningPanelIds.add(panelId)
+  patchArtworkInMemory(panelId, { genStatus: 'running' })
+}
+
+/**
+ * 结束某镜生图：撤掉渲染层标记，并把数据里残留的 running 还原成进入前的状态。
+ * 生图的所有出口（成功 / 失败 / 参数校验不通过）都必须走这里，否则「生图中」会挂住。
+ */
+function endPanelGeneration(panelId: string, prevStatus: LongProjectPanelArtwork['genStatus']) {
+  runningPanelIds.delete(panelId)
+  if (artworkMap.value.get(panelId)?.genStatus === 'running') {
+    patchArtworkInMemory(panelId, { genStatus: prevStatus })
+  }
+}
+
 /** 单镜生图：运行时动态拼接共用属性、参考图定义与纯画面描述。 */
 async function generatePanelImage(
   panel: LongProjectStoryboardPanel,
@@ -1707,10 +1779,10 @@ async function generatePanelImage(
 ): Promise<boolean> {
   // 先点亮「生图中」再进入补绑 / 体检 / 拼提示词等同步重活：这些活儿在分镜多时要跑好几秒，
   // 放在设置 running 之后会让 loading 迟迟不出现（用户感觉点了没反应）。
-  // running 只走内存补丁：落库链（IPC 全量读 + 深克隆 + 整库文件重写）本身就要数秒，
-  // 状态位不值得；done/failed + 生成结果再由 upsertArtwork 正式落库。
+  // 「生图中」的权威来源是渲染层的 runningPanelIds（见 isPanelGenerating）——数据里的 running
+  // 会被任何一次落库整体替换冲掉，只作兜底。
   const prevStatus = artworkMap.value.get(panel.id)?.genStatus ?? 'none'
-  patchArtworkInMemory(panel.id, { genStatus: 'running' })
+  beginPanelGeneration(panel.id)
   await nextTick()
   // 生图前最后一次确定性补绑，防止旧分镜或外部导入绕过保存事件留下漏绑。
   let effectivePanel = panel
@@ -1743,13 +1815,20 @@ async function generatePanelImage(
   if (bindingIssues.length) {
     const labels = formatPanelBindingAuditIssues(bindingIssues).join('、')
     toast.warning(`本镜资产绑定需要确认：${labels}。中栏资产区可逐项处理`)
-    patchArtworkInMemory(panel.id, { genStatus: prevStatus })
+    endPanelGeneration(panel.id, prevStatus)
     return false
+  }
+  // 缺参考图：**只提示、不拦截**。资产图常排在分镜图之后生成，硬拦会把「资产图排队中」这种
+  // 正常中间态锁死（参见 PromptRunBar 硬锁的历史教训）；但必须让用户知道这一镜会少发哪几张图，
+  // 否则出图后才发现「这个角色跟别的不一样」，返工成本更高。
+  const refIssues = auditPanelRefReadiness(effectivePanel, assets.value)
+  if (refIssues.length) {
+    toast.warning(`本镜缺参考图：${formatPanelRefReadinessIssues(refIssues).join('、')}。这些图不会被发出，模型会自由发挥，建议先去资产工作台生成`)
   }
   const description = (options.description ?? artwork?.imagePrompt)?.trim()
   if (!description) {
     toast.warning('请先推导或编辑画面描述')
-    patchArtworkInMemory(panel.id, { genStatus: prevStatus })
+    endPanelGeneration(panel.id, prevStatus)
     return false
   }
   const manifest = options.manifest && effectivePanel === panel ? options.manifest : refManifestOf(effectivePanel)
@@ -1762,12 +1841,12 @@ async function generatePanelImage(
   const model = imageModels.value.find((item) => item.id === config.imageModelId)
   if (!model) {
     toast.error('请先在顶部绘图配置中选择生图模型')
-    patchArtworkInMemory(panel.id, { genStatus: prevStatus })
+    endPanelGeneration(panel.id, prevStatus)
     return false
   }
   if (!model.apiKey) {
     toast.error('请先在系统设置中配置该模型的 API Key')
-    patchArtworkInMemory(panel.id, { genStatus: prevStatus })
+    endPanelGeneration(panel.id, prevStatus)
     return false
   }
   try {
@@ -1781,18 +1860,40 @@ async function generatePanelImage(
     )
     if (result.success && result.imageUrl) {
       const latest = artworkMap.value.get(panel.id)
-      await upsertArtwork(panel.id, {
+      const patch: Partial<LongProjectPanelArtwork> = {
         generatedImageIds: [...(latest?.generatedImageIds ?? []), result.imageUrl],
         // 生成即显示即使用：新图直接成为当前成图（多张时悬停可切回旧图）
         selectedImageId: result.imageUrl,
         genStatus: 'done',
-      })
+      }
+      // 新图就是新的选中图：把切图覆盖清掉，否则它会用"更高优先级"把新图盖回旧的那张
+      selectedImageOverlay.delete(panel.id)
+      pendingSelectedImages.delete(panel.id)
+      // 先把结果落进内存并撤掉「生图中」：用户**立刻**看到新图，不再干等下面这次整库写盘
+      //（长篇项目一次写盘实测数秒，这段时间图已经在手上了，没理由还让界面转圈）。
+      patchArtworkInMemory(panel.id, patch)
+      endPanelGeneration(panel.id, prevStatus)
+      try {
+        await upsertArtwork(panel.id, patch)
+      } catch (error) {
+        // 写盘失败必须回滚内存，否则就是「界面上有图、库里没有」的假保存
+        patchArtworkInMemory(panel.id, {
+          generatedImageIds: latest?.generatedImageIds,
+          selectedImageId: latest?.selectedImageId,
+          genStatus: prevStatus,
+        })
+        console.error('[分镜生图] 结果写盘失败:', error)
+        toast.error('图片已生成但保存失败，退出后会丢失，请重试')
+        return false
+      }
       return true
     }
+    endPanelGeneration(panel.id, prevStatus)
     await upsertArtwork(panel.id, { genStatus: 'failed' })
     toast.error(result.error || '生成失败')
   } catch (error) {
     console.error('[分镜生图] 失败:', error)
+    endPanelGeneration(panel.id, prevStatus)
     await upsertArtwork(panel.id, { genStatus: 'failed' })
     toast.error(error instanceof Error ? error.message : '生成失败')
   }
@@ -1900,15 +2001,48 @@ async function exportImages() {
 
 // ========== 成图切换与删除（显示哪张就用哪张，导出即当前显示张） ==========
 
-/** 切换成图：方向 -1 上一张 / 1 下一张（循环），切换立即落库生效。 */
+/** 切图落库的合并窗口：停手 600ms 后写入，连点箭头期间一次都不写。 */
+const SELECTED_IMAGE_FLUSH_DELAY = 600
+
+function scheduleSelectedImageFlush() {
+  if (selectedImageFlushTimer) clearTimeout(selectedImageFlushTimer)
+  selectedImageFlushTimer = setTimeout(flushSelectedImage, SELECTED_IMAGE_FLUSH_DELAY)
+}
+
+/** 把攒下的切图一次性落库（定时器触发；切镜 / 离开页面时也会强制冲刷）。 */
+function flushSelectedImage() {
+  if (selectedImageFlushTimer) {
+    clearTimeout(selectedImageFlushTimer)
+    selectedImageFlushTimer = null
+  }
+  if (!pendingSelectedImages.size) return
+  const entries = [...pendingSelectedImages]
+  pendingSelectedImages.clear()
+  // 同一轮里的多次写会由持久化层合并成一次整库写盘
+  for (const [panelId, imageId] of entries) {
+    void upsertArtwork(panelId, { selectedImageId: imageId }).catch((error: unknown) => {
+      console.error('[分镜切图] 落库失败:', error)
+      toast.error('切换的成图没能保存，退出后会回到上一张')
+    })
+  }
+}
+
+/**
+ * 切换成图：方向 -1 上一张 / 1 下一张（循环）。
+ *
+ * **切换只改内存显示**（selectedImageOverlay），立刻生效、不等写盘；落库合并到停手之后一次。
+ * 这样连续浏览多张时既不会每次卡住一两秒，也不会因为写盘回包把选择打回旧值。
+ */
 function switchPanelImage(direction: -1 | 1) {
   const panel = currentPanel.value
   const artwork = currentArtwork.value
   const list = artwork?.generatedImageIds ?? []
   if (!panel || !artwork || list.length < 2) return
   const index = artwork.selectedImageId ? Math.max(0, list.indexOf(artwork.selectedImageId)) : 0
-  const next = (index + direction + list.length) % list.length
-  void upsertArtwork(panel.id, { selectedImageId: list[next] })
+  const next = list[(index + direction + list.length) % list.length]
+  selectedImageOverlay.set(panel.id, next)
+  pendingSelectedImages.set(panel.id, next)
+  scheduleSelectedImageFlush()
 }
 
 /** 删除当前显示的成图（PanelPreview 内已弹窗确认）。 */
@@ -1924,14 +2058,19 @@ function removeGenImage(index: number) {
   const panel = currentPanel.value
   const artwork = currentArtwork.value
   if (!panel || !artwork || index < 0) return
+  const selected = artwork.selectedImageId
   const next = (artwork.generatedImageIds ?? []).filter((_, i) => i !== index)
   const patch: Partial<LongProjectPanelArtwork> = { generatedImageIds: next }
-  if (artwork.selectedImageId && !next.includes(artwork.selectedImageId)) {
+  if (selected && !next.includes(selected)) {
     if (next.length) patch.selectedImageId = next[0]
     else {
       patch.selectedImageId = undefined
       patch.genStatus = 'none'
     }
+    // 删掉的正是当前显示的那张：切图覆盖与待落库的切图都指向它，必须一起清掉，
+    // 否则界面会去显示一张已经不在列表里的图（或把它又写回库）
+    selectedImageOverlay.delete(panel.id)
+    pendingSelectedImages.delete(panel.id)
   }
   void upsertArtwork(panel.id, patch)
 }
@@ -2006,7 +2145,12 @@ async function handleSaveImageConfig(next: ImageGenConfig) {
     const latest = await comicDb.getProject(props.projectId)
     if (!latest) return
     const updated: ComicProject = { ...latest, imageGenConfig: plain, updatedAt: Date.now() }
-    await comicDb.saveProject(updated)
+    const saved = await comicDb.saveProject(updated)
+    // 写库时共用属性参考图会被外置成 app-image:// 引用，本地生图配置同步换成外置后的版本，
+    // 否则内存里一直压着 base64，每次保存都要重新搬一遍
+    if (saved?.project?.imageGenConfig) {
+      imageGenConfig.value = saved.project.imageGenConfig
+    }
     emit('image-config-saved')
     toast.success('绘图配置已保存到项目')
   } catch (error) {
@@ -2044,6 +2188,10 @@ onMounted(() => {
     })
   }
 })
+
+// 离开页面 / 被 keep-alive 挂起前，把还在嘴里的切图落库，避免最后一次选择丢失
+onDeactivated(flushSelectedImage)
+onBeforeUnmount(flushSelectedImage)
 </script>
 
 <style scoped>

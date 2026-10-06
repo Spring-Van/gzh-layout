@@ -121,7 +121,7 @@
           title="点击预览大图"
           @click="$emit('preview', { images: variant.referenceImageIds, index, source: 'reference' })"
         >
-          <img :src="image" class="h-full w-full object-cover" :alt="`${variant.name} 图${refImageNumber(index)}`" />
+          <img :src="toFastDisplayImageUrl(image)" class="h-full w-full object-cover" loading="lazy" decoding="async" :alt="`${variant.name} 图${refImageNumber(index)}`" />
           <!-- 图号：共用属性参考图编完后，本状态上传图按上传顺序续编（与实际发送数组同序） -->
           <span
             class="absolute bottom-1 left-1 rounded-sm bg-black/70 px-1 text-[10px] leading-4 text-cyan-200"
@@ -213,7 +213,7 @@
           title="点击预览大图"
           @click="$emit('preview', { images: assetImages, index, source: imageSource(index) })"
         >
-          <img :src="image" class="block w-full" loading="lazy" :alt="`${variant.name}${imageSource(index) === 'generated' ? '生成图' : '上传图'}${index + 1}`" />
+          <img :src="toFastDisplayImageUrl(image)" class="block w-full" loading="lazy" decoding="async" :alt="`${variant.name}${imageSource(index) === 'generated' ? '生成图' : '上传图'}${index + 1}`" />
           <!-- 来源角标：生成 / 上传（引用其他章节的图会跟着原状态一起出现，来源即原状态自己的来源） -->
           <span
             class="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[9px] leading-4"
@@ -289,6 +289,7 @@ import type { GenPromptSlot, LongProjectAssetVariant } from '@comic/types'
 import type { AssetVariantUsage } from '@comic/services/assetUsageService'
 import { effectiveVariantRefImages } from '@comic/services/panelPromptService'
 import { processImage, type ImageStorageMode } from '@comic/services/uploadService'
+import { toFastDisplayImageUrl } from '@/shared/image/imageUrl'
 import { createGenPromptSlot, normalizeGenPromptSlot } from '@comic/utils/genPromptSlots'
 import ToggleSwitch from '@comic/components/common/ToggleSwitch.vue'
 

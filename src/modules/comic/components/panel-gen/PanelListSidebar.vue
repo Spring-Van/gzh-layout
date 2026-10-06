@@ -16,9 +16,16 @@
       >
         <!-- 缩略图（同短篇页面列表：生成中转圈 / 成图 / 占位） -->
         <span class="relative h-12 w-10 shrink-0 overflow-hidden rounded-lg border border-border-subtle bg-surface">
-          <img v-if="item.artwork?.selectedImageId" :src="item.artwork.selectedImageId" class="h-full w-full object-cover" loading="lazy" :alt="`分镜${item.panel.order}成图`" />
+          <img
+            v-if="item.artwork?.selectedImageId"
+            :src="toFastDisplayImageUrl(item.artwork.selectedImageId)"
+            class="h-full w-full object-cover"
+            loading="lazy"
+            decoding="async"
+            :alt="`分镜${item.panel.order}成图`"
+          />
           <ImageIcon v-else class="h-full w-full p-2.5 text-text-muted/40" :size="18" />
-          <span v-if="item.artwork?.genStatus === 'running'" class="absolute inset-0 flex items-center justify-center bg-black/50"><LoaderCircle :size="15" class="animate-spin text-cyan-300" /></span>
+          <span v-if="isGenerating(item)" class="absolute inset-0 flex items-center justify-center bg-black/50"><LoaderCircle :size="15" class="animate-spin text-cyan-300" /></span>
           <span v-if="index === currentIndex" class="absolute right-0 top-0 rounded-bl bg-cyan-500 px-1 py-px text-[7px] font-medium leading-none text-white">当前</span>
         </span>
 
@@ -50,14 +57,22 @@
 import { computed } from 'vue'
 import { ImageIcon, LoaderCircle } from 'lucide-vue-next'
 import { resolvePanelCellLabel } from '@comic/services/storyboardService'
+import { toFastDisplayImageUrl } from '@/shared/image/imageUrl'
 import type { LongProjectPanelArtwork, LongProjectStoryboardPanel } from '@comic/types'
 
 export interface PanelListItem {
   panel: LongProjectStoryboardPanel
   artwork?: LongProjectPanelArtwork
+  /** 渲染层持有的「生图中」标记（落库会把数据里的 running 冲掉，见父组件 isPanelGenerating）。 */
+  generating?: boolean
 }
 
 const props = defineProps<{ items: PanelListItem[]; currentIndex: number }>()
+
+/** 生图中：渲染层标记优先，兼容历史数据里的 running。 */
+function isGenerating(item: PanelListItem): boolean {
+  return Boolean(item.generating) || item.artwork?.genStatus === 'running'
+}
 
 defineEmits<{
   (e: 'select', index: number): void
@@ -85,7 +100,7 @@ function cellLabel(item: PanelListItem): string {
 /** 只反映生图维度，四态：生图中 / 生图失败 / 已成图 / 未生图。 */
 function statusLabel(item: PanelListItem): string {
   const artwork = item.artwork
-  if (artwork?.genStatus === 'running') return '生图中'
+  if (isGenerating(item)) return '生图中'
   if (artwork?.genStatus === 'failed') return '生图失败'
   if (artwork?.selectedImageId) return '已成图'
   return '未生图'

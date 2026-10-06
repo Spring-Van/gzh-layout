@@ -1208,11 +1208,13 @@ const persistImageGenConfig = async (config: ImageGenConfig): Promise<boolean> =
       toast.error("项目不存在，无法保存绘图配置");
       return false;
     }
-    await comicDb.saveProject({
+    const { project: writeResult } = await comicDb.saveProject({
       ...project,
       imageGenConfig: plainConfig,
       updatedAt: Date.now(),
     });
+    // 主进程写库时会把共用参考图外置成 app-image://，用返回值刷新本地避免内存常驻 base64
+    if (writeResult.imageGenConfig) imageConfig.value = writeResult.imageGenConfig;
     // 回读校验，确保真正落库
     const saved = await comicDb.getProject(projectId);
     if (!saved?.imageGenConfig) {
@@ -1241,11 +1243,12 @@ const loadProjectImageConfig = async () => {
       JSON.stringify(project.imageGenConfig) !==
         JSON.stringify(imageConfig.value);
     if (needWriteBack && project) {
-      await comicDb.saveProject({
+      const { project: writeResult } = await comicDb.saveProject({
         ...project,
         imageGenConfig: imageConfig.value,
         updatedAt: Date.now(),
       });
+      if (writeResult.imageGenConfig) imageConfig.value = writeResult.imageGenConfig;
     }
   } catch (e) {
     console.error("加载绘图配置失败:", e);
@@ -1293,13 +1296,16 @@ const reprocessPageRefNumbers = async () => {
   // 写回 DB（同时保留 imageGenConfig，避免局部更新后配置被覆盖丢失）
   const project = await comicDb.getProject(projectId);
   if (project) {
-    await comicDb.saveProject({
+    const { project: writeResult } = await comicDb.saveProject({
       ...project,
       pageData: pageData as any,
       pageRefImages: pageRefImages.value,
       imageGenConfig: JSON.parse(JSON.stringify(imageConfig.value)),
       updatedAt: Date.now(),
     });
+    // 新上传的参考图会被主进程外置，用返回值刷新本地 ref
+    if (writeResult.pageRefImages) pageRefImages.value = writeResult.pageRefImages;
+    if (writeResult.imageGenConfig) imageConfig.value = writeResult.imageGenConfig;
   }
 };
 
