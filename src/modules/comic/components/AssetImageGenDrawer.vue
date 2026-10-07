@@ -28,7 +28,7 @@
             </button>
           </header>
 
-          <!-- Tab 切换：只保留绘画模型 / 共用属性（与分镜绘图配置这两页同构，不含参考图用途） -->
+          <!-- Tab 切换：绘画模型 / 共用属性 / 版式（与分镜绘图配置前两页同构，不含参考图用途） -->
           <div class="flex shrink-0 items-center gap-1 border-b border-border-subtle px-6 pb-0 pt-4">
             <button
               v-for="tab in tabs"
@@ -188,6 +188,23 @@
               <input ref="fileInputRef" type="file" accept="image/*" multiple class="hidden" @change="handleFileUpload" />
             </template>
 
+            <!-- 版式 Tab：按资产类型三段，生图前拼在「共用属性（插入最前）」之后、绘画提示词之前 -->
+            <template v-if="activeTab === 'layout'">
+              <div class="rounded-lg border border-border-subtle bg-surface p-4">
+                <div class="space-y-3">
+                  <label v-for="field in layoutFields" :key="field.type" class="block">
+                    <span class="text-[11px] text-text-secondary">{{ field.label }}</span>
+                    <textarea
+                      v-model="layoutDraft[field.type]"
+                      rows="4"
+                      class="custom-scrollbar mt-1 w-full resize-y rounded-md border border-border-subtle bg-input-bg px-2 py-1.5 text-xs leading-relaxed text-text-primary outline-none focus:border-cyan-500/50"
+                      placeholder="留空 = 该类型不拼接版式"
+                    />
+                  </label>
+                </div>
+              </div>
+            </template>
+
             <div class="h-px bg-elevated" />
 
             <div class="rounded-lg border border-cyan-500/10 bg-cyan-500/5 p-3">
@@ -197,7 +214,7 @@
                 </svg>
                 <p class="text-xs leading-relaxed text-text-secondary">
                   配置保存到当前项目，只供资产生图使用，与分镜「绘图配置」互不影响。
-                  发送提示词 = 插入最前的属性 + 绘画提示词 + 插入最后的属性；参考图序号按属性顺序与上传顺序计算。
+                  发送提示词 = 插入最前的属性 + 本类型版式 + 绘画提示词 + 插入最后的属性；参考图序号按属性顺序与上传顺序计算。
                 </p>
               </div>
             </div>
@@ -226,19 +243,22 @@
  *
  * 布局对齐分镜绘图配置的两个 tab：
  * - 绘画模型：生图模型 / 图片比例 / 分辨率 / 图片质量（选项取所选模型自身支持的范围，不写死）；
- * - 共用属性：左右分栏（插入最前 / 插入最后），编辑的是 `AssetGenConfig.sharedBlocks`。
+ * - 共用属性：左右分栏（插入最前 / 插入最后），编辑的是 `AssetGenConfig.sharedBlocks`；
+ * - 版式：按资产类型三段（人物 / 场景 / 道具），编辑的是 `AssetGenConfig.layoutPrompts`，
+ *   生图前拼在「共用属性（插入最前）」之后、绘画提示词之前（分镜侧没有这个 tab，也没有这个字段）。
  *
  * 绘画提示词用的 LLM 与模板不在这里填 —— 那是「批量生成提示词」弹窗的事，
  * 上次选择仍记在 `AssetGenConfig.promptModelId / promptTemplateId`，保存时原样带回去，不被本抽屉清空。
  * 共用属性随「保存配置」一次性写回（不再边改边写），避免取消时已经落库。
  */
 import { computed, reactive, ref, watch } from 'vue'
-import type { AssetGenConfig, ModelConfig, PromptTemplate, SharedPromptBlock } from '@comic/types'
+import type { AssetGenConfig, LongProjectAssetType, ModelConfig, PromptTemplate, SharedPromptBlock } from '@comic/types'
 import { comicDb } from '@/api/comic'
 import { processImage, type ImageStorageMode } from '@comic/services/uploadService'
 import { useToast } from '@comic/composables/useToast'
 import ImagePreviewModal from '@comic/components/ImagePreviewModal.vue'
 import BlockCard from '@comic/components/SharedPromptBlockCard.vue'
+import { LAYOUT_SPEC_FIELDS, RECOMMENDED_LAYOUT_SPECS } from '@comic/services/assetLayoutSpecs'
 import { computeBlockImageNumbers, createEmptyBlock, getBlocksByPosition, getSharedRefImages, reindexBlockSortOrders } from '@comic/utils/sharedBlocks'
 
 interface Props {
@@ -265,13 +285,15 @@ const config = reactive<AssetGenConfig>({
   resolution: '',
   quality: '',
   sharedBlocks: [],
+  layoutPrompts: undefined,
   concurrency: 1,
 })
 
-const activeTab = ref<'model' | 'blocks'>('model')
+const activeTab = ref<'model' | 'blocks' | 'layout'>('model')
 const tabs = [
   { key: 'model' as const, label: '绘画模型' },
   { key: 'blocks' as const, label: '共用属性' },
+  { key: 'layout' as const, label: '版式' },
 ]
 
 /** 模型支持范围：逗号分隔字符串拆成选项，与分镜绘图配置同一口径。 */
@@ -302,9 +324,15 @@ watch(() => props.modelValue, (visible) => {
     resolution: '',
     quality: '',
     sharedBlocks: [],
+    layoutPrompts: undefined,
     concurrency: 1,
   }, props.config)
   config.sharedBlocks = JSON.parse(JSON.stringify(props.config?.sharedBlocks ?? []))
+  // 版式同 sharedBlocks：必须显式按 props 重置，否则上一次打开的类型版式会残留。
+  // 「字段缺失 = 从没配过」→ 预填推荐版式（新建底稿，用户可见可改）；字段存在 → 一律以用户值为准。
+  config.layoutPrompts = props.config?.layoutPrompts
+    ? JSON.parse(JSON.stringify(props.config.layoutPrompts))
+    : { ...RECOMMENDED_LAYOUT_SPECS }
   // 模型已不存在：清空，避免保存一个失效的 id
   if (config.imageModelId && !props.imageModels.some((model) => model.id === config.imageModelId)) {
     config.imageModelId = ''
@@ -323,6 +351,30 @@ function handleSave() {
 function handleClose() {
   emit('update:modelValue', false)
 }
+
+// ========== 版式（按资产类型三段，与提示词模板分工：模板只写主体自身，版式在这里） ==========
+/**
+ * 版式草稿：读写都落在 `config.layoutPrompts` 上，不额外维护同步时机。
+ *
+ * ⚠️ 与「参考图用途」的语义**不同**：那边清空 = 回落内置默认文案；这边**清空 = 该类型不拼接版式**，
+ * 不回落推荐文本（推荐文本只作「字段缺失时首次预填」的底稿，不做内置兜底）。
+ *
+ * ⚠️ 抽屉里**没有**「填入推荐版式 / 清空」按钮（用户要求移除）：版式只能手改。
+ * `RECOMMENDED_LAYOUT_SPECS` 仍被上面「字段缺失 → 首次预填」使用；
+ * 用户若已清空并保存、想恢复推荐文本，从 `docs/资产设定图版式-生图配置版式tab.md` 整段复制。
+ */
+const layoutDraft = computed<Record<LongProjectAssetType, string>>({
+  get: () => ({
+    character: config.layoutPrompts?.character ?? '',
+    scene: config.layoutPrompts?.scene ?? '',
+    prop: config.layoutPrompts?.prop ?? '',
+  }),
+  set: (value) => {
+    config.layoutPrompts = { ...value }
+  },
+})
+
+const layoutFields = computed(() => LAYOUT_SPEC_FIELDS)
 
 // ========== 共用属性块编辑（资产自己的一份，随「保存配置」一起提交） ==========
 const styleTemplates = ref<PromptTemplate[]>([])

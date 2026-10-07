@@ -442,9 +442,16 @@ const pendingConfirm = computed(() => latestRun.value?.status === "completed");
 /**
  * 工作台资产：按章节引用过滤出本章相关的 variants（与分镜生成同一口径），
  * 顺序对齐「信息」审核页左列（人物 → 场景 → 道具，组内按本次提取的候选顺序）。
+ *
+ * ⚠️ 口径必须与「图片」tab（`selectedChapterAssets`）一致：**本章没有引用条目 = 本章没有资产**。
+ * 这里曾经有一条兜底：`if (!selectedChapterAssets.length) return 全项目 assets`，
+ * 后果是**从未做过资产提取的章节**（项目里新建但还没跑提取/确认的那一章）在生图工作台里
+ * 直接看到并可以操作**别章**的资产 —— 两个章节因此显示同一组数据，
+ * 且 tab 上的「提示词 x/y · 生成图 x/y」进度也串成了别章的。
+ * 零引用章节必须走空态（见 LongProjectAssetWorkbench），由用户先去「信息」页提取并确认。
+ * 通用判定：**按章节归属的数据一律没有「回退全量」这条兜底**。
  */
 const workbenchAssets = computed(() => {
-  if (!selectedChapterAssets.value.length) return sortAssetsByExtractionOrder(props.assets, latestRun.value);
   const filtered = props.assets.flatMap((asset) => {
     const entries = selectedChapterAssets.value.filter((entry) => entry.assetId === asset.id);
     if (!entries.length) return [];

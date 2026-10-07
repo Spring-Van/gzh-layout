@@ -154,9 +154,15 @@ export function buildSingleAssetPrompt(options: {
   targetImageModel?: string
 }): string {
   const { asset, variant } = options
+  // 属性与批量路径同口径（前 8 项）：人物的「气质」就在这里，单条重写也必须看得到，
+  // 否则批量与逐条两条路径拿到的事实不一致（历史坑：单条路径不读 attributes）。
+  const attrs = Object.entries(asset.attributes ?? {})
+    .slice(0, 8)
+    .map(([key, value]) => `${key}：${Array.isArray(value) ? value.join('、') : value}`)
+    .join('；')
   const info = `- 资产：${asset.name}（${typeLabel[asset.type] ?? asset.type}）
 - 资产描述：${asset.description || '无'}
-- 固定特征：${asset.fixedTraits.join('、') || '无'}
+- 固定特征：${asset.fixedTraits.join('、') || '无'}${attrs ? `\n- 属性：${attrs}` : ''}
 - 视觉状态：${variant.name}
 - 视觉描述：${variant.description || '无'}`
   if (options.templateContent) {
@@ -179,9 +185,11 @@ ${options.styleContext ? `\n【风格上下文】\n${options.styleContext}` : ''
 ${options.instruction ? `\n【用户要求】\n${options.instruction}` : ''}
 
 【写作要求】
-- 每段提示词为一段完整、连贯的中文描述，不要分点；
-- 包含外观与体型、服饰与材质、姿态或氛围，结尾附上画风要求；
-- 不要出现镜头语言，不要编造与给定信息冲突的细节。
+- 写成一份完整的资产设定描述：给定信息原样保留；笼统或没写、不补就画不出来的维度（颜色、材质、款式、尺寸、磨损质感等）补全到可画精度，不留「某色」「某种材质」这类空档；
+- 人物按「性别 → 年龄 → 身高体型 → 外貌特征（含颧骨、下颌与面部张力）→ 识别锚点 → 详细服装」六层写全，每件衣服给全款式＋颜色＋材质＋版型＋装饰细节；给定信息里有「气质」时把它落成看得见的静态生理结构——眉眼舒展度、眉头间距、唇角平直或微扬、咬肌与下颌松紧、目光状态（如清冷克制 → 眉眼间距舒展、眉头平直不聚、唇角自然平直、下颌放松、目光平稳疏离），不写成情绪、表情动作或台词；场景写空间类型与用途、时代与地域、尺度与结构、材质、固定物件位置与光线；道具写用途、各面轮廓、尺寸参照、材质细节与磨损形态；
+- 一段完整、连贯的中文描述，不要分点、不要字段标题；
+- 不写版式与画格分工、背景与打光方式、画风与画质词、媒介质感词（纸张颗粒、网点、笔触这类）、姿态与手部动作、镜头机位——这些由生图配置的共用属性与「版式」设置在生图前统一拼接；**结尾不要给每条都挂同一句质感标签**（各条一个样、且与共用属性重复）；
+- 补全不得与给定信息冲突，也不得改变时代、地域与身份。
 
 【返回格式】
 ${ASSET_PROMPT_FORMAT}`

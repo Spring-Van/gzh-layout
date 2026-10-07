@@ -468,6 +468,18 @@ export interface AssetGenConfig {
    * 与分镜 `ImageGenConfig.sharedBlocks` **不是同一份数据**：改这边不会动分镜绘图配置，反之亦然。
    */
   sharedBlocks?: SharedPromptBlock[]
+  /**
+   * 设定图版式，按资产类型三段（人物 / 场景 / 道具），生图前拼在
+   * **共用属性（插入最前）之后、绘画提示词之前**。
+   *
+   * **只在资生产图侧生效**：分镜绘图配置没有这个字段，`composeFinalPrompt` 也不读它。
+   * 留空 = 该类型不拼接版式（**不回落内置兜底**，清空即不要版式）；
+   * 推荐文本见 `services/assetLayoutSpecs.ts`，配置抽屉的「填入推荐版式」一键填人。
+   *
+   * ⚠️ 这里是**纯文字**，不挂参考图、不参与 `getSharedRefImages` 的图号计算 ——
+   * 因此按类型分段**不会**造成「文字里的图N 与实际发送的图错位」。
+   */
+  layoutPrompts?: Partial<Record<LongProjectAssetType, string>>
   /** 批量生图并发数 */
   concurrency?: number
 }

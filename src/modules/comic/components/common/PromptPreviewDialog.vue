@@ -17,9 +17,9 @@
         <footer class="flex shrink-0 items-center justify-between border-t border-border-subtle px-5 py-3">
           <p class="text-xs text-text-muted">{{ content.length.toLocaleString() }} 个字符</p>
           <div class="flex items-center gap-3">
-            <button class="secondary-button" title="复制最终提示词，可粘贴到外部 AI 生成" @click="copyContent"><Copy :size="14" />复制提示词</button>
-            <button class="secondary-button" title="粘贴外部 AI 生成的结果，解析后导入（与内置大模型同一落库/解析流程）" @click="emit('import')"><ClipboardPaste :size="14" />导入外部 AI 结果</button>
-            <button class="secondary-button" @click="emit('close')">取消</button>
+            <button class="secondary-button h-9 px-3 text-xs" title="复制最终提示词，可粘贴到外部 AI 生成" @click="copyContent"><Copy :size="14" />复制提示词</button>
+            <button class="secondary-button h-9 px-3 text-xs" title="粘贴外部 AI 生成的结果，解析后导入（与内置大模型同一落库/解析流程）" @click="emit('import')"><ClipboardPaste :size="14" />导入外部 AI 结果</button>
+            <button class="secondary-button h-9 px-3 text-xs" @click="emit('close')">取消</button>
             <button class="primary-button h-9 px-4 text-xs" :disabled="!content.trim()" @click="emit('confirm', content)">确认发送<ArrowRight :size="15" /></button>
           </div>
         </footer>

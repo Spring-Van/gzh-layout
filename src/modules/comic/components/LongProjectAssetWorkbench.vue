@@ -55,7 +55,7 @@
             <span class="shrink-0 text-[11px] text-text-muted">{{ item.asset.variants.length }}</span>
           </button>
         </template>
-        <p v-if="!visibleAssets.length" class="px-2 py-4 text-xs text-text-muted">{{ filterMissing ? '全部资产都已有参考图' : '本章暂无资产' }}</p>
+        <p v-if="!visibleAssets.length" class="px-2 py-4 text-xs text-text-muted">{{ !workAssets.length ? '本章暂无资产' : '全部资产都已有参考图' }}</p>
       </aside>
 
       <div v-if="selectedItem" class="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -118,7 +118,8 @@
       </div>
       <div v-else class="flex min-w-0 flex-1 flex-col items-center justify-center text-center">
         <Boxes :size="26" class="mb-3 text-text-muted" />
-        <p class="text-sm text-text-secondary">选择左侧资产查看视觉状态</p>
+        <p class="text-sm text-text-secondary">{{ workAssets.length ? '选择左侧资产查看视觉状态' : '本章暂无资产' }}</p>
+        <p v-if="!workAssets.length" class="mt-1.5 max-w-xs text-xs leading-5 text-text-muted">资产按章节归属：请先在「信息」页完成本章资产提取并确认，本章的视觉状态才会出现在这里。</p>
       </div>
     </div>
 
@@ -270,7 +271,8 @@ import { buildAssetPromptPrompt, buildSingleAssetPrompt, buildStyleContext, buil
 import { AssetPromptParseError, describeParseFailure, parseAssetPromptResponse, type AssetPromptParseDiagnostics } from '@comic/services/assetPromptParser'
 import type { AssetUsageIndex } from '@comic/services/assetUsageService'
 import { auditSceneRefSheetNeeds, formatSceneRefSheetReasons } from '@comic/services/sceneRefSheetNeeds'
-import type { AssetGenConfig, GenPromptSlot, LongProjectAsset, LongProjectAssetVariant, LongProjectChapterAsset, LongProjectStoryboardPanel, ModelConfig, PromptTemplate } from '@comic/types'
+import { resolveLayoutPrompt } from '@comic/services/assetLayoutSpecs'
+import type { AssetGenConfig, GenPromptSlot, LongProjectAsset, LongProjectAssetType, LongProjectAssetVariant, LongProjectChapterAsset, LongProjectStoryboardPanel, ModelConfig, PromptTemplate } from '@comic/types'
 
 interface Props {
   /** 本章涉及的资产（已按章节引用过滤出相关 variants） */
@@ -917,19 +919,24 @@ function activeGenSlot(variant: LongProjectAssetVariant): GenPromptSlot {
 
 // ========== 生图 ==========
 /**
- * 最终发送的生图提示词 = 共用属性（插入最前）+ 绘画提示词 + 共用属性（插入最后）。
- * 拼接逻辑与分镜生图相同，但共用属性取资产自己的 `assetGenConfig.sharedBlocks`，与分镜不互通；
+ * 最终发送的生图提示词 = 共用属性（插入最前）+ 本类型版式 + 绘画提示词 + 共用属性（插入最后）。
+ * 拼接逻辑与分镜生图相同，但共用属性和版式都取资产自己的 `assetGenConfig`（与分镜不互通）；
  * 「查看提示词」弹窗与实际发送共用此函数。
  *
+ * 版式按 `asset.type` 取（`assetGenConfig.layoutPrompts` 三段之一），空则不拼；
+ * 场景的「机位图」状态由 `resolveLayoutPrompt` 直接跳过（那条的九宫格版式写在提示词正文里）。
+ *
  * **只拼当前选中那条**：关掉它的「拼接共用属性」就前后置都不拼（对应的图也从 `genRefImages` 里剔除），
- * 否则提示词会指向一批根本没发出去的图。
+ * 否则提示词会指向一批根本没发出去的图。版式是纯文字、不挂图，因此**不受该开关影响**，
+ * 也不参与图号计算（图号口径一个字没变）。
  */
-function composeAssetPrompt(variant: LongProjectAssetVariant): string {
+function composeAssetPrompt(variant: LongProjectAssetVariant, type: LongProjectAssetType): string {
   const slot = activeGenSlot(variant)
-  if (!slotAttachShared(slot)) return (slot.text ?? '').trim()
+  const layout = resolveLayoutPrompt(props.assetGenConfig, type, variant.name)
+  if (!slotAttachShared(slot)) return [layout, (slot.text ?? '').trim()].map((part) => part.trim()).filter(Boolean).join('\n\n')
   const front = buildSharedBlockSection(assetSharedBlocks.value, 'front')
   const back = buildSharedBlockSection(assetSharedBlocks.value, 'back')
-  return [front, slot.text ?? '', back].map((part) => part.trim()).filter(Boolean).join('\n\n')
+  return [front, layout, slot.text ?? '', back].map((part) => part.trim()).filter(Boolean).join('\n\n')
 }
 
 /** 单张生成：用户上传的参考图作为参数发给模型，结果按比例进入生成预览区。 */
@@ -942,7 +949,7 @@ async function generateImage(asset: LongProjectAsset, variant: LongProjectAssetV
     const config = props.assetGenConfig ?? defaultGenConfig()
     const result = await imageGenerationService.generateWithModel(
       model,
-      composeAssetPrompt(variant),
+      composeAssetPrompt(variant, asset.type),
       genRefImages(variant),
       config.aspectRatio,
       config.resolution,
@@ -973,7 +980,7 @@ async function runBatchGen() {
     try {
       const result = await imageGenerationService.generateWithModel(
         model,
-        composeAssetPrompt(variant),
+        composeAssetPrompt(variant, asset.type),
         genRefImages(variant),
         config.aspectRatio,
         config.resolution,
@@ -1018,7 +1025,7 @@ function saveGenConfig(config: AssetGenConfig) {
 const finalPromptModalVisible = ref(false)
 const finalPromptModalCopied = ref(false)
 const finalPromptModalTarget = ref<{ asset: LongProjectAsset; variant: LongProjectAssetVariant } | null>(null)
-const finalPromptModalText = computed(() => (finalPromptModalTarget.value ? composeAssetPrompt(finalPromptModalTarget.value.variant) : ''))
+const finalPromptModalText = computed(() => (finalPromptModalTarget.value ? composeAssetPrompt(finalPromptModalTarget.value.variant, finalPromptModalTarget.value.asset.type) : ''))
 
 /** 查看某视觉状态拼接后的最终生图提示词（与 generateImage 发送内容同源）。 */
 function openPromptModal(asset: LongProjectAsset, variant: LongProjectAssetVariant) {

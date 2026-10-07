@@ -40,8 +40,8 @@
         <footer class="flex shrink-0 items-center justify-between border-t border-border-subtle px-5 py-3">
           <p class="text-xs text-text-muted">{{ content.length.toLocaleString() }} 个字符</p>
           <div class="flex items-center gap-3">
-            <button v-if="parse" class="secondary-button" :disabled="!content.trim() || parsing" @click="runParse"><LoaderCircle v-if="parsing" :size="14" class="animate-spin" />{{ parsing ? '解析中…' : '解析预览' }}</button>
-            <button class="secondary-button" @click="close">取消</button>
+            <button v-if="parse" class="secondary-button h-9 px-3 text-xs" :disabled="!content.trim() || parsing" @click="runParse"><LoaderCircle v-if="parsing" :size="14" class="animate-spin" />{{ parsing ? '解析中…' : '解析预览' }}</button>
+            <button class="secondary-button h-9 px-3 text-xs" @click="close">取消</button>
             <button
               class="primary-button h-9 px-4 text-xs"
               :disabled="!canConfirm || busy"

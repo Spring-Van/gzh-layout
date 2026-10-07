@@ -119,6 +119,25 @@ describe('builder 关键行为（切换渲染引擎后）', () => {
     expect(prompt).toContain('## 资产名｜状态名');
   });
 
+  // 2026-10-07：单条路径此前不读 attributes → 人物气质/身份在逐条重写时丢失，
+  // 与批量路径口径不一致。现在两条路径都带上属性（前 8 项同口径）。
+  it('资产单条：属性（含人物气质）与批量路径同口径传入', () => {
+    const prompt = buildSingleAssetPrompt({
+      asset: asset({ attributes: { 身份: '宗门弟子', 职业: '画师', 气质: '清冷、克制' } }),
+      variant: variant({ description: '外观描述' }),
+    });
+    expect(prompt).toContain('- 属性：身份：宗门弟子；职业：画师；气质：清冷、克制');
+    // 气质要落成静态生理结构，不许写成情绪（与 asset-prompt 模板同口径）
+    expect(prompt).toContain('看得见的静态生理结构');
+    expect(prompt).toContain('不写成情绪、表情动作或台词');
+    // 无属性时不出现空行，保持旧输出的干净形态
+    const plain = buildSingleAssetPrompt({
+      asset: asset(),
+      variant: variant({ description: '外观描述' }),
+    });
+    expect(plain).not.toContain('- 属性：');
+  });
+
   it('分镜单页 AI 优化：携带本页页块文本与剧本上下文，并复用分镜输出协议', () => {
     const block = [
       '【第1格】',

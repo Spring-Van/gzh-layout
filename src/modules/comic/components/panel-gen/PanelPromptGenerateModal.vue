@@ -96,19 +96,19 @@
                    一次性 = 复制整章提示词 / 导入外部结果按分镜对位；逐条 = 复制全章提示词 -->
               <button
                 v-if="prompt"
-                class="secondary-button"
+                class="secondary-button h-9 px-3 text-xs"
                 :disabled="busy"
                 :title="copyTitle"
                 @click="copyPrompt"
               ><Copy :size="14" />{{ copied ? '已复制 ✓' : copyTitle }}</button>
               <button
                 v-if="isChapter && prompt"
-                class="secondary-button"
+                class="secondary-button h-9 px-3 text-xs"
                 :disabled="busy"
                 title="粘贴外部 AI 生成的整章画面描述，按分镜标记对位写入各镜"
                 @click="emit('import')"
               ><ClipboardPaste :size="14" />导入外部 AI 结果</button>
-              <button class="secondary-button" :disabled="busy" @click="handleClose">取消</button>
+              <button class="secondary-button h-9 px-3 text-xs" :disabled="busy" @click="handleClose">取消</button>
               <button class="primary-button h-9 px-4 text-xs" :disabled="!canConfirm || busy" @click="handleConfirm">
                 <LoaderCircle v-if="busy" :size="15" class="animate-spin" />
                 开始推导

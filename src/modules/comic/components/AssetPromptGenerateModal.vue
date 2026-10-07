@@ -229,13 +229,13 @@
               <template v-if="allowSendMode">
                 <template v-if="!isPerItem">
                   <button
-                    class="secondary-button"
+                    class="secondary-button h-9 px-3 text-xs"
                     :disabled="running || !state.prompt.trim()"
                     title="复制整份清单提示词，可粘贴到外部 AI 执行"
                     @click="copyPrompt"
                   ><Copy :size="14" />{{ copied ? '已复制 ✓' : '复制提示词' }}</button>
                   <button
-                    class="secondary-button"
+                    class="secondary-button h-9 px-3 text-xs"
                     :disabled="running"
                     title="把外部 AI 按本清单生成的结果粘贴回来，按「资产名｜状态名」解析后进入结果核对流程"
                     @click="emit('import-request')"
@@ -243,13 +243,13 @@
                 </template>
                 <template v-else>
                   <button
-                    class="secondary-button"
+                    class="secondary-button h-9 px-3 text-xs"
                     :disabled="running || !activeItem?.text.trim()"
                     title="复制当前选中视觉状态的提示词，可粘贴到外部 AI 单条执行"
                     @click="copyActivePrompt"
                   ><Copy :size="14" />{{ copiedActive ? '已复制 ✓' : '复制本条提示词' }}</button>
                   <button
-                    class="secondary-button"
+                    class="secondary-button h-9 px-3 text-xs"
                     :disabled="running || !activeItem"
                     title="把外部 AI 为这一条生成的结果粘贴进来，直接填入当前条结果（无需「资产名｜状态名」标题）"
                     @click="perItemImportVisible = true"
@@ -257,7 +257,7 @@
                 </template>
               </template>
 
-              <button class="secondary-button" :disabled="running || saving" @click="handleClose">{{ started ? '关闭' : '取消' }}</button>
+              <button class="secondary-button h-9 px-3 text-xs" :disabled="running || saving" @click="handleClose">{{ started ? '关闭' : '取消' }}</button>
 
               <template v-if="started">
                 <!-- 只重跑失败/未完成项（逐条模式且有失败项时才出现） -->
@@ -314,8 +314,8 @@
                 直接关闭将丢弃这些结果，资产里原有的绘画提示词不会被改动。
               </p>
               <div class="mt-4 flex items-center justify-end gap-2">
-                <button class="secondary-button h-8 px-3 text-xs" @click="closeConfirmVisible = false">取消</button>
-                <button class="secondary-button h-8 px-3 text-xs" @click="closeWithoutFill">直接关闭</button>
+                <button class="secondary-button h-9 px-3 text-xs" @click="closeConfirmVisible = false">取消</button>
+                <button class="secondary-button h-9 px-3 text-xs" @click="closeWithoutFill">直接关闭</button>
                 <button class="primary-button h-9 px-4 text-xs" @click="fillAndClose">填充并关闭</button>
               </div>
             </div>

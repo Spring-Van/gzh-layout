@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   LONG_STORY_TEMPLATE_TYPES,
   OUTPUT_FORMAT_SPECS,
+  PANEL_BACKGROUND_RULES,
   PANEL_FLOAT_RULES,
   PANEL_LAYOUT_RULES,
+  PANEL_POV_RULES,
   PANEL_STRUCTURE_NAMES,
   PANEL_STRUCTURE_SEMANTICS,
   RECOMMENDED_TEMPLATES,
@@ -257,6 +259,52 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
     expect(format).toContain('伏笔埋设/伏笔回收/高潮');
   });
 
+  // 2026-10-07：爆款开头 + 章末留人（用户实报要求：把小说爆点前置吸引人、结尾留足悬念）
+  it('剧本模板：开场与收尾——爆点前置三禁、章末六类钩子、禁止收干净', () => {
+    const content = RECOMMENDED_TEMPLATES.script!.content;
+    const format = outputFormatSpec('script');
+
+    // 结构节与「先定两端」的流程步骤必须存在，否则模型仍从日常铺垫写起
+    expect(content).toContain('【开场与收尾】');
+    expect(content).toContain('先定两端，再写中间');
+    expect(content).toContain('连载内容的留人节奏');
+
+    // 开场：禁铺垫 + 允许前置
+    expect(content).toContain('开场——本章第一场的第一件事就要有冲击力');
+    expect(content).toContain('**禁止**用环境交代、天气、日常起居、人物出场介绍、身世与世界观说明开场');
+
+    // 前置的三条硬约束（缺任何一条都会出事：编造 / 剧透 / 资产状态错乱）
+    expect(content).toContain('不得新增原文没有的事件');
+    expect(content).toContain('只给入口，不给答案');
+    expect(content).toContain('不得跨越服装或时期的状态切换点');
+    expect(content).toContain('下游分镜无法判断该格该声明哪个资产状态');
+
+    // 章末：禁止收干净 + 六类钩子齐备 + 只调落点不调内容
+    expect(content).toContain('禁止把情绪收干净');
+    expect(content).toContain('不得只写「收束」');
+    for (const hook of ['危机降临', '真相前一秒', '反转暗示', '新威胁入场', '倒计时']) {
+      expect(content, `章末钩子缺少类型：${hook}`).toContain(hook);
+    }
+    expect(content).toContain('钩子**只调落点，不调内容**');
+    expect(content).toContain('平静之下最不对劲的那一处');
+    expect(content).toContain('必须是能画出来的具体动作、表情或画面');
+    expect(content).toContain('不写「气氛变得紧张」');
+
+    // 中段：每 3~5 场一个爆点
+    expect(content).toContain('每 3~5 场安排一次明确的信息爆点');
+
+    // 字段契约：钩子进字段表，且只在首尾两场出现（防退化成每场都挂一句的固定尾段）
+    expect(format).toContain('场景 / 钩子 / 剧情');
+    expect(format).toContain('钩子：**只有第 1 场与最后一场写，其余场景整行省略**');
+    expect(format).toContain('开场·前置');
+    expect(format).toContain('取自第 N 场');
+    expect(format).toContain('不揭示结果');
+    expect(format).toContain('开场·切入');
+    expect(format).toContain('危机降临/真相前一秒/反转暗示/新威胁入场/倒计时');
+    // 正文与格式段同源：两处都要有「只在首尾场」的约束
+    expect(content).toContain('只有第 1 场与最后一场写');
+  });
+
   it('分镜模板：旁白有来源/用量/字数/分配规则，音效要求写出可画的拟声词', () => {
     const content = RECOMMENDED_TEMPLATES.storyboard!.content;
     expect(content).toContain('【旁白怎么写】');
@@ -330,6 +378,12 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
       expect(content).toContain('页尾钩子');
       expect(content).toContain('不要把情绪收干净');
       expect(content).toContain('不改动也不删减给定的台词与旁白文字');
+      // 2026-10-07：章末页强化（本章最后一镜是追更/付费卡点，比普通页高一档）
+      expect(content).toContain('章末页强化');
+      expect(content).toContain('章末页要再高一档');
+      expect(content).toContain('清单里的最后一镜就是章末页');
+      expect(content).toContain('不要每页都上最强悬念');
+      expect(content).toContain('绝不允许在本页把情绪或事件收干净');
       // 跨镜延续时首格重复定位
       expect(content).toContain('本镜第一格必须重复定位信息');
       // 文字铁律：单泡字数 / 手写感笔迹 / 可读优先
@@ -343,6 +397,17 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
       expect(content).toContain('至少给 2 处不完美');
       expect(content).toContain('重复描述会互相打架');
     }
+    // 格式段硬约束（两份同源）：章末页 + 「不要把这句判断写进输出」（防变成新的固定尾段）
+    for (const type of ['panel-prompt', 'panel-prompt-chapter'] as const) {
+      const spec = outputFormatSpec(type);
+      expect(spec).toContain('章末页（本章最后一个分镜）的最后 1~2 格必须写成最强悬念');
+      expect(spec).toContain('禁止收束式画面（情绪落地、事情讲完、平静空镜）');
+      expect(spec).toContain('不要把这句判断写进输出');
+    }
+    // 分镜模板仍然不碰钩子：待在这里会触碰「备注被绑定扫描」的已知坑
+    const storyboard = RECOMMENDED_TEMPLATES.storyboard!.content;
+    expect(storyboard).not.toContain('章末页强化');
+    expect(storyboard).not.toContain('页尾钩子');
   });
 
   it('资产提取格式说明：三级标题结构与解析器对齐', () => {
@@ -415,20 +480,101 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
     expect(spec).toContain('「描述」必须写明');
     expect(spec).toContain('识别锚点');
     expect(spec).toContain('时代与地域');
+    // 2026-10-07 口径修正：不是「性格」，是「气质」（用户实报）。
+    // 拆成两处落点——基调词写资产级字段行，静态落点写「描述」第 3 维（面部张力）
+    expect(recommended).toContain('气质（人物专属）');
+    expect(recommended).toContain('气质必须在脸上看得见');
+    expect(recommended).toContain('气质三禁');
+    expect(recommended).toContain('场景与道具不写气质');
+    expect(recommended).toContain('不得混进状态「视觉描述」的外观项');
+    expect(spec).toContain('人物必须再补一行气质');
+    expect(spec).toContain('不得写进「视觉描述」');
+    // 「性格」这个词在资产模板里必须归零（口径已修正为气质）
+    expect(recommended).not.toContain('性格');
+    // 面部张力并入第 3 维，脸型维补颧骨与下颌（骨相可画性）
+    expect(recommended).toContain('五官特征与面部张力');
+    expect(recommended).toContain('颧骨的高低与位置');
+    expect(recommended).toContain('咬肌与下颌放松还是绷住');
+    // 人物差异矩阵：同章主要人物两两至少 5 维明显不同（防全员同脸）
+    expect(recommended).toContain('人物差异矩阵');
+    expect(recommended).toContain('至少 5 个维度');
+    expect(recommended).toContain('鹅蛋脸＋黑色直发＋大眼睛＋高鼻梁＋中性表情');
+    expect(recommended).toContain('撞脸或撞剪影');
+    // 脑补的取舍顺序（气质优先于骨相与配色）
+    expect(recommended).toContain('补全的取舍顺序');
+    expect(recommended).toContain('气质** → **识别锚点**');
   });
 
-  // 上游 novel-to-manga 对照补齐（2026-10-05）：道具设定版式 + 禁止项 + 去 AI 味
-  it('资产绘画提示词模板：道具设定版式、禁止项与去 AI 味', () => {
+  // 2026-10-07：模板重构成「资产设定稿」——清单给事实骨架，笼统/缺失维度补全到可画精度
+  it('资产绘画提示词模板：清单优先 + 脑补补全，人物六层维度写全', () => {
     const recommended = RECOMMENDED_TEMPLATES['asset-prompt']?.content ?? '';
-    // 三种版式齐备，道具从「单件展示」升级为「多视图设定版式」
-    expect(recommended).toContain('角色设定版式');
-    expect(recommended).toContain('空间全景版式');
-    expect(recommended).toContain('道具设定版式');
-    expect(recommended).not.toContain('单件展示版式');
-    expect(recommended).toContain('中性 18% 灰哑光背景');
-    expect(recommended).toContain('等距并排');
-    expect(recommended).toContain('不出现人物');
-    expect(recommended).toContain('不出现手持动作');
+    // 角色定位从「转译器」升级为「设定稿撰写者」
+    expect(recommended).toContain('资产设定稿撰写者');
+    expect(recommended).toContain('把设定补全成成稿');
+    // 清单四个字段各有归属，模型才知道读哪里（固定特征/属性字段此前从未在模板里说明过）
+    expect(recommended).toContain('【清单怎么读】');
+    for (const field of ['固定特征', '资产描述', '属性字段', '视觉描述']) {
+      expect(recommended, `清单字段说明缺失：${field}`).toContain(field);
+    }
+    expect(recommended).toContain('开头必写、逐字保留');
+    // 脑补补全三档分寸必须显式分级（用户要求：变量之外可自行设计出来）
+    expect(recommended).toContain('【清单优先，脑补补全】');
+    for (const tier of ['**必须补全**', '**克制补全**', '**禁止补全**']) {
+      expect(recommended, `补全分寸缺失：${tier}`).toContain(tier);
+    }
+    // 脑补的边界：零矛盾优先于丰富；强身份特征跨状态必须共用同一套取值
+    expect(recommended).toContain('零矛盾是底线');
+    expect(recommended).toContain('同一资产的所有状态必须共用同一套取值');
+    expect(recommended).toContain('跨状态一致');
+    expect(recommended).toContain('新增清单外实体');
+    // 人物六层维度（用户明确要求：性别、年龄、身高＋外貌特征＋详细服装）
+    for (const layer of ['性别与年龄段', '身高与体型', '外貌特征', '识别锚点', '详细服装', '妆造与长期配饰']) {
+      expect(recommended, `人物维度缺失：${layer}`).toContain(layer);
+    }
+    expect(recommended).toContain('款式＋颜色＋材质＋版型＋装饰细节');
+    expect(recommended).toContain('不许只写「一件外套」了事');
+    // 2026-10-07：气质要落成**看得见的静态生理结构**（眉眼/唇角/咬肌下颌/目光），不许写成情绪
+    expect(recommended).toContain('人物要带出气质');
+    expect(recommended).toContain('看得见的静态生理结构');
+    expect(recommended).toContain('咬肌与下颌');
+    expect(recommended).toContain('不是情绪');
+    expect(recommended).toContain('人物的「气质」也在这里');
+    expect(recommended).not.toContain('性格');
+    // 补全方案打架时的裁决顺序（照搬 character-casting-studio 的「气质优先」链）
+    expect(recommended).toContain('补全的取舍顺序');
+    expect(recommended).toContain('硬事实永远第一');
+    // 人物骨架的外貌特征层要含颧骨、下颌与面部张力
+    expect(recommended).toContain('颧骨高低与下颌线走向');
+    expect(recommended).toContain('面部张力（气质的落点）');
+    // 场景 / 道具的层次同样点全
+    for (const layer of ['空间类型与用途', '时代与地域', '尺度与结构', '使用痕迹', '各面差异', '尺寸与比例参照']) {
+      expect(recommended, `场景/道具维度缺失：${layer}`).toContain(layer);
+    }
+    // 旧口径「清单是唯一事实源、禁止编造」与新规则直接打架 → 必须归零
+    for (const stale of ['清单是唯一事实源', '清单没写的特征不要编造', '也不要为「更像真实」而补写', '最小必要补全']) {
+      expect(recommended, `旧口径残留：${stale}`).not.toContain(stale);
+    }
+    // 分工声明必须显式存在，模型才知道哪些内容不归它写
+    expect(recommended).toContain('【与共用属性、版式的分工】');
+    expect(recommended).toContain('A-POSE');
+    // 版式来自生图配置的「版式」设置（按资产类型三段），模板不再自己产出版式
+    expect(recommended).toContain('「版式」设置');
+    expect(recommended).toContain('「场景」版式会自动跳过这一条');
+    // 三类版式声明一律从模板移出（改由「版式」设置按类型拼接）
+    for (const banned of ['统一角色设定版式', '统一道具设定版式', '统一空间全景版式', 'establishing shot', '六段骨架', '单件展示版式', '中性 18% 灰哑光背景', '等距并排']) {
+      expect(recommended, `模板仍在输出版式声明：${banned}`).not.toContain(banned);
+    }
+    // 归属措辞不能再把版式/背景/打光说成「共用属性」的事——那是「版式」设置的职责，
+    // 写错会让模型误判边界（2026-10-06 修掉四处残留）
+    for (const stale of ['共用属性的版式块', '那是共用属性的事', '由共用属性给']) {
+      expect(recommended, `模板残留旧归属措辞：${stale}`).not.toContain(stale);
+    }
+    // 人物只写一次服装（不再为第 2/3/4 格重复同一套衣服）
+    expect(recommended).toContain('同一套服装只写一次');
+    // 越界项写进正文与自查
+    expect(recommended).toContain('姿态与手部动作');
+    expect(recommended).toContain('镜头机位');
+    expect(recommended).toContain('版式与画格排布');
     // 禁止项：不许写成固定尾段（用户反馈：每条提示词末尾都挂同一段通用禁令清单）
     expect(recommended).toContain('【禁止项】');
     expect(recommended).toContain('不许写成固定尾段');
@@ -438,19 +584,32 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
     expect(recommended).toContain('否定句合计');
     // 旧口径（逐条把通用禁令写进每条提示词）必须归零
     expect(recommended).not.toContain('必须逐条以否定句写进每条提示词');
-    // 必要条件改为并进版式声明
-    expect(recommended).toContain('画面只有本角色与四个画格');
     expect(recommended).toContain('无文字与水印');
-    // 去 AI 味：不完美注入（场景门槛更高，3 项）+ 媒介质感锚
+    // 去 AI 味：只剩不完美注入（场景门槛更高，3 项）
     expect(recommended).toContain('【去 AI 味】');
     expect(recommended).toContain('场景 ≥3 项');
-    expect(recommended).toContain('媒介质感锚');
-    // 「不写风格类负面提示词」与「版式声明里的画面内容描述例外」并存
+    // 2026-10-07：删除「每条带 1 个媒介质感锚」——用户实报：生成的每条末尾都是同一句
+    // 「带有轻微漫画杂志印刷质感」。媒介质感属全局画风，归共用属性；模板里只准有「不写」的禁令。
+    expect(recommended).not.toContain('媒介质感锚');
+    expect(recommended).toContain('不写媒介质感与画风词');
+    expect(recommended).toContain('去 AI 味的落点是主体自身的具体瑕疵');
+    // 禁令不能把「质感标签」原文抄回来（抄了模型就会照写）
+    expect(recommended).not.toContain('带有轻微漫画杂志印刷质感');
     expect(recommended).toContain('风格类负面提示词');
-    // 2026-10-05：场景两种版式（全景 establishing shot + 3×3 九宫格机位图）+ 六段骨架
-    expect(recommended).toContain('六段骨架');
-    expect(recommended).toContain('establishing shot');
-    expect(recommended).toContain('九宫格机位图版式');
+    // 角色设定只管当前环节
+    expect(recommended).not.toContain('外貌一致性的唯一锚');
+    expect(recommended).not.toContain('与后续漫画页质感一致');
+    // 格式段与正文同源：都声明「不写版式」，并给出机位图这一唯一例外
+    const spec = outputFormatSpec('asset-prompt');
+    expect(spec).toContain('版式与画格分工');
+    expect(spec).toContain('唯一例外');
+  });
+
+  // 2026-10-06：机位图是唯一仍由本环节输出版式的分支（板块里不放它，避免与场景全景版式同拼）
+  it('资产绘画提示词模板：机位图版式仍由本环节输出，人物/道具/场景默认版式一律不写', () => {
+    const recommended = RECOMMENDED_TEMPLATES['asset-prompt']?.content ?? '';
+    // 机位图版式全文保留（含 9 个机位语义与交付命名）
+    expect(recommended).toContain('统一机位图版式');
     expect(recommended).toContain('3×3 九宫格');
     expect(recommended).toContain('9 个互不重复的机位');
     for (const machine of ['高位俯视', '正面广角', '左前 45°', '右前 45°', '电影主机位', '反打机位', '内部向外', '侧面横向', '低机位']) {
@@ -458,48 +617,15 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
     }
     expect(recommended).toContain('标志物');
     expect(recommended).toContain('互相自洽');
-    // 时段变体只改光照、空间结构不变
     expect(recommended).toContain('只改光照');
-    // 视图标号仍要放行（否则九宫格/三视图的 1–9 标号被自己禁掉）——现在写在版式声明里
     expect(recommended).toContain('单字符数字标号');
-    expect(recommended).toContain('视图标号');
-    // 机位图交付命名固定，跨章复用同一套机位资料时靠它区分全景图
     expect(recommended).toContain('LOC-');
     expect(recommended).toContain('机位图.png');
-    // 角色设定只管当前环节
-    expect(recommended).not.toContain('外貌一致性的唯一锚');
-    expect(recommended).not.toContain('与后续漫画页质感一致');
-  });
-
-  // 2026-10-05：人物四联设定图 —— 整张图只保留一处高分辨率人脸（参考图可读性的关键）
-  it('资产绘画提示词模板：人物四联设定图只保留一处人脸，远景格裁掉头部', () => {
-    const recommended = RECOMMENDED_TEMPLATES['asset-prompt']?.content ?? '';
-    // 四联非等宽排版 + 第 1 格 2:3 竖幅
-    expect(recommended).toContain('四联角色设定图');
-    expect(recommended).toContain('1×4 非等宽');
-    expect(recommended).toContain('2:3 竖幅');
-    expect(recommended).toContain('宽度明显大于后三格');
-    // 核心机制：脸只出现一次，远景格把画幅让给服装
-    expect(recommended).toContain('整张图的脸只出现一次');
-    expect(recommended).toContain('头部完全在画幅之外');
-    expect(recommended).toContain('颈部中段以下开始');
-    expect(recommended).toContain('裁切至锁骨');
-    // 关键：必须告诉模型这是刻意的，否则它会「补全」头部
-    expect(recommended).toContain('刻意的版式');
-    expect(recommended).toContain('不是裁切失误');
-    expect(recommended).toContain('不要补画头部与五官');
-    // 第 4 格保留头部但背对镜头（后脑与发型背面资料）
-    expect(recommended).toContain('背对镜头、看不到脸');
-    // 影棚中性灰无缝背景 + 伦勃朗光（光线方向明确写死）
-    expect(recommended).toContain('无缝背景');
-    expect(recommended).toContain('伦勃朗光');
-    expect(recommended).toContain('45° 侧上方主光');
-    // 无文字无标注：旧版的「基础信息卡」「FRONT/SIDE/BACK 标志」已删除
-    expect(recommended).toContain('无文字、无标注');
-    expect(recommended).not.toContain('FRONT');
-    expect(recommended).not.toContain('附角色基础信息');
-    // 自查同步到新版式
-    expect(recommended).toContain('第 2／3 格头部在画幅之外');
+    expect(recommended).toContain('由本环节自己输出完整版式');
+    // 人物四联版式（参考图可读性的关键规则）已移出模板 → 这些措辞必须归零
+    for (const banned of ['四联角色设定图', '1×4 非等宽', '2:3 竖幅', '宽度明显大于后三格', '整张图的脸只出现一次', '头部完全在画幅之外', '颈部中段以下开始', '裁切至锁骨', '刻意的版式', '不是裁切失误', '不要补画头部与五官', '背对镜头、看不到脸', '无缝背景', '伦勃朗光', '45° 侧上方主光', '无文字、无标注', 'FRONT', '附角色基础信息']) {
+      expect(recommended, `人物版式仍在模板里：${banned}`).not.toContain(banned);
+    }
   });
 
   // 2026-10-05：两个模板的角色设定只处理当前环节，不描述后续管线
@@ -518,8 +644,8 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
     expect(extract).not.toContain('与其他状态差异');
     expect(outputFormatSpec('extract')).not.toContain('与其他状态差异');
     expect(outputFormatSpec('extract')).toContain('不得与其他状态作横向比较');
-    // 多视角禁令必须给机位图让路，否则两条规则互锁
-    expect(assetPrompt).toContain('多视图只在版式本身要求时出现');
+    // 多视图排布不归本环节写（机位图版式是唯一例外）
+    expect(assetPrompt).toContain('不写多视图排布');
   });
 
   // 2026-10-05 三轮收敛：格数上限放宽到 8 + 叙事页/连打页双模式 + 信息取舍（分镜层）
@@ -563,6 +689,40 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
     expect(content).toContain('连打页不超过 12 字');
     // 占比约束
     expect(content).toContain('全章建议 ≤ 20%');
+  });
+
+  // 2026-10-07：全章「台词 + 旁白」要能连读成一条故事线（叙事连贯）
+  it('分镜模板：叙事连贯——三类断层用衔接旁白过桥，主线落在文字上', () => {
+    const content = RECOMMENDED_TEMPLATES.storyboard!.content;
+    const spec = outputFormatSpec('storyboard');
+    // 新小节 + 判定标准
+    expect(content).toContain('【叙事连贯】');
+    expect(content).toContain('连起来，必须是一条能独立看懂的故事线');
+    // 三类断层（时间／地点／视角）必须用旁白过桥
+    expect(content).toContain('时间跨越');
+    expect(content).toContain('地点转移');
+    expect(content).toContain('视角切换');
+    expect(content).toContain('衔接旁白');
+    // 取材于剧本场景头、只交代跨度不写剧情
+    expect(content).toContain('取材只允许来自剧本的场景头');
+    expect(content).toContain('只交代跨度，不写剧情');
+    // 主线落在文字上 + 不许复述
+    expect(content).toContain('主线必须落在文字上');
+    expect(content).toContain('不许复述');
+    // 不是每页都写（防固定尾段）+ 自检不写进输出
+    expect(content).toContain('只在断层处补，不是每页都写');
+    expect(content).toContain('不要为了「连贯」给每一页挂一条旁白');
+    expect(content).toContain('不要写进任何一格的输出');
+    // 旁白两种职责 + 台词承载主线
+    expect(content).toContain('两种职责、两个来源');
+    expect(content).toContain('原文旁白');
+    expect(content).toContain('台词是故事主线的主要载体');
+    // 格式段（硬约束）与正文同源
+    expect(spec).toContain('连起来必须是一条能独立看懂的故事线');
+    expect(spec).toContain('不要把这条自检写进逐格输出行');
+    // 回归守卫：衔接旁白不引入分镜层「页尾钩子」
+    expect(content).not.toContain('页尾钩子');
+    expect(spec).not.toContain('页尾钩子');
   });
 
   // 2026-10-05 三轮收敛：画面描述层为连打页补节奏排布 + 气泡字数随格数收紧（两份同源）
@@ -626,9 +786,9 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
       expect(content).toContain('唯一允许出现的文字');
       expect(content).toContain('不得出现任何编号或序号');
       expect(content).toContain('水印、签名、作者名、页码');
-      // 禁止项
+      // 禁止项（2026-10-07：只禁「剧情角色」，给群众/背景让路）
       expect(content).toContain('【禁止项】');
-      expect(content).toContain('不得添加分镜之外的角色');
+      expect(content).toContain('不得添加分镜之外的**剧情角色**');
       expect(content).toContain('不得改动分镜声明的格数、格序、主格位置');
       // 写法原则（信噪比）
       expect(content).toContain('【写法原则】');
@@ -763,6 +923,65 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
       expect(content, `${type} 仍残留旧措辞`).not.toContain('可用一条细引导线');
       // 硬约束不得被要求逐格输出，否则又变成新的固定尾段
       expect(content, `${type} 的引导线约束会被逐格抄进提示词`).toContain('不要写进「表现元素：」行');
+    }
+  });
+
+  // 2026-10-07 用户实报三件事（画面描述层）：
+  // ① 只写「人物低头看手机」→ 生图模型把手机屏幕翻向读者、屏幕内容也画出来：
+  //    一个镜头里不可能同时完成「看人」和「看屏幕」，模型只能把屏幕转过来。分镜层本来就要求
+  //    「看东西拆两格」，但画面描述层没有任何「物件背面朝外、内容另占 POV 格」的落地口径 → 补上。
+  // ② 没有场景的格留空 → 出来是纯色/虚化背景；群众也从来不写。
+  // ③ 分镜给足的旁白/台词被漏画 → 补一条「文字零遗漏」下限。
+  it('画面描述模板：主观视角、背景与群众补全、文字零遗漏（两份同源）', () => {
+    for (const type of ['panel-prompt', 'panel-prompt-chapter'] as const) {
+      const content = RECOMMENDED_TEMPLATES[type]!.content;
+      // 主观视角：与分镜层「看东西拆两格」配套，观看格只画背面/侧缘
+      expect(content, `${type} 未带上主观视角规则`).toContain(PANEL_POV_RULES);
+      expect(content).toContain('【主观视角】');
+      expect(content).toContain('物件只露背面或侧缘');
+      expect(content).toContain('屏幕内容、信纸字迹、书页图文一律不画');
+      expect(content).toContain('这一格不出现人物的脸和上半身');
+      // 不许自行加格——格数/格序由分镜锁定，加格会与页头结构名对不上
+      expect(content).toContain('分镜没给 POV 格时不许自己加格');
+
+      // 背景与群众：没有场景的格必须补，群众用群体词一笔带过
+      expect(content, `${type} 未带上背景与群众规则`).toContain(PANEL_BACKGROUND_RULES);
+      expect(content).toContain('【背景与群众】');
+      expect(content).toContain('禁止用「背景虚化」「纯色背景」「无背景」「留白」搪塞');
+      expect(content).toContain('群众是背景，不是角色');
+      expect(content).toContain('群众一律用**群体词**指代');
+      // 禁止项同步放开群众；旧口径「不得添加分镜之外的角色」与补背景直接打架，必须归零
+      expect(content).toContain('不得添加分镜之外的**剧情角色**');
+      expect(content).toContain('不得给群众与路人起名号');
+      expect(content).not.toContain('不得添加分镜之外的角色、道具或场景元素');
+
+      // 文字零遗漏：给定几条就写几条，交付前清点
+      expect(content).toContain('给定了几条就输出几条「文字元素」条目');
+      expect(content).toContain('**交付前做一次文字清点**');
+      // 自检不得被逐格输出（否则又变成新的固定尾段）
+      expect(content).toContain('不要写进输出');
+      // 旧口径归零：允许按情境补背景之后，「不要补写原文没有的细节」不再成立
+      expect(content).not.toContain('不要补写原文没有的细节');
+      expect(content).toContain('不要补写原文没有的**剧情**');
+      // 第 4 条指向新小节，避免两条 POV 口径各说各话
+      expect(content).toContain('POV 内容单独成格（细则见【主观视角】）');
+    }
+
+    // 分镜层：POV 拆格是分镜的职责（画面描述不能加格），硬约束与正文同步
+    const storyboard = RECOMMENDED_TEMPLATES.storyboard!.content;
+    expect(storyboard).toContain('一格「看的动作」');
+    expect(storyboard).toContain('一格「看到的内容」');
+    expect(storyboard).not.toContain('同时读者也要看到内容');
+    const storyboardSpec = outputFormatSpec('storyboard');
+    expect(storyboardSpec).toContain('画面只写内容物正面特写');
+    expect(storyboardSpec).toContain('不要把这条判断写进输出');
+
+    // 画面描述格式段（硬约束层）：三件事都要有
+    for (const type of ['panel-prompt', 'panel-prompt-chapter'] as const) {
+      const format = outputFormatSpec(type);
+      expect(format).toContain('给定了几条就写几条，一条不少、一字不改');
+      expect(format).toContain('没有给出场景的格必须自己补出写实背景');
+      expect(format).toContain('观看格只画物件背面或侧缘、不画内容物正面');
     }
   });
 });
