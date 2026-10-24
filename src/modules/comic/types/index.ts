@@ -135,6 +135,16 @@ export interface LongProjectAssetVariant {
    */
   referenceImageIds: string[]
   /**
+   * 参考描述（2026-10-24）：从资产库选图时一并写的话术，说明这几张图该怎么用
+   * （典型：「图2 只取脸，发型严格照参考」）。
+   *
+   * 生图时由 `buildRefNoteSection` 渲染成一段，标题按资产类型给
+   * （人物＝`【人物角色一致性】`、场景＝`【场景一致性】`、道具＝`【道具一致性】`，见 `assetSectionTitles`），
+   * 拼在**共用属性（插入最前）之后**；纯文字，不参与图号计算（图号由清单现算）。
+   * 存在状态上而不是配置里：不同状态选的参考图不同，话术也该各自管各自的。
+   */
+  referenceNote?: string
+  /**
    * 可切换的多条候选提示词；选中哪条（`activeGenPromptId`）就发哪条。
    * 为空表示还没建过条 —— 界面按「一条默认槽」展示，正文取 `imagePrompt`。
    */
@@ -470,7 +480,7 @@ export interface AssetGenConfig {
   sharedBlocks?: SharedPromptBlock[]
   /**
    * 设定图版式，按资产类型三段（人物 / 场景 / 道具），生图前拼在
-   * **共用属性（插入最前）之后、绘画提示词之前**。
+   * **共用属性（插入最前）与参考描述之后、绘画提示词之前**，套 `【人物版式】` 之类标签。
    *
    * **只在资生产图侧生效**：分镜绘图配置没有这个字段，`composeFinalPrompt` 也不读它。
    * 留空 = 该类型不拼接版式（**不回落内置兜底**，清空即不要版式）；

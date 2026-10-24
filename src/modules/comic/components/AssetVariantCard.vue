@@ -151,13 +151,24 @@
         <!-- 资产库选择：从项目资产图勾选追加为参考图 -->
         <button
           class="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-border-subtle text-[11px] text-text-muted transition-colors hover:border-cyan-500/50 hover:text-cyan-400"
-          title="从项目资产库选择图片作为参考图"
+          title="从项目资产库选择图片作为参考图（弹窗里可同时写「参考描述」）"
           @click="$emit('pick-images', variant)"
         >
           <Images :size="18" />
           <span>从资产选择</span>
         </button>
       </div>
+      <!-- 参考描述：选图时一并写的用途话术，生图时拼在共用属性（插入最前）之后。
+           有值才显示，点一下回到选图弹窗里改。 -->
+      <button
+        v-if="variant.referenceNote?.trim()"
+        class="flex w-full items-start gap-1.5 rounded-md border border-border-subtle bg-elevated/60 px-2 py-1.5 text-left text-[11px] leading-4 text-text-muted transition-colors hover:border-border-strong hover:text-text-secondary"
+        title="参考描述：生图时拼在共用属性之后；点击修改"
+        @click="$emit('pick-images', variant)"
+      >
+        <FileText :size="12" class="mt-0.5 shrink-0" />
+        <span class="line-clamp-2 whitespace-pre-line">{{ variant.referenceNote }}</span>
+      </button>
     </div>
 
     <!-- 当前资产区：本视觉状态的成品图（AI 生成 / 自行上传 / 引用其他章节的已生成图），按原始比例瀑布流展示 -->

@@ -582,7 +582,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from "vue";
+import { ref, reactive, computed, watch, onMounted } from "vue";
 import type {
   ModelConfig,
   PromptTemplate,
@@ -624,19 +624,28 @@ const emit = defineEmits<{
 const config = ref<ImageGenConfig>(migrateLegacyImageGenConfig(null));
 
 /**
- * 参考图用途描述草稿：读写都落在 `config.refUsage` 上，不额外维护同步时机。
+ * 参考图用途描述草稿：真正可写的 reactive 对象，打开抽屉时从 `config.refUsage` 初始化，
+ * 点「保存」时才写回 `config.refUsage`（取消即丢弃）。
  * 清空输入 = 该类型回到内置默认（`resolveRefUsageTemplate` 遇空串继续向下回落）。
+ *
+ * ⚠️ 这里曾是 `computed({ get, set })`，模板 `v-model="refUsageDraft[field.type]"`
+ * 只会给 getter 返回的**临时对象**赋值，永远走不到 setter —— 手改内容静默丢失，
+ * 保存后 `refUsage` 仍是打开时的值（表现为「改了没保存，再进来还是旧值」）。
+ * 凡是「computed 返回对象 + 模板对它的属性 v-model」都是同一个坑，别再用这种写法。
  */
-const refUsageDraft = computed<Record<LongProjectAssetType, string>>({
-  get: () => ({
-    character: config.value.refUsage?.character ?? "",
-    scene: config.value.refUsage?.scene ?? "",
-    prop: config.value.refUsage?.prop ?? "",
-  }),
-  set: (value) => {
-    config.value = { ...config.value, refUsage: { ...value } };
-  },
+const refUsageDraft = reactive<Record<LongProjectAssetType, string>>({
+  character: "",
+  scene: "",
+  prop: "",
 });
+
+/** 按当前 `config.refUsage` 重置草稿（抽屉复用，不重置会残留上一次的值）。 */
+function resetRefUsageDraft() {
+  const source = config.value.refUsage;
+  refUsageDraft.character = source?.character ?? "";
+  refUsageDraft.scene = source?.scene ?? "";
+  refUsageDraft.prop = source?.prop ?? "";
+}
 
 /** 三个可编辑的类型，「恢复默认」按钮 = 清空（回落内置默认文案）。 */
 const refUsageFields = computed(() => [
@@ -645,8 +654,25 @@ const refUsageFields = computed(() => [
   { type: "prop" as const, label: "道具", placeholder: DEFAULT_REF_USAGE.prop },
 ]);
 
+/** 恢复默认：清掉配置值，草稿同步清空（否则输入框里还留着刚被重置掉的旧文案）。 */
 function resetRefUsage() {
   config.value = { ...config.value, refUsage: undefined };
+  resetRefUsageDraft();
+}
+
+/**
+ * 把参考图用途草稿合并进 config（任何「读 config 落库」的地方都要先过这里）。
+ * 三个都空 = 完全走内置默认，存 undefined，不留空壳对象。
+ */
+function mergeRefUsageDraft() {
+  const draftUsage = { ...refUsageDraft };
+  config.value = {
+    ...config.value,
+    refUsage:
+      draftUsage.character || draftUsage.scene || draftUsage.prop
+        ? draftUsage
+        : undefined,
+  };
 }
 
 const activeTab = ref<"model" | "blocks" | "refUsage">("model");
@@ -733,6 +759,7 @@ watch(
     if (!open) return;
     const migrated = migrateLegacyImageGenConfig(props.initialConfig);
     config.value = normalizeImageGenConfig(migrated);
+    resetRefUsageDraft();
 
     // 校验模型是否仍存在
     if (config.value.imageModelId) {
@@ -976,6 +1003,8 @@ const previewBlockImage = (blockId: string, idx: number) => {
  */
 const autoSaveConfig = async () => {
   if (!props.projectId) return;
+  // 自动保存也是「读 config 落库」：先把用途草稿合进来，别把用户刚改的文本丢掉
+  mergeRefUsageDraft();
   const plainConfig = JSON.parse(
     JSON.stringify(normalizeImageGenConfig(config.value)),
   ) as ImageGenConfig;
@@ -1024,6 +1053,7 @@ const applyProjectConfig = (project: {
 }) => {
   if (!project.imageGenConfig) return;
   config.value = migrateLegacyImageGenConfig(project.imageGenConfig);
+  resetRefUsageDraft();
   showProjectSelector.value = false;
   toast.success(`已同步项目「${project.name}」的绘图配置`);
 };
@@ -1050,6 +1080,8 @@ const save = () => {
     toast.warning("属性名不能为空");
     return;
   }
+  // 参考图用途草稿写回配置（否则改过的用途文本不会随着这次保存落库）
+  mergeRefUsageDraft();
   const finalConfig = normalizeImageGenConfig(config.value);
   emit("save", finalConfig);
   close();

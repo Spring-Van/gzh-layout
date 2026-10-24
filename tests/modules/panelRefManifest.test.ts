@@ -280,13 +280,18 @@ describe('composeFinalPrompt — 运行时最终拼接', () => {
 });
 
 describe('buildBlockText', () => {
-  it('三段式：属性名 / 图号行 / 描述正文，互不覆盖', () => {
+  it('三段式：属性名 / 图号行 / 描述正文，互不覆盖；只有标题套【】', () => {
     const block = blocks[1];
-    expect(buildBlockText(block, [1, 2], 'front')).toBe('绘画风格参考图\n图1、图2 = 绘画风格参考图。\n综合参考图像的画风');
+    expect(buildBlockText(block, [1, 2], 'front')).toBe('【绘画风格参考图】\n图1、图2 = 绘画风格参考图。\n综合参考图像的画风');
   });
 
   it('back 组不产生图号行', () => {
-    expect(buildBlockText(blocks[2], [], 'back')).toBe('后置条件\n不要出现水印');
+    expect(buildBlockText(blocks[2], [], 'back')).toBe('【后置条件】\n不要出现水印');
+  });
+
+  it('属性名为空时不产生空标签，也不产生「图1 = 。」这种半句话', () => {
+    const noName = { id: 'y', name: '', description: '只有正文', enableRefImages: true, referenceImages: [], insertPosition: 'front', sortOrder: 0 } as unknown as SharedPromptBlock;
+    expect(buildBlockText(noName, [1, 2], 'front')).toBe('只有正文');
   });
 
   it('无图无描述时整块跳过', () => {

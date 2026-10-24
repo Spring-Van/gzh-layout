@@ -43,7 +43,12 @@
     </button>
 
     <!-- 发送前确认：可临时修改最终提示词；「导入外部 AI 结果」经 import 事件交由父组件打开对应环节的导入弹窗 -->
-    <PromptPreviewDialog :visible="previewVisible" :content="previewContent" @update:content="previewContent = $event" @confirm="handleConfirm" @import="emit('import')" @close="previewVisible = false" />
+    <PromptPreviewDialog :visible="previewVisible" :content="previewContent" @update:content="previewContent = $event" @confirm="handleConfirm" @import="emit('import')" @close="previewVisible = false">
+      <!-- 环节自定义快捷操作（透传）：拿到正文与改写正文的方法；未提供插槽时不渲染任何内容 -->
+      <template #footer-extra="slotProps">
+        <slot name="preview-footer" v-bind="slotProps" />
+      </template>
+    </PromptPreviewDialog>
 
     <!-- 窄形态配置弹层：Teleport 到 body（逃离 overflow 裁剪），fixed 定位按按钮位置动态决定上/下弹 -->
     <Teleport to="body">
@@ -87,6 +92,8 @@
  * 点击弹层选择（Teleport 到 body 的 fixed 浮层，按按钮位置动态决定向上/向下弹，避免被 overflow 祖先裁剪）。
  * 点击执行时通过 buildPrompt 回调生成最终提示词；勾选"发送前确认"则先弹窗可编辑，
  * 确认或未勾选都以最终提示词触发 run 事件。抽取自长篇项目主页面，供四个管线环节复用。
+ * 弹窗底部 `preview-footer` 插槽（透传给 PromptPreviewDialog 的 footer-extra）供环节注入专属快捷操作，
+ * 当前用途：资产提取「本次不携带已有资产」。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ArrowRight, ChevronDown, LoaderCircle, SlidersHorizontal } from 'lucide-vue-next'

@@ -26,19 +26,6 @@
 
     <!-- 信息 tab：提取结果独立成页（主体：审核 / 提取中 / 失败 / 空态） -->
     <div v-if="view === 'info'" class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <!-- 无分镜提示（新管线下资产先于分镜提取，属正常路径）：出现次数按剧本文本统计 -->
-      <div v-if="!panels.length" class="flex shrink-0 items-start gap-2 border-b border-cyan-400/25 bg-cyan-400/10 px-4 py-2 text-xs text-cyan-300">
-        <Info :size="14" class="mt-0.5 shrink-0" />
-        <p>资产在分镜之前提取（新管线正常顺序）：基于原文（或剧本兜底）、分析与剧本上下文提取；候选出现次数按剧本文本统计，生成资产参考图后进入分镜。</p>
-      </div>
-
-      <!-- 本次结果还没确认：提示去确认，确认后可直接进生图工作台 -->
-      <div v-if="pendingConfirm" class="flex shrink-0 items-center gap-2 border-b border-amber-400/30 bg-amber-400/10 px-4 py-2 text-xs text-amber-700 dark:text-amber-300">
-        <AlertTriangle :size="14" class="mt-0.5 shrink-0" />
-        <p class="min-w-0 flex-1">本次识别的结果尚未确认，还没写入本章资产。核对/增删后点右上角「确认本章资产」，即可进入生图工作台生成提示词与参考图。</p>
-        <button class="shrink-0 rounded-md border border-amber-500/40 px-2 py-1 text-[11px] transition-colors hover:bg-amber-500/15" @click="emit('open-workbench')">去生图工作台</button>
-      </div>
-
       <LongProjectAssetExtractionReview
         v-if="latestRun && (latestRun.status === 'completed' || latestRun.status === 'confirmed')"
         :candidates="latestRun.candidates"
@@ -166,7 +153,8 @@
  * 生图工作台「资产」页签容器：三子 tab「信息 | 图片 | 生图工作台」。
  * - 信息：资产提取结果独立成页（主体为提取审核/加载/失败/空态）；
  *   提取操作区（PromptRunBar）与「确认本章资产」按钮经 #actions 插槽注入子 tab 行右侧，重试通过 retry-extraction 事件回调页面。
- * - 图片：本章资产浏览（LongProjectChapterAssets）。
+ * - 图片：本章成品图浏览（LongProjectChapterAssets）—— 只出已生成的图，按原比例瀑布流，单张可下载；
+ *   没有生成图的资产不出占位卡（不做建档，建档在信息 tab）。
  * - 生图工作台：资产视觉状态的提示词/参考图生产，批量操作按钮经 #actions 插槽注入子 tab 行右侧。
  * 工作台进度（提示词/生成图）以小字收纳在「生图工作台」tab 标签上。
  * 提取底稿 = 章节原文（无原文时以漫画剧本兜底，页面顶栏提示）；
@@ -178,7 +166,7 @@
  */
 import { computed, ref } from "vue";
 import { v4 as uuidv4 } from "uuid";
-import { AlertTriangle, FileText, Images, Info, LoaderCircle, MapPin, Package, Palette, Plus, ScanText, UserRound } from "lucide-vue-next";
+import { FileText, Images, LoaderCircle, MapPin, Package, Palette, Plus, ScanText, UserRound } from "lucide-vue-next";
 import LongProjectAssetExtractionReview from "@comic/components/LongProjectAssetExtractionReview.vue";
 import LongProjectChapterAssets from "@comic/components/LongProjectChapterAssets.vue";
 import LongProjectAssetWorkbench from "@comic/components/LongProjectAssetWorkbench.vue";
@@ -237,8 +225,6 @@ const emit = defineEmits<{
   (e: "update:view", value: AssetView): void;
   /** 失败视图「重新提取」：由页面沿用上次提示词重跑。 */
   (e: "retry-extraction"): void;
-  /** 信息 tab 提示条「去生图工作台」：切到工作台子 tab。 */
-  (e: "open-workbench"): void;
 }>();
 
 const toast = useToast();
@@ -430,12 +416,6 @@ const chapterRuns = computed(() =>
 /** 信息 tab 固定展示本章最近一次提取 run（无需手动打开）。 */
 const latestRun = computed(() => chapterRuns.value[0] ?? null);
 const selectedChapterAssets = computed(() => props.chapterAssets.filter((entry) => entry.chapterId === props.chapter.id));
-
-/**
- * 本次识别结果尚未确认（有新结果没入库）：信息 tab 顶部给提示 + 去工作台的入口。
- * 只对「新跑/重新导入后还没确认」的 completed 状态成立；confirmed 表示已写库，不再提示。
- */
-const pendingConfirm = computed(() => latestRun.value?.status === "completed");
 
 // ========== 进度概览（tab 栏右侧 chips） ==========
 
@@ -777,6 +757,12 @@ defineExpose({
    * 允许重复执行；否则用户手改过候选后想再刷一遍绑定，就被迫重新跑一次提取。
    */
   canConfirmReview: computed(() => latestRun.value?.status === "completed" || latestRun.value?.status === "confirmed"),
+  /**
+   * 本次结果尚未确认（`completed` 且没写库）。
+   * 顶部那条「尚未确认…」提示条已去掉，待确认状态现在只靠顶栏按钮的醒目配色表达，
+   * 由 `LongProjectAssetTab` 读取本字段切换按钮样式。
+   */
+  reviewPending: computed(() => latestRun.value?.status === "completed"),
   /** 该结果是否已经确认过一次（确认按钮文案据此区分「确认 / 重新确认」）。 */
   reviewConfirmed: computed(() => latestRun.value?.status === "confirmed"),
   /** 信息 tab：确认本章资产（本次结果为准，唯一行为；调用方 await 后即可认为已写回）。 */

@@ -9,8 +9,18 @@
         class="px-3 py-1.5 rounded-lg text-sm font-medium bg-accent-gradient text-white hover:opacity-90 transition-opacity flex items-center gap-1.5"
         @click="showAddCategory = true"
       >
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+        <svg
+          class="w-4 h-4"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M12 4v16m8-8H4"
+          />
         </svg>
         新建分类
       </button>
@@ -19,7 +29,9 @@
     <!-- 主内容区 -->
     <main class="flex-1 flex overflow-hidden">
       <!-- 左侧分类列表 -->
-      <div class="w-64 shrink-0 border-r border-border-subtle bg-surface overflow-y-auto">
+      <div
+        class="w-64 shrink-0 border-r border-border-subtle bg-surface overflow-y-auto"
+      >
         <div class="p-4">
           <h3 class="text-sm font-semibold text-text-primary mb-3">分类</h3>
           <div class="space-y-1">
@@ -35,15 +47,27 @@
               @click="selectedCategoryId = cat.id"
             >
               <span class="truncate">{{ cat.name }}</span>
-              <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div
+                class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
                 <button
                   v-if="cat.id !== 'default'"
                   class="p-1 rounded hover:bg-white/10"
                   @click.stop="editCategory(cat)"
                   title="重命名"
                 >
-                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  <svg
+                    class="w-3 h-3"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                    />
                   </svg>
                 </button>
                 <button
@@ -52,8 +76,18 @@
                   @click.stop="deleteCategory(cat.id)"
                   title="删除"
                 >
-                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                  <svg
+                    class="w-3 h-3"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M6 18L18 6M6 6l12 12"
+                    />
                   </svg>
                 </button>
               </div>
@@ -85,8 +119,18 @@
               class="px-3 py-1.5 rounded-lg text-sm font-medium bg-accent-gradient text-white hover:opacity-90 transition-opacity flex items-center gap-1.5"
               @click="downloadSelected"
             >
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                />
               </svg>
               下载选中 ({{ selectedImages.size }})
             </button>
@@ -94,7 +138,10 @@
         </div>
 
         <!-- 图片瀑布流 -->
-        <div v-if="filteredImages.length > 0" class="columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-4 [column-fill:_balance]">
+        <div
+          v-if="filteredImages.length > 0"
+          class="columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-4 [column-fill:_balance]"
+        >
           <div
             v-for="img in filteredImages"
             :key="img.id"
@@ -107,22 +154,46 @@
             @click="toggleSelect(img.id)"
           >
             <img :src="img.url" class="w-full h-auto block" alt="" />
-            <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+            <div
+              class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity"
+            >
               <div class="absolute bottom-0 left-0 right-0 p-2">
-                <p class="text-xs text-white/80 truncate">{{ store.formatRelativeTime(img.createdAt) }}</p>
-                <p class="text-[10px] text-white/60 truncate mt-0.5">{{ img.modelName }}</p>
+                <p class="text-xs text-white/80 truncate">
+                  {{ store.formatRelativeTime(img.createdAt) }}
+                </p>
+                <p class="text-[10px] text-white/60 truncate mt-0.5">
+                  {{ img.modelName }}
+                </p>
               </div>
             </div>
             <!-- 右上角操作按钮组 -->
-            <div class="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" @click.stop>
+            <div
+              class="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+              @click.stop
+            >
               <button
                 class="w-7 h-7 rounded-full bg-black/50 backdrop-blur-sm text-white hover:bg-black/70 flex items-center justify-center transition-colors"
                 title="查看详情"
                 @click="openDetail(img)"
               >
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                <svg
+                  class="w-3.5 h-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                  />
                 </svg>
               </button>
               <button
@@ -130,8 +201,18 @@
                 title="复用提示词与参考图"
                 @click="reuseImage(img)"
               >
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                <svg
+                  class="w-3.5 h-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
                 </svg>
               </button>
               <button
@@ -139,8 +220,18 @@
                 title="作为参考图编辑"
                 @click="useAsReference(img)"
               >
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                <svg
+                  class="w-3.5 h-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                  />
                 </svg>
               </button>
             </div>
@@ -149,8 +240,18 @@
               v-if="selectedImages.has(img.id)"
               class="absolute top-2 left-2 w-6 h-6 rounded-full bg-cyan-500 flex items-center justify-center"
             >
-              <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              <svg
+                class="w-4 h-4 text-white"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M5 13l4 4L19 7"
+                />
               </svg>
             </div>
           </div>
@@ -158,8 +259,18 @@
 
         <!-- 空状态 -->
         <div v-else class="text-center py-20">
-          <svg class="w-16 h-16 mx-auto mb-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          <svg
+            class="w-16 h-16 mx-auto mb-4 text-text-muted"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+              d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+            />
           </svg>
           <p class="text-sm text-text-muted">该分类暂无图片</p>
           <button
@@ -178,7 +289,9 @@
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
       @click.self="showAddCategory = false"
     >
-      <div class="bg-surface border border-border-subtle rounded-xl w-[400px] max-w-[90vw] p-6">
+      <div
+        class="bg-surface border border-border-subtle rounded-xl w-[400px] max-w-[90vw] p-6"
+      >
         <h3 class="text-base font-semibold text-text-primary mb-4">新建分类</h3>
         <input
           v-model="newCategoryName"
@@ -210,8 +323,12 @@
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
       @click.self="showRenameCategory = false"
     >
-      <div class="bg-surface border border-border-subtle rounded-xl w-[400px] max-w-[90vw] p-6">
-        <h3 class="text-base font-semibold text-text-primary mb-4">重命名分类</h3>
+      <div
+        class="bg-surface border border-border-subtle rounded-xl w-[400px] max-w-[90vw] p-6"
+      >
+        <h3 class="text-base font-semibold text-text-primary mb-4">
+          重命名分类
+        </h3>
         <input
           v-model="renameCategoryName"
           type="text"
@@ -242,16 +359,30 @@
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
       @click.self="detailImage = null"
     >
-      <div class="bg-surface border border-border-subtle rounded-xl w-[760px] max-w-full max-h-[90vh] overflow-hidden flex flex-col">
+      <div
+        class="bg-surface border border-border-subtle rounded-xl w-[760px] max-w-full max-h-[90vh] overflow-hidden flex flex-col"
+      >
         <!-- 弹窗头部 -->
-        <div class="flex items-center justify-between px-5 py-3 border-b border-border-subtle shrink-0">
+        <div
+          class="flex items-center justify-between px-5 py-3 border-b border-border-subtle shrink-0"
+        >
           <h3 class="text-base font-semibold text-text-primary">图片详情</h3>
           <button
             class="p-1.5 rounded-lg text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
             @click="detailImage = null"
           >
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -260,16 +391,32 @@
         <div class="flex-1 overflow-y-auto p-5 flex flex-col md:flex-row gap-5">
           <!-- 左：图片 -->
           <div class="md:w-[360px] shrink-0">
-            <div class="rounded-lg overflow-hidden bg-elevated border border-border-subtle flex items-center justify-center">
-              <img :src="detailImage.url" class="w-full max-h-[420px] object-contain" alt="图片详情" />
+            <div
+              class="rounded-lg overflow-hidden bg-elevated border border-border-subtle flex items-center justify-center"
+            >
+              <img
+                :src="detailImage.url"
+                class="w-full max-h-[420px] object-contain"
+                alt="图片详情"
+              />
             </div>
             <div class="flex items-center gap-2 mt-3">
               <button
                 class="flex-1 py-2 rounded-lg text-xs font-medium border border-border-subtle text-text-secondary hover:text-text-primary hover:border-border-default transition-colors flex items-center justify-center gap-1.5"
                 @click="downloadImage(detailImage)"
               >
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                <svg
+                  class="w-3.5 h-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                  />
                 </svg>
                 下载
               </button>
@@ -277,8 +424,18 @@
                 class="flex-1 py-2 rounded-lg text-xs font-medium bg-accent-gradient text-white hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5"
                 @click="reuseImage(detailImage)"
               >
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                <svg
+                  class="w-3.5 h-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
                 </svg>
                 复用
               </button>
@@ -286,8 +443,18 @@
                 class="flex-1 py-2 rounded-lg text-xs font-medium bg-accent-gradient text-white hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5"
                 @click="useAsReference(detailImage)"
               >
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                <svg
+                  class="w-3.5 h-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                  />
                 </svg>
                 作为参考图
               </button>
@@ -298,14 +465,23 @@
           <div class="flex-1 min-w-0 space-y-4">
             <!-- 提示词 -->
             <div>
-              <h4 class="text-xs font-semibold text-text-secondary mb-1.5">提示词</h4>
-              <div class="bg-input-bg border border-border-subtle rounded-lg p-3 text-sm text-text-primary leading-relaxed max-h-40 overflow-y-auto whitespace-pre-wrap break-words">
-                {{ detailImage.prompt || '（无提示词）' }}
+              <h4 class="text-xs font-semibold text-text-secondary mb-1.5">
+                提示词
+              </h4>
+              <div
+                class="bg-input-bg border border-border-subtle rounded-lg p-3 text-sm text-text-primary leading-relaxed max-h-40 overflow-y-auto whitespace-pre-wrap break-words"
+              >
+                {{ detailImage.prompt || "（无提示词）" }}
               </div>
             </div>
 
             <!-- 参考图 -->
-            <div v-if="detailImage.referenceImages && detailImage.referenceImages.length > 0">
+            <div
+              v-if="
+                detailImage.referenceImages &&
+                detailImage.referenceImages.length > 0
+              "
+            >
               <h4 class="text-xs font-semibold text-text-secondary mb-1.5">
                 参考图 ({{ detailImage.referenceImages.length }})
               </h4>
@@ -315,7 +491,11 @@
                   :key="idx"
                   class="w-20 h-20 rounded-lg overflow-hidden border border-border-subtle"
                 >
-                  <img :src="refImg" class="w-full h-full object-cover" alt="参考图" />
+                  <img
+                    :src="refImg"
+                    class="w-full h-full object-cover"
+                    alt="参考图"
+                  />
                 </div>
               </div>
             </div>
@@ -328,7 +508,7 @@
                   class="text-xs text-accent hover:underline transition-colors"
                   @click="showDetailAddCategory = !showDetailAddCategory"
                 >
-                  {{ showDetailAddCategory ? '取消' : '+ 新建' }}
+                  {{ showDetailAddCategory ? "取消" : "+ 新建" }}
                 </button>
               </div>
               <!-- 新建分类输入 -->
@@ -367,21 +547,37 @@
 
             <!-- 参数信息 -->
             <div class="grid grid-cols-2 gap-3">
-              <div class="bg-input-bg border border-border-subtle rounded-lg p-3">
+              <div
+                class="bg-input-bg border border-border-subtle rounded-lg p-3"
+              >
                 <p class="text-xs text-text-muted mb-1">模型</p>
-                <p class="text-sm text-text-primary truncate">{{ detailImage.modelName }}</p>
+                <p class="text-sm text-text-primary truncate">
+                  {{ detailImage.modelName }}
+                </p>
               </div>
-              <div class="bg-input-bg border border-border-subtle rounded-lg p-3">
+              <div
+                class="bg-input-bg border border-border-subtle rounded-lg p-3"
+              >
                 <p class="text-xs text-text-muted mb-1">比例</p>
-                <p class="text-sm text-text-primary">{{ detailImage.aspectRatio || '-' }}</p>
+                <p class="text-sm text-text-primary">
+                  {{ detailImage.aspectRatio || "-" }}
+                </p>
               </div>
-              <div class="bg-input-bg border border-border-subtle rounded-lg p-3">
+              <div
+                class="bg-input-bg border border-border-subtle rounded-lg p-3"
+              >
                 <p class="text-xs text-text-muted mb-1">质量</p>
-                <p class="text-sm text-text-primary">{{ detailImage.quality || '-' }}</p>
+                <p class="text-sm text-text-primary">
+                  {{ detailImage.quality || "-" }}
+                </p>
               </div>
-              <div class="bg-input-bg border border-border-subtle rounded-lg p-3">
+              <div
+                class="bg-input-bg border border-border-subtle rounded-lg p-3"
+              >
                 <p class="text-xs text-text-muted mb-1">生成时间</p>
-                <p class="text-sm text-text-primary">{{ store.formatRelativeTime(detailImage.createdAt) }}</p>
+                <p class="text-sm text-text-primary">
+                  {{ store.formatRelativeTime(detailImage.createdAt) }}
+                </p>
               </div>
             </div>
           </div>
@@ -394,8 +590,18 @@
       v-if="toastMessage"
       class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-cyan-500/90 text-white text-sm px-4 py-2 rounded-xl shadow-lg backdrop-blur-sm flex items-center gap-2"
     >
-      <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+      <svg
+        class="w-4 h-4 shrink-0"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M5 13l4 4L19 7"
+        />
       </svg>
       {{ toastMessage }}
     </div>
@@ -403,151 +609,152 @@
 </template>
 
 <script setup lang="ts">
-defineOptions({ name: 'GalleryView' });
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { useImageStudioStore } from '@/stores/imageStudio'
-import type { GalleryCategory, GeneratedImage } from '@/stores/imageStudio'
+defineOptions({ name: "GalleryView" });
+import { ref, computed, onMounted } from "vue";
+import { useRouter } from "vue-router";
+import { useImageStudioStore } from "@/stores/imageStudio";
+import type { GalleryCategory, GeneratedImage } from "@/stores/imageStudio";
+import { downloadDirect } from "@/modules/comic/services/downloadService";
 
-const router = useRouter()
-const store = useImageStudioStore()
+const router = useRouter();
+const store = useImageStudioStore();
 
-const selectedCategoryId = ref('default')
-const selectedImages = ref(new Set<string>())
-const showAddCategory = ref(false)
-const showRenameCategory = ref(false)
-const newCategoryName = ref('')
-const renameCategoryName = ref('')
-const editingCategory = ref<GalleryCategory | null>(null)
-const detailImage = ref<GeneratedImage | null>(null)
-const showDetailAddCategory = ref(false)
-const detailNewCategoryName = ref('')
-const toastMessage = ref('')
-let toastTimer: ReturnType<typeof setTimeout> | null = null
+const selectedCategoryId = ref("default");
+const selectedImages = ref(new Set<string>());
+const showAddCategory = ref(false);
+const showRenameCategory = ref(false);
+const newCategoryName = ref("");
+const renameCategoryName = ref("");
+const editingCategory = ref<GalleryCategory | null>(null);
+const detailImage = ref<GeneratedImage | null>(null);
+const showDetailAddCategory = ref(false);
+const detailNewCategoryName = ref("");
+const toastMessage = ref("");
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 const currentCategoryName = computed(() => {
-  const cat = store.categories.find(c => c.id === selectedCategoryId.value)
-  return cat?.name || '未知分类'
-})
+  const cat = store.categories.find((c) => c.id === selectedCategoryId.value);
+  return cat?.name || "未知分类";
+});
 
 const filteredImages = computed(() => {
   return store.history
-    .filter(img => img.categoryIds.includes(selectedCategoryId.value))
-    .sort((a, b) => b.createdAt - a.createdAt)
-})
+    .filter((img) => img.categoryIds.includes(selectedCategoryId.value))
+    .sort((a, b) => b.createdAt - a.createdAt);
+});
 
 const toggleSelect = (imageId: string) => {
   if (selectedImages.value.has(imageId)) {
-    selectedImages.value.delete(imageId)
+    selectedImages.value.delete(imageId);
   } else {
-    selectedImages.value.add(imageId)
+    selectedImages.value.add(imageId);
   }
-}
+};
 
 const downloadSelected = async () => {
-  const images = store.history.filter(img => selectedImages.value.has(img.id))
+  const images = store.history.filter((img) =>
+    selectedImages.value.has(img.id),
+  );
   for (const img of images) {
-    const link = document.createElement('a')
-    link.href = img.url
-    link.download = `generated_${img.id}.png`
-    link.click()
-    await new Promise(resolve => setTimeout(resolve, 300))
+    // 逐张下载：走 blob 下载，避免直接跳转到 app-image:// 地址
+    await downloadDirect(img.url, `generated_${img.id}.png`);
+    await new Promise((resolve) => setTimeout(resolve, 300));
   }
-  selectedImages.value.clear()
-}
+  selectedImages.value.clear();
+};
 
 /** 显示短暂 toast */
 const showToast = (msg: string) => {
-  toastMessage.value = msg
-  if (toastTimer) clearTimeout(toastTimer)
+  toastMessage.value = msg;
+  if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
-    toastMessage.value = ''
-  }, 2000)
-}
+    toastMessage.value = "";
+  }, 2000);
+};
 
 /** 打开图片详情弹窗 */
 const openDetail = (img: GeneratedImage) => {
-  detailImage.value = img
-}
+  detailImage.value = img;
+};
 
-/** 下载单张图片 */
+/** 下载单张图片：走 blob 下载，避免把 app-image:// 私有协议地址直接交给 <a> 触发整页导航 */
 const downloadImage = (img: GeneratedImage) => {
-  const link = document.createElement('a')
-  link.href = img.url
-  link.download = `generated_${img.id}.png`
-  link.click()
-}
+  void downloadDirect(img.url, `generated_${img.id}.png`);
+};
 
 /** 复用提示词与参考图，跳转到生图工作台 */
 const reuseImage = (img: GeneratedImage) => {
-  store.reuseImage(img)
-  detailImage.value = null
-  showToast('已还原提示词与参考图')
-  setTimeout(() => router.push('/image-studio'), 400)
-}
+  store.reuseImage(img);
+  detailImage.value = null;
+  showToast("已还原提示词与参考图");
+  setTimeout(() => router.push("/image-studio"), 400);
+};
 
 /** 作为参考图，跳转到生图工作台 */
 const useAsReference = (img: GeneratedImage) => {
-  store.useAsReference(img)
-  detailImage.value = null
-  showToast('已加入参考图')
-  setTimeout(() => router.push('/image-studio'), 400)
-}
+  store.useAsReference(img);
+  detailImage.value = null;
+  showToast("已加入参考图");
+  setTimeout(() => router.push("/image-studio"), 400);
+};
 
 /** 切换详情图片的分类归属 */
 const toggleDetailCategory = (categoryId: string) => {
-  if (!detailImage.value) return
-  store.toggleImageCategory(detailImage.value.id, categoryId)
+  if (!detailImage.value) return;
+  store.toggleImageCategory(detailImage.value.id, categoryId);
   // 同步当前详情视图对象（history 内对象已被直接修改）
-  const updated = store.history.find(i => i.id === detailImage.value!.id)
-  if (updated) detailImage.value = { ...updated }
-}
+  const updated = store.history.find((i) => i.id === detailImage.value!.id);
+  if (updated) detailImage.value = { ...updated };
+};
 
 /** 在详情弹窗中新建分类并归入当前图片 */
 const confirmDetailAddCategory = () => {
-  const name = detailNewCategoryName.value.trim()
-  if (!name || !detailImage.value) return
-  const cat = store.addCategory(name)
-  store.toggleImageCategory(detailImage.value.id, cat.id)
-  const updated = store.history.find(i => i.id === detailImage.value!.id)
-  if (updated) detailImage.value = { ...updated }
-  detailNewCategoryName.value = ''
-  showDetailAddCategory.value = false
-}
+  const name = detailNewCategoryName.value.trim();
+  if (!name || !detailImage.value) return;
+  const cat = store.addCategory(name);
+  store.toggleImageCategory(detailImage.value.id, cat.id);
+  const updated = store.history.find((i) => i.id === detailImage.value!.id);
+  if (updated) detailImage.value = { ...updated };
+  detailNewCategoryName.value = "";
+  showDetailAddCategory.value = false;
+};
 
 const confirmAddCategory = () => {
   if (newCategoryName.value.trim()) {
-    store.addCategory(newCategoryName.value.trim())
-    newCategoryName.value = ''
-    showAddCategory.value = false
+    store.addCategory(newCategoryName.value.trim());
+    newCategoryName.value = "";
+    showAddCategory.value = false;
   }
-}
+};
 
 const editCategory = (cat: GalleryCategory) => {
-  editingCategory.value = cat
-  renameCategoryName.value = cat.name
-  showRenameCategory.value = true
-}
+  editingCategory.value = cat;
+  renameCategoryName.value = cat.name;
+  showRenameCategory.value = true;
+};
 
 const confirmRenameCategory = () => {
   if (editingCategory.value && renameCategoryName.value.trim()) {
-    store.renameCategory(editingCategory.value.id, renameCategoryName.value.trim())
-    renameCategoryName.value = ''
-    editingCategory.value = null
-    showRenameCategory.value = false
+    store.renameCategory(
+      editingCategory.value.id,
+      renameCategoryName.value.trim(),
+    );
+    renameCategoryName.value = "";
+    editingCategory.value = null;
+    showRenameCategory.value = false;
   }
-}
+};
 
 const deleteCategory = (id: string) => {
-  if (confirm('确定要删除这个分类吗？该分类下的图片不会被删除。')) {
-    store.deleteCategory(id)
+  if (confirm("确定要删除这个分类吗？该分类下的图片不会被删除。")) {
+    store.deleteCategory(id);
     if (selectedCategoryId.value === id) {
-      selectedCategoryId.value = 'default'
+      selectedCategoryId.value = "default";
     }
   }
-}
+};
 
 onMounted(async () => {
-  await Promise.all([store.loadModels(), store.loadHistory()])
-})
+  await Promise.all([store.loadModels(), store.loadHistory()]);
+});
 </script>

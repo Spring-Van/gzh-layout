@@ -1,4 +1,8 @@
+# pnpm v11 构建脚本审批表（原 onlyBuiltDependencies 已废弃，统一写这里）
+# ⚠️ 这三个包必须为 true：electron 的 postinstall 负责下载 Electron 二进制
+#    （node_modules/electron/dist + path.txt），置为 false 会导致 pnpm install 后
+#    应用启动直接报 "Electron failed to install correctly"。
 allowBuilds:
-  electron: false
-  esbuild: false
-  sharp: false
+  electron: true
+  esbuild: true
+  sharp: true

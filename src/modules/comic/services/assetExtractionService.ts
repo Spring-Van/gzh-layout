@@ -294,6 +294,13 @@ export interface AssetExtractionContext {
   script?: string
   /** 项目已有资产，用于状态名沿用与归属建议 */
   existingAssets?: LongProjectAsset[]
+  /**
+   * 明确声明「本次不携带已有资产」（重新提取时不想被上一次的识别结果影响）。
+   * 为 true 时 `{{已有资产}}` 段渲染成一句「当作全新资产识别」的说明，
+   * **不能**退化成 `emptyText`（「（项目暂无资产）」）—— 项目里明明有资产，会误导模型。
+   * 只影响提示词，不影响候选与已有资产的匹配（同名仍沿用原资产，避免跨章节出现重复人物）。
+   */
+  withoutExistingAssets?: boolean
 }
 
 /**
@@ -329,18 +336,20 @@ export function panelCastNames(panel: LongProjectStoryboardPanel): string[] {
  */
 export function buildAssetExtractionPrompt(templateContent: string, chapterContent: string, context: AssetExtractionContext = {}): string {
   const existingAssets = context.existingAssets ?? []
-  const existingAssetsText = existingAssets.length
-    ? existingAssets.map((asset) => {
-        const states = asset.variants.length
-          ? asset.variants.map((variant) => {
-              const oneLiner = variant.anchor || variant.description || ''
-              const brief = oneLiner.length > 30 ? `${oneLiner.slice(0, 30)}…` : oneLiner
-              return brief ? `${variant.name}（${brief}）` : variant.name
-            }).join('、')
-          : '无'
-        return `- ${asset.name}（${asset.type === 'character' ? '人物' : asset.type === 'scene' ? '场景' : '道具'}；已有视觉状态：${states}）`
-      }).join('\n')
-    : undefined
+  const existingAssetsText = context.withoutExistingAssets
+    ? '（本次不携带已有资产清单：请把本章出现的人物、场景、道具当作全新资产识别，不要沿用任何已有资产名或视觉状态名。）'
+    : existingAssets.length
+      ? existingAssets.map((asset) => {
+          const states = asset.variants.length
+            ? asset.variants.map((variant) => {
+                const oneLiner = variant.anchor || variant.description || ''
+                const brief = oneLiner.length > 30 ? `${oneLiner.slice(0, 30)}…` : oneLiner
+                return brief ? `${variant.name}（${brief}）` : variant.name
+              }).join('、')
+            : '无'
+          return `- ${asset.name}（${asset.type === 'character' ? '人物' : asset.type === 'scene' ? '场景' : '道具'}；已有视觉状态：${states}）`
+        }).join('\n')
+      : undefined
   return renderPromptTemplate({
     type: 'extract',
     content: templateContent.trim() || defaultTemplateContent('extract'),

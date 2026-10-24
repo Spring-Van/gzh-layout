@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildAnalysisPrompt, buildScriptPrompt } from '../../src/modules/comic/services/chapterDocService';
 import { buildStoryboardPrompt, buildPanelPolishPrompt } from '../../src/modules/comic/services/storyboardService';
 import { buildAssetExtractionPrompt } from '../../src/modules/comic/services/assetExtractionService';
-import { buildSingleAssetPrompt } from '../../src/modules/comic/services/assetPromptService';
+import { buildSingleAssetPrompt, buildTargetList } from '../../src/modules/comic/services/assetPromptService';
 import { buildPanelPromptPrompt } from '../../src/modules/comic/services/panelPromptService';
 import type { LongProjectAsset, LongProjectAssetVariant } from '../../src/modules/comic/types';
 
@@ -95,6 +95,21 @@ describe('builder 关键行为（切换渲染引擎后）', () => {
     expect(prompt).not.toContain('已有视觉状态');
   });
 
+  it('资产提取：不携带已有资产时清单整段消失，且不退化为「项目暂无资产」', () => {
+    const template = '提取资产。\n【已有资产】\n{{已有资产}}';
+    const carried = buildAssetExtractionPrompt(template, '第一章正文', { existingAssets: [asset()] });
+    expect(carried).toContain('角色C（人物；已有视觉状态：无）');
+
+    const skipped = buildAssetExtractionPrompt(template, '第一章正文', {
+      existingAssets: [asset()],
+      withoutExistingAssets: true,
+    });
+    expect(skipped).not.toContain('角色C');
+    // 项目里明明有资产，不能渲染成「（项目暂无资产）」误导模型
+    expect(skipped).not.toContain('项目暂无资产');
+    expect(skipped).toContain('当作全新资产识别');
+  });
+
   it('资产单条：逐条路径支持 {{目标生图模型}}，运行时不追加协议段', () => {
     const prompt = buildSingleAssetPrompt({
       asset: asset(),
@@ -127,15 +142,73 @@ describe('builder 关键行为（切换渲染引擎后）', () => {
       variant: variant({ description: '外观描述' }),
     });
     expect(prompt).toContain('- 属性：身份：宗门弟子；职业：画师；气质：清冷、克制');
-    // 气质要落成静态生理结构，不许写成情绪（与 asset-prompt 模板同口径）
-    expect(prompt).toContain('看得见的静态生理结构');
-    expect(prompt).toContain('不写成情绪、表情动作或台词');
+    // 单条兜底与批量模板同口径：字段直译、不重写、有字数上限
+    expect(prompt).toContain('直译，不重写');
+    expect(prompt).toContain('不出现字段键名');
+    expect(prompt).toContain('200~320 字');
     // 无属性时不出现空行，保持旧输出的干净形态
     const plain = buildSingleAssetPrompt({
       asset: asset(),
       variant: variant({ description: '外观描述' }),
     });
     expect(plain).not.toContain('- 属性：');
+  });
+
+  // 2026-10-24：老资产（字段化改造之前的散文数据）attributes 里没有「性别年龄／身高体型」，
+  // 而模板的默认规则是「清单没写的字段跳过」→ 生成的人像没有比例依据（用户实报：
+  // 输出只有「极度高瘦、窄肩」这类形容词）。所以输入侧必须显式标出缺项并说明可以换算。
+  it('资产绘画提示词：人物缺身份必填项时在清单里显式标出', () => {
+    const { text } = buildTargetList([
+      {
+        asset: asset({ name: '宋玉', description: '极度高瘦、窄肩、病态苍白', attributes: {} }),
+        variants: [variant({ name: '病中' })],
+      },
+    ]);
+    expect(text).toContain('性别年龄、身高体型');
+    expect(text).toContain('绝不猜');
+  });
+
+  // 2026-10-24 二次修正：只换算性别身高还不够——老资产连「脸型／眉眼／鼻唇／皮肤头发」都没有，
+  // 模板的「清单没写就跳过」会让输出只剩「常垂眼、薄唇」（用户实报）。骨相层缺字段必须推定写满。
+  it('资产绘画提示词：人物缺骨相字段时要求推定写满，且与换算区分开', () => {
+    const { text } = buildTargetList([
+      {
+        asset: asset({ name: '宋玉', description: '极度高瘦、窄肩、偏头', attributes: {} }),
+        variants: [variant({ name: '病中' })],
+      },
+    ]);
+    expect(text).toContain('【缺失项提示');
+    expect(text).toContain('脸型、眉眼、鼻唇、皮肤头发、面部张力');
+    expect(text).toContain('推定出一组协调值并写满');
+  });
+
+  it('资产绘画提示词：多状态只提示一次缺项，不按状态重复', () => {
+    const { text } = buildTargetList([
+      {
+        asset: asset({ name: '宋玉', attributes: {} }),
+        variants: [variant({ name: '初始' }), variant({ name: '病中' }), variant({ name: '康复' })],
+      },
+    ]);
+    const hits = text.split('面部张力——字段缺失').length - 1;
+    expect(hits).toBe(1);
+  });
+
+  it('资产绘画提示词：人物已有性别年龄与身高体型时不标缺项', () => {
+    const { text } = buildTargetList([
+      {
+        asset: asset({ attributes: { 性别年龄: '男·21±2', 身高体型: '172cm·6.5头身·中等·肩窄' } }),
+        variants: [variant()],
+      },
+    ]);
+    expect(text).not.toContain('缺失必填项');
+  });
+
+  it('资产绘画提示词：场景与道具不参与身份必填项检查', () => {
+    const { text } = buildTargetList([
+      { asset: asset({ type: 'scene', name: '教室', attributes: {} }), variants: [variant()] },
+      { asset: asset({ type: 'prop', name: '裁信刀', attributes: {} }), variants: [variant()] },
+    ]);
+    expect(text).not.toContain('缺失必填项');
   });
 
   it('分镜单页 AI 优化：携带本页页块文本与剧本上下文，并复用分镜输出协议', () => {

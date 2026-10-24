@@ -214,7 +214,7 @@
                 </svg>
                 <p class="text-xs leading-relaxed text-text-secondary">
                   配置保存到当前项目，只供资产生图使用，与分镜「绘图配置」互不影响。
-                  发送提示词 = 插入最前的属性 + 本类型版式 + 绘画提示词 + 插入最后的属性；参考图序号按属性顺序与上传顺序计算。
+                  发送提示词 = 插入最前的属性 + 参考描述 + 本类型版式 + 绘画提示词 + 插入最后的属性，每一段都带【】标签（图号行除外）；参考图序号按属性顺序与上传顺序计算。
                 </p>
               </div>
             </div>
@@ -225,6 +225,7 @@
             <button
               class="rounded-lg bg-accent-gradient px-5 py-2 text-sm font-medium text-white shadow-lg shadow-cyan-500/20 transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               :disabled="!config.imageModelId"
+              :title="config.imageModelId ? '保存配置' : '先在「绘画模型」里选一个生图模型才能保存'"
               @click="handleSave"
             >保存配置</button>
           </footer>
@@ -328,11 +329,12 @@ watch(() => props.modelValue, (visible) => {
     concurrency: 1,
   }, props.config)
   config.sharedBlocks = JSON.parse(JSON.stringify(props.config?.sharedBlocks ?? []))
-  // 版式同 sharedBlocks：必须显式按 props 重置，否则上一次打开的类型版式会残留。
+  // 版式：配置里保留一份克隆（保存时的基准），编辑草稿按它重置。
   // 「字段缺失 = 从没配过」→ 预填推荐版式（新建底稿，用户可见可改）；字段存在 → 一律以用户值为准。
   config.layoutPrompts = props.config?.layoutPrompts
     ? JSON.parse(JSON.stringify(props.config.layoutPrompts))
     : { ...RECOMMENDED_LAYOUT_SPECS }
+  resetLayoutDraft()
   // 模型已不存在：清空，避免保存一个失效的 id
   if (config.imageModelId && !props.imageModels.some((model) => model.id === config.imageModelId)) {
     config.imageModelId = ''
@@ -344,6 +346,8 @@ watch(() => props.modelValue, (visible) => {
 })
 
 function handleSave() {
+  // 版式草稿是独立的 reactive（见下方 layoutDraft），保存这一刻才写回配置。
+  config.layoutPrompts = { ...layoutDraft }
   emit('save', JSON.parse(JSON.stringify(config)) as AssetGenConfig)
   emit('update:modelValue', false)
 }
@@ -354,25 +358,38 @@ function handleClose() {
 
 // ========== 版式（按资产类型三段，与提示词模板分工：模板只写主体自身，版式在这里） ==========
 /**
- * 版式草稿：读写都落在 `config.layoutPrompts` 上，不额外维护同步时机。
+ * 版式草稿：真正可写的 reactive 对象，**打开抽屉时从 `config.layoutPrompts` 初始化**，
+ * 点「保存配置」时才写回 `config.layoutPrompts`（一次落库，取消即丢弃）。
+ *
+ * ⚠️ 这里曾是 `computed({ get, set })`，模板 `v-model="layoutDraft[field.type]"`
+ * 只会给 getter 返回的**临时对象**赋值，永远走不到 setter —— 编辑内容静默丢失，
+ * 保存后 `layoutPrompts` 仍是打开时的值（表现为「改了没保存，再进来还是默认」）。
+ * 凡是「computed 返回对象 + 模板对它的属性 v-model」都是同一个坑，别再用这种写法。
  *
  * ⚠️ 与「参考图用途」的语义**不同**：那边清空 = 回落内置默认文案；这边**清空 = 该类型不拼接版式**，
  * 不回落推荐文本（推荐文本只作「字段缺失时首次预填」的底稿，不做内置兜底）。
  *
  * ⚠️ 抽屉里**没有**「填入推荐版式 / 清空」按钮（用户要求移除）：版式只能手改。
- * `RECOMMENDED_LAYOUT_SPECS` 仍被上面「字段缺失 → 首次预填」使用；
+ * `RECOMMENDED_LAYOUT_SPECS` 仍被「字段缺失 → 首次预填」使用；
  * 用户若已清空并保存、想恢复推荐文本，从 `docs/资产设定图版式-生图配置版式tab.md` 整段复制。
  */
-const layoutDraft = computed<Record<LongProjectAssetType, string>>({
-  get: () => ({
-    character: config.layoutPrompts?.character ?? '',
-    scene: config.layoutPrompts?.scene ?? '',
-    prop: config.layoutPrompts?.prop ?? '',
-  }),
-  set: (value) => {
-    config.layoutPrompts = { ...value }
-  },
+const layoutDraft = reactive<Record<LongProjectAssetType, string>>({
+  character: '',
+  scene: '',
+  prop: '',
 })
+
+/**
+ * 按当前 `config.layoutPrompts` 重置版式草稿。
+ * 必须显式重置：抽屉是复用的，不重置就会把上一次打开的类型版式残留下来。
+ * 「字段缺失 = 从没配过」→ 预填推荐版式（新建底稿，用户可见可改）；字段存在 → 一律以用户值为准。
+ */
+function resetLayoutDraft() {
+  const source = config.layoutPrompts ?? RECOMMENDED_LAYOUT_SPECS
+  layoutDraft.character = source.character ?? ''
+  layoutDraft.scene = source.scene ?? ''
+  layoutDraft.prop = source.prop ?? ''
+}
 
 const layoutFields = computed(() => LAYOUT_SPEC_FIELDS)
 

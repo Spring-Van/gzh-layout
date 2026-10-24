@@ -99,7 +99,13 @@ export const downloadBatch = async (
 
 /**
  * 直接使用浏览器下载（无需服务器）
- * 适用于同源或支持 CORS 的图片
+ * 适用于同源或支持 CORS 的图片（如 app-image:// 已开放 CORS）
+ *
+ * 为什么必须先 fetch 成 blob：app-image:// 是应用私有协议，与页面不同源。
+ * 不同源地址交给 <a download> 时 download 属性会被忽略，浏览器会直接导航到该地址，
+ * 整个窗口变成一张脱离应用的图片（且无法返回），这正是「点下载却把图片放大、退不出去」的原因。
+ * 取回 blob 换成同源的 blob URL，download 才会真正生效。
+ *
  * @param url - 图片 URL
  * @param filename - 文件名
  */
@@ -116,10 +122,9 @@ export const downloadDirect = async (url: string, filename: string) => {
     link.click()
     document.body.removeChild(link)
 
-    URL.revokeObjectURL(blobUrl)
+    // 立即 revoke 会让大图来不及读取，等下载启动后再释放
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
   } catch (error) {
     console.error('直接下载失败:', error)
-    // 降级方案：新窗口打开
-    window.open(url, '_blank')
   }
 }

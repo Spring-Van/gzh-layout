@@ -159,9 +159,13 @@ export function computeBlockImageNumbers(
 }
 
 /**
- * 共用属性的中文拼装文本：`属性名` → `图N、图M = 属性名。` → 用户填写的描述正文。
+ * 共用属性的中文拼装文本：`【属性名】` → `图N、图M = 属性名。` → 用户填写的描述正文。
  *
  * 三段各自独立、互不覆盖：图号行由代码实时算（不落库），描述正文永远是用户手填内容。
+ *
+ * 🔴 **只有标题行套【】**（2026-10-24）：标题是段落标签，让模型分清
+ * 「这段是全局风格约束 / 版式声明 / 主体外貌」；图号行是一句归属陈述
+ * （`图1、图2 = 绘画风格。`），套上括号就变成双标签，读起来像又开了一个小节。
  *
  * @param block - 属性块
  * @param imageNumbers - 该块的全局图号（back 组传空数组）
@@ -178,8 +182,9 @@ export function buildBlockText(
   const description = block.description?.trim() || "";
   // 无属性名且无描述、也无图 → 整块跳过
   if (!name && !description) return "";
-  if (name) lines.push(name);
-  if (position === "front" && imageNumbers.length > 0) {
+  if (name) lines.push(`【${name}】`);
+  // 图号行是「图N = 属性名。」的归属陈述，没有属性名就没有句子可写
+  if (name && position === "front" && imageNumbers.length > 0) {
     lines.push(`${imageNumbers.map((n) => `图${n}`).join("、")} = ${name}。`);
   }
   if (description) lines.push(description);

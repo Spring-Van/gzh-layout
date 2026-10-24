@@ -12,6 +12,22 @@
 - **PowerShell 工具不返回 stdout**，重定向写出的是 UTF-16（Read 会判为二进制）：用 `| Out-File -Encoding utf8` 再 Read；汇总交给 node（`toString('utf8')` 失败再试 `utf16le`，去 ANSI 色码）。
 - 浏览器内验证用 Playwright（pnpm 严格布局，`require('playwright')` 找不到，要写 `node_modules/.pnpm/playwright@x/node_modules/playwright` 绝对路径）。
 
+## ⚠️ 2026-10-23：环境又回到 Windows（`X:\code\gzh-layout`）
+
+`pnpm` 在 PowerShell 里可用（`D:\Users\xiang\AppData\Roaming\nvm\node_global\pnpm.ps1`，v11.20.0），
+但 **bash 工具里 `pnpm` 不在 PATH** —— agent 里起开发环境直接用 `node_modules/.bin/vite` 即可。
+
+两个「起不来」的固定原因（按出现频率）：
+
+1. **Electron 二进制缺失** → 报 `Electron failed to install correctly`。
+   `pnpm-workspace.yaml` 的 `allowBuilds` 若把 `electron` 设成 `false`（pnpm 11 语义：显式**拒绝**执行构建脚本），
+   `pnpm install` 就不会跑 electron 的 postinstall，`electron/dist/` 与 `path.txt` 都不会生成。
+   修法：`allowBuilds: electron: true`（已修），或手动 `cd node_modules/.pnpm/electron@x/node_modules/electron && node install.js`
+   （走 `.npmrc` 的 electron_mirror，约 7 分钟）。
+2. **`ELECTRON_RUN_AS_NODE=1` 污染**（agent shell 自带，用户级注册表 `HKCU\Environment` 里没有）→ Electron 退化成 Node，
+   `dist-electron/main.js` 报 `The requested module 'electron' does not provide an export named 'BrowserWindow'`
+   且版本行显示 `Node.js v20.16.0`。agent 里必须 `env -u ELECTRON_RUN_AS_NODE pnpm run dev`。
+
 ## 用 Playwright 把应用真跑起来（UI 级复现，2026-09-23 验证）
 
 `tests/e2e/app.spec.ts` 那套可以直接改造成复现脚本（`_electron.launch`）。踩过的坑，按顺序：

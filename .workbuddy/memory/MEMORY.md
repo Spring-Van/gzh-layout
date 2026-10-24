@@ -1,100 +1,116 @@
 # 项目长期约定 — gzh-layout（漫画/公众号排版工具）
 
-> 主文件只留**口径与红线**，细节按需读专题：
-> - `topics/llm-layer.md` — LLM 调用层 / 请求传输层 / 测试连接
-> - `topics/asset-pipeline.md` — 提取归属匹配 / 确认落库 / 绑定回填 / 解析器 / 引用完整性 / **`origin` 豁免（§7.7）** / **`sceneRefSheetNeeds`（§7.8）** / **人物设定图版式红线（§7.9）** / **缺图门禁（§7.10）** / **`fixedTraits` 空字段（§7.11）** / **工作台资产口径=本章引用（§7.13）**
-> - `topics/binding.md` — 绑定身份与多状态 / 绑定审计与一键补绑 / 描述写入后同步
-> - `topics/ref-manifest.md` — 参考图清单与图号口径 / 有效参考图 / 成图口径 / refUsage / 资产配色
-> - `topics/panel-prompt.md` — 画面描述管线 /「图N = …」产出点 / 中栏资产区 / 批量弹窗 / 工件迁移 / **结构名与排版规则** / **`knownField` 字段名契约** / **格数上限** / **气泡与情绪背景** / **引导线禁令** / **主观视角（看东西拆两格）** / **背景与群众补全** / **文字零遗漏**
-> - `topics/multi-prompt.md` — 多提示词（候选条）数据模型 / 图号重算 / 写入路径 / 右栏排布 / 实机验收
-> - `topics/formats.md` — 输出格式口径（全链路 Markdown v5 / 长篇分镜格式 / 模板约定 / **禁止项的正确落点** / **分镜叙事连贯（衔接旁白）**）
-> - `topics/local-debug.md` — 本机调试环境 / 工程校验三件套 / 工具用法坑
-> - `topics/cleanup.md` — 项目数据清理（级联删除 / 版本压缩）
-> - `topics/storage.md` — 本地存储分区 / **图片外置（内容寻址）** / **写放大红线** / **瞬时状态归属渲染层** / **dataURL→Blob URL**
+> 主文件只留**跨域红线**，细节按需读专题（`topics/`）：
+> - `asset-pipeline.md` — 提取→归属匹配→确认落库→绑定回填／`origin` 豁免(§7.7)／机位图(§7.8)／人物版式(§7.9)／缺图门禁(§7.10)／`fixedTraits`(§7.11)／工作台资产口径=本章引用(§7.13)／气质与差异矩阵(§7.16)／**资产提示词拼装与版式(§7.18)**／**人物辨识度三层权重 6:3:1 + 服装五步(§7.19)**
+> - `binding.md` — 绑定身份与多状态／绑定审计与一键补绑／描述写入后同步
+> - `ref-manifest.md` — 参考图清单与图号／有效参考图／成图口径／refUsage／资产配色
+> - `panel-prompt.md` — 画面描述管线／「图N=…」产出点／结构名与排版规则／`knownField` 契约／格数上限／气泡与情绪背景／引导线禁令／POV 拆格／背景与群众／文字零遗漏
+> - `multi-prompt.md` — 候选条数据模型／图号重算／写入路径／右栏排布
+> - `formats.md` — Markdown v5 输出／长篇分镜格式／模板约定／禁止项的正确落点／叙事连贯与钩子
+> - `llm-layer.md` — LLM 调用层／请求传输层／测试连接
+> - `local-debug.md` — 本机调试环境／工程校验三件套／工具坑
+> - `cleanup.md` — 项目数据清理／引用完整性
+> - `storage.md` — 存储分区／图片外置／写放大／瞬时状态归属渲染层／dataURL→Blob URL
 
 ## 布局与滚动
 
 - `custom-scrollbar` 只改外观不设 `overflow`；能滚三件套：父链一路 `min-h-0` + `flex-1` + `overflow-y-auto`。
-- 弹窗统一 `fixed inset-0` + Teleport 到 body；**Teleport 浮层必须自己写 `position: fixed`**。z-index 谱系：z-40 菜单｜**z-50** 常规弹窗｜z-100/101 全屏抽屉｜z-120 覆盖确认｜**z-[130]/z-[131] 抽屉内子弹窗**｜z-140 导入弹窗｜z-200 大图预览｜**z-[9999] Toast**（Tailwind 裸值 `z-130` 无效）。通用组件用 `zIndexClass` prop。
+- 弹窗统一 `fixed inset-0` + Teleport 到 body；**Teleport 浮层必须自己写 `position: fixed`**。z-index 谱系：z-40 菜单｜**z-50** 常规弹窗｜z-100/101 全屏抽屉｜z-120 覆盖确认｜**z-[130]/z-[131] 抽屉内子弹窗**｜z-140 导入弹窗｜z-150 导入覆盖确认｜z-200 大图预览｜z-[210] 预览内删除确认｜**z-[9999] Toast**（Tailwind 裸值 `z-130` 无效）。通用组件用 `zIndexClass` prop。
 - 组件 scoped 样式（0,2,0）压过 Tailwind 工具类（0,1,0）—— 局部覆盖必须在 scoped 里写同层级类，且定义在基类之后。
-- ⚠️ **Tailwind `group` / `peer` 不可用**（`tailwind.config.js` 无 `safelist`，构建时被 purge → `group-hover:` 永不生效）。要「父行 hover 才显形子按钮」写 **scoped CSS**：`.row:hover .row-action{opacity:1}` + `.row-action{opacity:0}`。
+- ⚠️ **Tailwind `group` / `peer` 不可用**（无 `safelist`，构建时被 purge）。「父行 hover 才显形子按钮」写 **scoped CSS**（`.row:hover .row-action`）。
+- 🔴 **`computed` 返回对象时，禁止在模板里对它的属性 `v-model`**（`v-model="draft[field]"`）：模板对 setupState 会 unref，赋值只落到 getter 返回的临时对象，**setter 永不触发 → 编辑静默丢失**（资产版式、参考图用途都栽过）。要可编辑就用 `reactive` 草稿 + 打开时重置 + 保存时写回；否则 `@input` 显式调 setter。
 
 ## UI 约定
 
 - **禁止假保存提示**：只有用户主动写入才点亮「已保存✓」。多条目共用卡片实例加 `:key="item.id"`。
-- 「在弹窗内」= 同一弹窗同一视图增删内容；换配置不作废输入；多模式状态按模式分开存。
 - AI 结果一律人工确认后才写回；有结果未填充时关闭弹窗二次确认。`item.text` / `item.result` 分字段存。
 - 主题色：`darkMode: 'class'` + CSS 变量；语义色 `-700 dark:-300`；状态色只加标题元素不加容器；`bg-x/50` 对 `var(--...)` 不生效。
-- 左栏分镜列表状态**只反映生图维度**（生图中/生图失败/已成图/未生图）—— 一栏不塞两套状态。
 - 用户 UI 偏好：极简风、小圆角 4px、无多余装饰；大图用 `object-contain` 不裁切。
-- ⚠️ **按钮尺寸：`primary-button` / `secondary-button` 的全局默认是「大号」**（`src/style.css`：`padding: 0.625rem 1.25rem; font-size: 0.875rem`）。**弹窗底部按钮组必须显式写尺寸**：次要 `secondary-button h-9 px-3 text-xs`、主 `primary-button h-9 px-4 text-xs`（统一 36px 高 / 12px 字）。只写裸类名 → 比同组按钮大一圈（历史 bug：批量生成提示词弹窗）。卡片内小按钮可另用 `h-6`/`h-7`（刻意紧凑），但**同一按钮组内不许混排**。
-- ⚠️ **全局提示（Toast）**：`useToastProvider` 必须 provide **ref 本身**（`{ instance }`）；写成 `{ instance: instance.value }` 注入的是 null 快照 → **全站提示静默丢弃**（历史 bug：设置页保存成功/失败都无反馈）。层级 `z-[9999]` + 外层 `pointer-events-none`；`useToast` 四个方法要**透传 id**（支持「进行中→结果」替换）。
-- 设置页所有落库动作统一走 `runSave(action, successMessage?)`：成功给正向提示，失败必须弹出具体原因（**不许静默**）。
-- **资产三个子 tab 分工不能混**：**信息** = 识别与建档（提取审核 + 资产增删入口，只展示「本次识别」一套清单）｜**生图工作台** = 生产（提示词/参考图）｜**图片** = 浏览。提取未确认时信息 tab 给提示条 +「去生图工作台」，确认后自动切到工作台。⚠️ 三个 tab 的资产必须**同一过滤口径（按本章 `chapterAssets` 引用）**，本章零引用 = 零资产走空态，**不许「回退全项目 assets」兜底**（历史 bug：未提取章节的工作台显示别章资产）。详见 `topics/asset-pipeline.md` §7.13。
+- ⚠️ **按钮尺寸：`primary-button` / `secondary-button` 全局默认是「大号」**。**弹窗底部/顶栏按钮组必须显式写尺寸**：次要 `h-9 px-3 text-xs`、主 `h-9 px-4 text-xs`（36px / 12px）。同一按钮组内不许混排（卡片内 `h-6`/`h-7` 是刻意紧凑）。
+- ⚠️ **Toast**：`useToastProvider` 必须 provide **ref 本身**（`{ instance }`），写成 `.value` 注入 null 快照 → 全站提示静默丢弃。`useToast` 四方法要**透传 id**（支持「进行中→结果」替换）。设置页落库统一走 `runSave(action, msg?)`，失败必须弹具体原因。
+- **资产三个子 tab 分工不能混**：**信息** = 识别与建档（提取审核 + 资产增删）｜**生图工作台** = 生产（提示词/参考图）｜**图片** = 浏览。三 tab **同一过滤口径 = 本章 `chapterAssets` 引用**，零引用 = 空态，**不许回退全项目 assets 兜底**（§7.13）。
+- **图片 tab = 纯生成图墙**：只出 `generatedImageIds`，**没有生成图就一张卡都不出**（不放占位卡、不做建档）。
+  🔴 **布局 =「折叠叠牌 → 点击开弹窗」**（`LongProjectChapterAssets.vue` + `AssetShotsWallModal.vue`）：
+  - 页面**只有折叠态**：一个资产收成一叠 —— 第一张 `relative` 撑尺寸，其余 `absolute` +
+    `translate(i*PEEK, …) rotate(i*1.2deg)`、`z-index = n-i`；**牌堆宽度必须用 `padding-right` 补出 (n-1)*PEEK**，
+    否则溢出的卡片会压到下一个资产。hover 用 `--grow` 再散开一点暗示可点。
+  - 点击 → `AssetShotsWallModal`（`fixed inset-0 z-50`，面板 `w-[min(1240px,94vw)]`），
+    内部 `columns-2 md:columns-3` + `break-inside-avoid` + `img` 不设高度 = **按原比例瀑布流大图**；
+    下载与点击看大图（`AssetImagePreviewModal` z-200）都在弹窗里。
+  - **不要再回到「原地展开 + 收起」**（用户明确否掉：展开会把其它资产挤走、还要多点一次）；
+    也不要回到整页 `columns` 瀑布流（同资产图会竖着堆一列）或「固定小图高 + 一行一个资产」（图太小）。
+  - 弹窗存 **assetId**（`activeGroup` 由 computed 从 `groups` 取），不存对象快照 —— 弹窗开着时图变动要能反映。
+  下载走主进程 `downloadService.downloadSingle`（认 `app-image://comic/` 直接读盘）。
+  ⚠️ **别给图片地址加前缀白名单**：`app-image:` 不在 `https?/data/blob/file` 那套白名单里，筛一遍图就整批消失（旧代码踩过）。
+  ⚠️ `.fade-*` 过渡在本项目**没有全局定义**（各组件自己 scoped 里写），新弹窗用 `<Transition name="fade">` 要自己补四个类。
+- **图片 tab 的排序口径在 `services/chapterAssetShots.ts`**（有单测）：三层 = 资产类型(人物→场景→道具) → 资产自身 `variants` 顺序 → `generatedImageIds` 顺序。**不能直接用章的 `chapterAssets` 顺序铺**：那是引用列表，确认时按候选出现顺序写，两个角色的状态会交错，同资产的图会被拆散。分组（`groupChapterAssetShots`）**顺次切分同一份排好序的结果**，不另算一套顺序 —— 否则排序与分组会各说一套。
+- 左栏分镜列表状态**只反映生图维度**（生图中/失败/已成图/未生图）—— 一栏不塞两套状态。
 
-## 章节阶段（node.stage）只升不降
+## 章节阶段（`node.stage`）只升不降
 
-`LONG_CHAPTER_STAGE_ORDER`：empty → source-ready → analysis-ready → script-ready → **assets-ready → storyboard-ready** → prompts-ready → completed。统一口径在 `utils/chapterStage.ts`，**任何写 stage 的地方先过这里算目标值**（历史 bug：自动保存把 storyboard-ready 打回 source-ready）。
+`LONG_CHAPTER_STAGE_ORDER`：empty → source-ready → analysis-ready → script-ready → **assets-ready → storyboard-ready** → prompts-ready → completed。统一口径 `utils/chapterStage.ts`，**任何写 stage 的地方先过它算目标值**（历史 bug：自动保存把 storyboard-ready 打回 source-ready）。
 
-## 视觉状态的来源（`origin`）：非提取产出必须豁免重建
+## `origin`：非提取产出必须豁免重建
 
-`LongProjectAssetVariant.origin?: 'extraction' | 'manual'`，**缺省一律按 `extraction`**（旧库行为不变）；语义与 `LongProjectChapterAsset.origin` 同款。
+`LongProjectAssetVariant.origin?: 'extraction' | 'manual'`，**缺省一律按 extraction**。`applyCandidatesToAsset` 口径是「状态整表重建，本次未出现的旧状态全删」，而 extract 永不输出程序补建的状态（如机位图）→ 不豁免就**静默删状态与已出的图**。三处一起过：`applyCandidatesToAsset`／`selectDroppedVariants`／`storyboardService.defaultVariant`。新增任何「程序按规则补建的状态」照此三处办（§7.7）。
 
-- `applyCandidatesToAsset` 口径是「**状态整表重建，本次未出现的旧状态一律删除**」，而 `extract` 永远不输出程序补建的状态（如场景「机位图」）→ 不豁免就会在下次确认提取时**静默删掉状态与已出的图**。
-- 三处必须一起过：`applyCandidatesToAsset`（追加保留）／`selectDroppedVariants`（不算「本次未出现」）／`storyboardService.defaultVariant`（不挑 manual 当默认，防九宫格被绑进分镜画面）。
-- **新增任何「程序按规则补建的状态」照此三处过一遍**（机位图判定见 `topics/asset-pipeline.md` §7.8）。
+## 绑定（详见 `binding.md`）
 
-## 绑定（详见 `topics/binding.md`）
+- 身份键 `(assetId ?? 归一名) :: (visualVersionId ?? '')`；页级与格级都允许同资产多状态。绑定以**文本**为事实来源；写库统一 `applyBindingFix`；唯一扫描口径 `bindingScanPrompt(artwork?)`；写描述的四条路径必须走 `syncBindingsAfterPromptWrite`。
+- **分镜文本 = 原文 `blockText`**：程序唯一能改的是「出场资产：」行（`patchBlockTextAssetLines`）；文本格数与 cells 对不上时整体跳过回写。
+- **缺图门禁**：绑定审计**不看图存不存在** → 该状态没成品图时 `buildPanelRefManifest` 的 `if (!image) continue` 会**静默剔除**。补齐者 `services/panelRefReadiness.ts`（§7.10）；中栏「缺参考图」占位就是它，**不要再新增占位种类**；生图前**只提示不拦截**。
 
-- 身份键 `(assetId ?? 归一名) :: (visualVersionId ?? '')`；页级与格级都允许同资产多状态。**manual 是用户锚点**但绑定以文本为事实来源；写库统一走 `applyBindingFix`；唯一扫描口径 `bindingScanPrompt(artwork?)`；写描述的四条路径必须走 `syncBindingsAfterPromptWrite`。
-- **分镜文本 = 原文（blockText）**：`panel.blockText` 是页块文本唯一事实来源，程序唯一能改的是「出场资产：」行（`patchBlockTextAssetLines`）；文本格数与 cells 对不上时整体跳过回写。
-- **缺图门禁**：绑定审计**不看图存不存在** → 该状态没成品图时 `buildPanelRefManifest` 的 `if (!image) continue` 会**静默剔除**（少发参考图、零告警）。补齐者 `services/panelRefReadiness.ts`（§7.10）。中栏「缺参考图」占位就是它，**不要再新增占位种类**；生图前**只提示不拦截**。
+## 参考图清单：一律运行时现算，绝不写进提示词正文
+
+- 分镜 `buildFinalPromptSections`（`{类型}`/`{格号}` 占位）与资产 `assetRefManifest.buildAssetRefSection`（`{图号}` 占位）**同构**，都只拼「图N = 标签：用途」。
+- 🔴 **顺序红线**：图号由取图数组决定 → `buildAssetRefManifest` 必须与 `AssetWorkbench.genRefImages` 同序（共用属性 front 图 → 本状态图）；分镜侧同理认 `buildPanelRefManifest`。
+- 🔴 **参考图说明不许写进 `imagePrompt` / 版式**：图号会随增删图与「拼接共用属性」开关整体位移，且正文会被「重新生成」覆盖。写死图号 = 安静画错。
+- 用途模板**两套不可混用**：分镜 `imageGenConfig.refUsage`（人物/场景/道具，含服装）vs 资产侧**只有内置默认** `DEFAULT_ASSET_REF_USAGE`（人物默认「只取脸、服装以本段文字为准」，否则模型照抄参考图的衣服、新服装描述失效）。资产侧**没有**可编辑的按类型模板（2026-10-24 移除），要补话术走状态级 `variant.referenceNote`。
+- 🔴 **`variant.referenceNote`（参考描述）的落点**：用户在选图弹窗里手写、与图一起**一次 patch 写库**；`buildRefNoteSection(note, assetType)` 渲染成「标题 + 正文」一段，拼在**共用属性（插入最前）之后、版式之前**。🔴 标题按类型给且**不带【】**：人物=`人物角色一致性`／场景=`场景一致性`／道具=`道具一致性`（裸标题才被模型当正文要求读，`【】`会被当成系统区段去复述）。纯文字、不参与图号计算；**不受「拼接共用属性」开关影响**（本状态自己的图照发）。图号由「插入图号」按确认后最终数组现算（追加去重 → 不是点击顺序）。
+- 🔴 **选图弹窗是两层 tab，一层只表达一件事**：第一层「章节资产 / 公用资产」= `asset.scope`（缺省按 chapter，历史数据无该字段）；第二层「人物 / 场景 / 道具」= `asset.type`。**不许把归属降级成资产按钮上的「章/库」小标**（做过一次，用户退回）。底部的参考描述输入框**不分类型**——它本来就处在确定的归属+类型之下。打开时按 `scopeHint` + `assetType` 自动落到目标资产所在的两层，切归属时若该类型没资产才自动回落。
+- ⚠️ **给 `AssetGenConfig` 加字段必须同步 `AssetImageGenDrawer` 的 reset**：它保存时写回整份 config，漏字段会静默抹掉（`layoutPrompts` 栽过）。同理给 `LongProjectAssetVariant` 加字段要检查 `update:asset` 的 patch 是否浅合并（是：`{...item, ...patch}`，`undefined` 会覆盖并随 JSON 丢弃）。
 
 ## 中断恢复：每个「先落 running 再回写」的环节都要有 recover
 
-分镜（`useStoryboardRun.recoverInterrupted`）、文档（`useChapterDocRun`）、资产提取（`LongProject.vue:recoverAssetExtraction`）三处。漏掉的后果是 `PromptRunBar :disabled` 硬锁死。新增同类环节照此办理。
+分镜（`useStoryboardRun.recoverInterrupted`）、文档（`useChapterDocRun`）、资产提取（`LongProject.vue:recoverAssetExtraction`）。漏掉 → `PromptRunBar :disabled` 硬锁死。新增同类环节照此办理。
 
-## 持久化：数据在两层，写哪一层别看错
+## 持久化：数据在两层 + 图片已外置（详见 `storage.md`）
 
-- **项目根（`ComicProject`）**：`imageGenConfig`、`assetGenConfig`（与分镜**数据不互通**）、`comicConfig` 与元信息 → **`mutateProject`**。
-- **`longProjectData`**：节点树 / 资产 / 章节资产 / 分镜版本 / 画面工件 / 提取记录 / 分析 / 剧本 → **`mutateLongProjectData`**。
-- ⚠️ 用错会出现「DB 写了但页面不刷新」的假成功。
-- **写放大红线**：一次操作只允许写一次库。禁止「N 个条目 → N 次写库」的循环；批量回填走显式批量入口（`updateAssetVariants` / `applyVariantPatches`）。`mutateLongProjectData` 只在**同 tick**攒批，跨 `await` 的循环不受保护。**编辑框禁止 `@input` 直连写库**（本地草稿 + 防抖提交 + 离开前冲刷）。
-- **磁盘文件分两块**：设置类（`modelConfigs` / `promptTemplates` / `appSettings` + 全部密钥）在 `comic-settings.json`，项目类在 `comic-gen.json`。**设置写入绝不能落在项目库上**（实测 4.5s 阻塞）。
-- 🔴 **图片已外置**：图片字段存的是 **`app-image://comic/…` 引用**，文件在 `userData/comic-images/`。三条铁律（详见 `topics/storage.md`）：① **用主进程返回的 project 刷新**（`saveProjectAndReadBack`），**长期存活的本地 ref 也要跟着换**；② **参考图发给第三方前必须过 `resolveModelInputImage`**；③ 新增图片字段名必须进 `IMAGE_FIELD_KINDS`。
-- ⚠️ **瞬时状态归渲染层，不要塞进项目数据**：落库会 `project.value = updated` **整体替换**，写在内存补丁上的状态会被冲掉（范式：`runningPanelIds`、`selectedImageOverlay`）。**「切图 = 一次整库写」是卡顿主因**，切图只改内存、停手 600ms 合并写一次。
-- ⚠️ **内联图片必须走 `toFastDisplayImageUrl`**（dataURL → 带 LRU 的 Blob URL）；**新增 `<img>` 不要直接绑 dataURL**，并配 `decoding="async"`。
+- **项目根（`ComicProject`）**：`imageGenConfig` / `assetGenConfig`（两者**数据不互通**）/ `comicConfig` → `mutateProject`；**`longProjectData`**：节点树/资产/章节资产/分镜版本/画面工件/提取记录/分析/剧本 → `mutateLongProjectData`。用错 = 「DB 写了但页面不刷新」的假成功。
+- **写放大红线**：一次操作只允许写一次库；批量走 `updateAssetVariants` / `applyVariantPatches`；编辑框**禁止 `@input` 直连写库**。`mutateLongProjectData` 只在同 tick 攒批。
+- **磁盘两文件**：设置类（含全部密钥）在 `comic-settings.json`，项目类在 `comic-gen.json`；设置写入绝不能落在项目库上。
+- 🔴 **图片存 `app-image://comic/…` 引用**（文件在 `userData/comic-images/`）：① 刷新用主进程返回的 project（`saveProjectAndReadBack`），长期存活的本地 ref 也要换；② 参考图发第三方前必须过 `resolveModelInputImage`；③ 新增图片字段名必须进 `IMAGE_FIELD_KINDS`。
+- ⚠️ **瞬时状态归渲染层**（`runningPanelIds` / `selectedImageOverlay`），落库会 `project.value = updated` 整体替换。**切图只改内存、停手 600ms 合并写一次**。内联图片必须走 `toFastDisplayImageUrl` + `decoding="async"`。
 
 ## 时间戳语义：判断「内容变过」只能用 createdAt
 
-`updatedAt` 会被绑定重算 / 悬空修复 / 覆盖确认反复推高，拿它比对必然误判。分镜页 `assetsChangedAfterStoryboard` 用 `run.createdAt`。一键重推必须复用顶栏链路，不要另写生成逻辑。
+`updatedAt` 会被绑定重算/悬空修复/覆盖确认反复推高，拿它比对必然误判（分镜页 `assetsChangedAfterStoryboard` 用 `run.createdAt`）。一键重推必须复用顶栏链路。
 
-## 输出格式与模板（细节见 `topics/formats.md` / `topics/panel-prompt.md`）
+## 模板与解析契约（详见 `formats.md` / `panel-prompt.md`）
 
-- **模板机制**：全链路输出语法统一 Markdown（`#` 标题 + `- 字段：内容`），**解析器保持专用、禁止过度抽象**；**能被用户改的拼法必须以用户模板存在**（推荐模板只作新建底稿，**不做内置兜底**）；推荐模板**两层拼成** = `RECOMMENDED_TEMPLATE_BASE[type].content` + `OUTPUT_FORMAT_SPECS[type]` → `withFormatSpec()`。**改规则三处同改**（正文／格式段硬约束／`description`）+ 补测试断言。
-- 🔴 **「改了模板没效果」第一排查项 = 存量模板优先**：用户存过的模板在 `comic-settings.json.promptTemplates`，`defaultTemplateContent(type)` 只在无用户模板时生效 → 改完必须让用户**「填入推荐模板」**；**不要先怀疑改动没落盘**。
-- **解析契约（骨架不要动）**：`## 分镜 N · 结构名` + `第X格` + `字段名：内容` 是解析器契约；**加新字段名会变成一句台词**（`knownField` 20 词白名单 + `SPEAKER_RE` 兜底）、**`备注` 会被绑定扫描**（→ `missing-binding` 误报）；**格数上限是模板约定不是代码限制**（`cells` 不限长；现行 **8 格** + 叙事页／连打页双模式）；结构名词表 **4 条常量**（`PANEL_STRUCTURE_NAMES`／`PANEL_STRUCTURE_SEMANTICS`／`PANEL_LAYOUT_RULES`／`PANEL_FLOAT_RULES`）是四份模板共用单一事实源，结构名**不是解析白名单**（加名字零代码，但漏改任一份就口径断层）。细则见 `topics/panel-prompt.md`。
-- 🔴 **多格页必须「悬浮散格」，不是条带**（用户实报否决 `条带连打`）：一格**不必占满页宽**（55%~85%、满宽与偏窄**交替**）／**水平起点逐格不同**／框外留**统一底衬**／可**局部叠压**（压角 ≤1/5、**后读的压住先读的**）／**POV·特写·反应格优先做偏窄浮格**。**必须给两个禁写项**（进格式段）：① 禁止沿同一条页边等距平铺成一列等宽窄条；② 禁止「各占约 X%、沿同一条页边依次排列」这类句式。细则见 `topics/panel-prompt.md`。
-- **气泡与情绪背景是「写出来交给生图 AI」的规则**：气泡**形状承载情绪**（椭圆＝对白／锯齿爆炸＝喊叫／虚线抖动＝低语／云朵边＝心声／方角无尾＝旁白说明）；六条放置规则＝顺序／配额（一格 ≤3 个、总面积 ≤1/3）／避让（不遮眼睛表情与关键道具）／气尾指向嘴部下颌／可压格间沟槽但不盖邻格画面／**用气泡把视线引向下一格**；另有**沉默格**。`【情绪背景】`只在情绪焦点格用、场景首出场必须先用写实环境、**一页最多 1~2 格**、**整体替换写实背景而非叠滤镜**。
-- 🔴 **不要在画面里画「引导线」**（用户实报）：`PANEL_FLOAT_RULES` 里我写过的「用一条细引导线串起阅读路径」是错的 —— **条漫没有画在画面上的引导线**。阅读引导靠构图与文字元素**自然形成**（人物看向的方向、气尾指向、气泡位置、明暗对比）。三处同改：`PANEL_FLOAT_RULES`／【表现元素】「**不画引导线**」／【禁止项】。⚠️ **速度线·集中线合法，引导线不合法**。**通用判定：把「读者的认知过程」当成「画面元素」写下来，模型就会真的把它画出来**。
-- **提示词分三层，别混**：① 分镜文本（`panel.blockText`）→ ② **画面描述**（`panel.imagePrompt`，**纯净层：无图号/画风/共用属性/无「图N＝谁」**）→ ③ **最终提示词**（`composeFinalPrompt` → `buildFinalPromptSections`，**不再过模型**、生图那刻生成、不落库）。**版式落地归 `panel-prompt`**，不给分镜加格级大小字段。
-- ⚠️ **这一层的两个易错点**：**图号两套呈现** —— 共用属性块的图写在**块内部**（`图N = 属性名。`）、不进 `【动态参考图】`，只有资产图进它（`图N = 资产名（状态名）` + `refUsage`），顺序恒为 **共用属性（front 按 sortOrder）→ 人物 → 场景 → 道具**；**token 必须唯一** —— 无文字＝**「文字元素：无」**、输出首行＝**「版面：」**（输入仍写「页面结构：」）、节标题与逐格行统一「表现元素」，这一行**逐字进最终生图提示词**。
-- 🔴 **看东西必须拆两个视角**（用户实报：只写「低头看手机」→ 生图把手机屏幕翻向读者、内容也画出来）。**一格塞两个视角物理上不成立**（「她在看」要她背对镜头，「屏幕正对读者」要屏幕正对镜头，模型只能二选一）。**拆不拆格归 `storyboard`**（格数/格序只有分镜能定）：内容影响剧情 → 「看的动作 + 看到的内容（景别 POV）」两格；**画法归 `panel-prompt`×2**：观看格**只画背面或侧缘、不画屏幕内容/字迹/图文**，POV 格只画内容物正面、**不出现人物的脸和上半身**。⚠️ **分镜没给 POV 格时画面描述不许自己加格**。落点：常量 `PANEL_POV_RULES`（×2 插值，天然同源）。
-- 🔴 **没有场景的格必须补写实背景，群众必须写、但只能用群体词**（用户要求）。**硬红线：`panel.imagePrompt` 会被绑定审计读**（`panelScanText = [panel.content, panel.imagePrompt]`，另有 `auditText(panel.imagePrompt, …)`）→ **群众与补写的背景不许起名号、不许写成资产名/状态名**，否则稳定误报「未绑定」+ 一键补绑凭空多候选。**放开一条禁令时必须同步改写那条禁令**：`【禁止项】`原句「不得添加分镜之外的角色」拆成「只禁**剧情角色**」+「群众不许起名号」。落点：常量 `PANEL_BACKGROUND_RULES`（×2 插值）。
-- **画面描述是台词/旁白的唯一落地口**：**给定几条就写几条**（一条不少、不错格、一字不改、不许合并转述）；「允许出现的文字」同时是**下限**。自检类硬约束一律附「**不要写进输出**」。
-- 🔴 **禁止项不要写成固定尾段**（用户实报：每条提示词末尾挂同一段通用禁令）。**约束落到「版式声明」这类一定会被写出的正向句子里**。三条判定：① 正向描述已说清的不写否定句；② 清单已给的事实（配色/发型/材质/尺寸/状态）**禁止**「不得改变 X」复述；③ 整条否定句 ≤2 句、同一章内不得两条尾句相同。**三处同改**：【禁止项】／【用语要求】例外条款／【自查】+ 格式段硬约束。⚠️ 加任何硬约束都要写「**不要写进逐格输出行**」，否则又变成新的固定尾段。
-- 🔴 **参考图可读性红线：设定图里「人脸只出现一次」**。人物版式为**横向 1×4 非等宽四联图**：第 1 格 2:3 竖幅脸部大特写（裁切至锁骨）／第 2、3 格**从颈部中段以下开始、头部完全在画幅之外**／第 4 格背面全身。原理：全身格里再容人头 → 脸只剩几十像素 → **下游参考到的是糊脸**。⚠️ 写「反直觉裁切」版式**必须显式声明「这是刻意的版式，不是裁切失误，不要补画头部与五官」**。**版式文本现在住在 `services/assetLayoutSpecs.ts`（不在模板里）**，改版式必查四处：`RECOMMENDED_LAYOUT_SPECS`、【与共用属性、版式的分工】、【禁止项】版式类否定句、【自查】+ `description`（后四处 = 改模板三处同改）。
-- **改模板前先看「下游读不读得到」**：`extract` 资产级未知字段落进 `attributes`（安全），状态块内未知字段会被**提升到资产级**（串位）；`asset-prompt` 输入每行 = `资产描述｜视觉描述｜固定特征｜attributes 前 8 项`（**批量与单条两条路径都读**，单条路径 2026-10-07 才补上）；**一致性靠参考图、不靠文字**；输出 `## 资产名｜状态名` + 一段，**一个状态只能一段**、多视图必须画在同一张图内。
-- 长篇分镜：页头 `## 分镜 N · 双格`、格 `### 第X格`、字段 `- 字段名：内容`；**入库去包装、出库带包装**。
-- 🔴 **分镜叙事连贯**：全章的「台词 + 旁白」连起来必须是一条能独立看懂的故事线。**跨时间／跨地点／跨视角三类断层必须用一条「衔接旁白」过桥**（取材剧本的场景头，**只交代跨度、不写剧情**）；关键剧情点由台词或旁白明说，不靠画面暗示。**零字段新增**（新字段名会被解析成一句台词）——全部折进既有 `旁白` / `台词`。⚠️ **只在断层处补，不是每页都写**（否则又变固定尾段）。衔接旁白只放分镜层，不动剧本层。
-- **资产提取（extract）口径**：人物的服装/鞋袜/配饰/随身武器属于**人物视觉状态**，**不得再作为独立「道具」资产提取**；道具只收能脱离人物单独出图的独立物件。例外：剧情围绕某件服装/配饰本身、需单独特写时才建道具。
-- **人物「气质」（不是「性格」）**（2026-10-07，用户口径修正）：拆**两处落点** —— ① 2~4 个基调词写**资产级字段行**（落 `attributes`，零代码）；② **静态落点写进资产「描述」第 3 维（面部张力）**，且**只准落四处**：眉眼舒展度/眉头间距、唇角走势、咬肌与下颌松紧、目光状态。**禁止写进状态「视觉描述」**，**禁止写成情绪词与表情动作**。🔴 通用判定：**气质的落点必须是可测量的结构量，不能是形容词** —— 写「眼神清冷疏离」会被生图读成一张当场的表情，随剧情漂走；写「眉头平直不聚、唇角自然平直、下颌放松」才是长相。⚠️ **不碰躯干与四肢**（体态属 A-POSE 版式，写了打架）。下游 `asset-prompt` 同口径；`analysis` 人物卡与 `script` 的「性格」是叙事层，不改。详见 `topics/asset-pipeline.md` §7.16。
-- **补全的取舍顺序**（2026-10-07，照搬 `character-casting-studio` 的 `temperament > anchors > bone structure > ...`）：`清单硬事实 > 气质 > 识别锚点 > 面部骨相（脸型/五官结构/颧骨与下颌）> 具体取值（发色/肤色/材质/颜色）> 装饰性细节`。两个模板都写。**硬事实永远第一**。
-- **人物差异矩阵**（2026-10-07）：`extract` 里同章主要人物**两两至少 5 维明显不同**，共 12 维（脸型/眼型眼距/眉形眉头间距/鼻型/唇形唇角/下颌线/发长发质/肤色区间/年龄感/体型剪影/气质基调/识别锚点）；反面样本写死「鹅蛋脸＋黑色直发＋大眼睛＋高鼻梁＋中性表情」。**取代**了原「剪影可辨与体型差」（那个只管身高/体型两维）。
-- 🔴 **资产绘画提示词 = 共用属性（最前）+ 本类型版式 + 提示词 + 共用属性（最后）**（生图那刻拼、不落库）。`asset-prompt` 模板**只写主体自身**（人物＝外貌与服装／场景＝空间与光线／道具＝轮廓与材质），**版式绝不写进提示词**——写了就是每条复述一遍、把外貌细节稀释掉。版式在 `AssetGenConfig.layoutPrompts`（按类型三段，推荐文本 = `services/assetLayoutSpecs.ts`），UI 在资产生图配置抽屉第三个 tab「版式」。三条口径：① **机位图是唯一例外** —— `resolveLayoutPrompt` 按 `REF_SHEET_VARIANT_NAME` 跳过场景版式，那条的九宫格版式由提示词正文自带；② **字段缺失 = 从没配过 → 用推荐版式兜底**（防升级静默丢版式），**字段存在哪怕三段全空 = 用户清空 → 不拼**；③ 版式是**纯文字、不挂参考图**，因此按类型分段**完全不动图号**（这正是它优于「给共用属性块加适用类型」的原因 —— 那种做法会让同一块的图号因类型而异、文字里的「图N」与实际发送的图错位）。改版式**不必重跑提示词**。
-
-- 🔴 **剧本「开场与收尾」：钩子跨三层，一层装不下**（2026-10-07，用户实报要求）。**剧本（章级）= 爆点前置/危机切入 + 章末六类钩子 + 每 3~5 场一爆点**；**画面描述（格级）= 页尾钩子 + 章末页强化（本章最后一镜再高一档）**；**分镜（页级）刻意不写钩子** —— `备注` 会被 `cellScanText` 扫描，钩子里出现角色名会误报未绑定（测试有 `expect(storyboard).not.toContain('页尾钩子')` 锁死）。剧本新增字段 `- 钩子：`（位置在「场景」后），**只有第 1 场与最后一场写**，防退化成固定尾段。**前置三禁**：不得新增原文事件／只给入口不给答案／**不得跨越服装或时期的状态切换点**（跨了 = 第 1 格要声明后面的资产状态，分镜判断不出来）。末场 `剧情目的` **不得只写「收束」**。章末页判定零代码：`{{本章分镜概要}}` 最后一行序号 == `{{当前分镜}}` 的分镜序号。详见 `topics/formats.md`、`docs/剧本开场与章末钩子-口径.md`。
+- 输出语法统一 Markdown；解析器保持专用、禁止过度抽象；推荐模板 = `RECOMMENDED_TEMPLATE_BASE[type]` + `OUTPUT_FORMAT_SPECS[type]`。🔴 **改规则三处同改**（正文／格式段硬约束／`description`）+ 补测试断言。
+- 🔴 **「改了模板没效果」第一排查项 = 存量模板优先**（用户模板在 `comic-settings.json.promptTemplates`）→ 必须让用户「填入推荐模板」；**不要先怀疑没落盘**。
+- **解析契约骨架不要动**：`## 分镜 N · 结构名` + `第X格` + `字段名：内容`；**加新字段名会变成一句台词**（`knownField` 白名单）；`备注` 会被绑定扫描；**格数上限是模板约定不是代码限制**；结构名 4 条常量是四份模板的单一事实源。
+- **三层提示词别混**：分镜文本 → 画面描述（`panel.imagePrompt`，**纯净层：无图号/画风/共用属性**）→ 最终提示词（`composeFinalPrompt` 生图那刻拼、不落库）。**版式落地归 `panel-prompt`**，不给分镜加格级大小字段。
+- 🔴 **多格页必须「悬浮散格」不是条带**：一格不必占满页宽（55%~85%，满宽与偏窄交替）／水平起点逐格不同／统一底衬／可局部叠压（后读压先读）／POV·特写·反应格优先偏窄；必须给两个禁写项（§panel-prompt 161）。
+- 🔴 **不要在画面里画「引导线」**（用户实报）。阅读引导靠构图与文字元素自然形成。**速度线·集中线合法**。通用判定：**把「读者的认知过程」当「画面元素」写下来，模型就会真的画出来**。
+- 🔴 **看东西必须拆两个视角**：一格塞两个视角物理上不成立。**拆不拆格归 `storyboard`**，画法归 `panel-prompt`×2（观看格不画屏幕内容／POV 格不出现人物脸与上半身）；分镜没给 POV 格时画面描述**不许自己加格**。
+- 🔴 **无场景的格必须补写实背景；群众必须写但只能用群体词**。硬红线：`panel.imagePrompt` 会被绑定审计读 → **群众与补写背景不许起名号、不许写成资产名/状态名**（否则稳定误报「未绑定」）。放开一条禁令时必须同步改写那条禁令。
+- **画面描述是台词/旁白的唯一落地口**：给定几条就写几条（一条不少、不错格、一字不改）；自检类硬约束一律附「**不要写进输出**」。
+- 🔴 **禁止项不要写成固定尾段**：约束落到「版式声明」这类必然写出的正向句子；整条否定句 ≤2 句、同章内不得两条尾句相同。加硬约束必须写「不要写进逐格输出行」。
+- 🔴 **参考图可读性红线：设定图里人脸只出现一次**（1×4 非等宽：脸特写／颈部以下两格／背面全身）。写反直觉裁切必须声明「这是刻意的版式，不要补画头部」。版式文本住在 `services/assetLayoutSpecs.ts`，改版式必查四处（§7.9）。
+- 🔴 **资产绘画提示词 = 共用属性(最前) + 参考描述 + 版式 + 提示词 + 共用属性(最后)**，生图那刻拼、不落库；模板只写主体自身，**版式不写进正文**；版式字段缺失=用推荐兜底、存在但全空=用户清空不拼（§7.18）。
+- 🔴 **资产侧不拼【动态参考图】清单**：那是分镜绘图的机制（`panelRefManifest`/`composeFinalPrompt`）。资产侧图号说明只有两条路——① 共用属性块自带图号行；② 用户手写「参考描述」（图号由选图弹窗按确认后最终数组算，`previewRefImageIndexes`）。共用属性有 5 张图时清单会重复列 5 行同样说明，用户实报过，别再补第三套机制。
+- 🔴 **拼进最终提示词的每一段标题都带【】标签**（`services/assetSectionTitles.ts` 单一事实源）：共用属性=`【属性名】`、参考描述=`【人物角色一致性】/【场景一致性】/【道具一致性】`、版式=`【人物版式】/【场景版式】/【道具版式】`、正文=`【人物描述】/【场景描述】/【道具描述】`。**只有标题行套，图号行不套**（`图1、图2 = 绘画风格。` 是一句归属陈述，套上等于双标签）。裸正文并排时模型分不清「风格约束／版式声明／主体外貌」，会把版式说明当外貌画出来。
+- ⚠️ `buildBlockText` 是**分镜与资产共用的唯一共用属性拼装点** —— 改它两边同时生效，改格式前先确认这不是单边需求。
+- **资产提取口径**：人物的服装/鞋袜/配饰/随身武器属于**人物视觉状态**，不得再作为独立「道具」；道具只收能脱离人物单独出图的独立物件。
+- 🔴 **资产是「字段」不是「散文」**（2026-10-23 重构）：`extract` 人物资产级固定 **8 行**（性别年龄／身高体型／脸型／眉眼／鼻唇／皮肤头发／标志／面部张力，每行 ≤20 字）、场景 8 行、道具 6 行，**不再写「- 描述：」段**；人物状态级服装固定 **14 键**写成单行「键=值｜键=值」（廓形/腰线/长短/外套/上装/下装/鞋袜/结构/配色/材质/纹样/磨损/妆造/局部）。⚠️ 资产级字段**必须 ≤8 个**：`buildTargetList` 只取 `attributes` 前 8 项（`slice(0,8)`，单条路径同），多出的被静默截断。辨识度靠取值不靠维度数量：标志行装「锚点 2~3 个＋母题两处落点＋1 处视觉反差」，服装先定廓形（H/A/X/O/Y/T）、彩色 ≤3 种、灰度可辨、同章主色相间隔 60°、1 处有叙事理由的磨损；同章主要人物在剪影/脸型/眉眼/廓形/主色调上两两至少 3 项不同。详见 `topics/asset-pipeline.md` §7.19。
+- **人物「气质」不是「性格」，也不再是独立字段**：只落成 `面部张力` 一行的结构量（眉眼舒展度／眉头间距／唇角走势／咬肌与下颌松紧／目光状态），**禁止情绪词与表情动作**，不碰躯干四肢。通用判定：**气质必须是可测量的结构量，不能是形容词**（§7.16）。
+- 🔴 **提示词阶段只直译、不重写**：`asset-prompt` 按固定顺序把字段值原样搬入，不换说法、不加修饰、不解释、**不出现字段键名**、不写比喻；**字数硬上限 人物 200~320／场景 100~160／道具 60~110 字**，超了只删装饰性细节、不许删身份特征与配色。存量散文数据由模型内部先拆字段再重排，不新增信息。补全取舍：`原文硬事实 > 面部骨相 > 具体取值 > 装饰性细节`。
+- 🔴 **人物缺失字段分三类，措辞必须分开**（`assetPromptService.CHARACTER_REQUIRED_TRAITS` 带 `mode`）：`convert` 性别年龄/身高体型（只换单位与量，性别无线索**绝不猜**）｜`infer` 脸型/眉眼/鼻唇/皮肤头发/面部张力（**缺字段必须推定写满**，先搬用资产描述已有写法，推定值在所有状态逐字一致）｜`never` 痣/疤/纹身/眼镜/首饰等具体标记（**没写就一定不写**，编了会跟后面几章剧情打架）。缺项提示放清单末尾、按 asset.id 去重，不再塞进每行状态。⚠️ 推定只保证同一次请求内一致，根治靠重跑提取把 8 行字段落库。
+- 🔴 **人物提示词十项必备要素**：性别年龄｜身高·头身比·体型·肩型｜脸型｜眉眼｜鼻唇｜皮肤头发｜标志｜面部张力｜服装｜妆造局部；前八项跨状态一致。**唯一允许「补」的两处**：身高体型可把形容词换算成可测量的量（「极瘦高」→「约 182cm·7 头身」），性别年龄只认明确线索、**无线索不写也不许猜**；其余缺了就跳过。**输入侧必须配合**：`buildTargetList` 检测人物缺这两项时追加「缺失必填项：…」，否则模型按「清单没写就跳过」处理，模板写得再全也白搭。通用判定：**程度词一律换成可画的量（cm／头身比／可见痕迹）**。
+- 🔴 **剧本钩子跨三层**：剧本=爆点前置+章末六类钩子；画面描述=页尾钩子+章末页强化；**分镜刻意不写钩子**（`备注` 被扫描，角色名会误报）。剧本 `- 钩子：` 只在第 1 场与最后一场写。**前置三禁**：不新增事件／只给入口不给答案／不跨越服装或时期状态切换点。
 
 ## 候选提示词条（genPrompts）读写口径必须对齐
 
-读走 `resolveActiveGenSlot`（有候选条时**完全忽略 imagePrompt**），写必须走 `buildOverwriteActiveSlotPatch`（`utils/genPromptSlots.ts`）——直接只写 `imagePrompt` 是假写入。不变式：`imagePrompt` ≡ 第 1 条正文，仅第 1 条镜像。分镜 panel 的 imagePrompt 是「画面描述」（与候选条两层），不适用此口径。
+读走 `resolveActiveGenSlot`（有候选条时**完全忽略 imagePrompt**），写必须走 `buildOverwriteActiveSlotPatch`（`utils/genPromptSlots.ts`）——只写 `imagePrompt` 是假写入。不变式：`imagePrompt` ≡ 第 1 条正文，仅第 1 条镜像。分镜 panel 的 imagePrompt 是「画面描述」，不适用此口径。

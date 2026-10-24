@@ -224,11 +224,16 @@
       :removable="false"
     />
 
-    <!-- 资产图选择弹窗：从资产库勾选图片追加为参考图 -->
-    <!-- 从资产库追加参考图：图源只有各状态的 AI 生成图（上传的参考图不进列表） -->
+    <!-- 资产图选择弹窗：从资产库勾选图片追加为参考图，并在同一处写「参考描述」 -->
+    <!-- 图源只有各状态的 AI 生成图（上传的参考图不进列表）；描述与图一次提交、一处写库 -->
     <AssetImagePickerModal
       v-model="pickerVisible"
       :assets="pickerAssets"
+      :current-images="pickerTarget?.variant.referenceImageIds ?? []"
+      :number-base="pickerBaseImageCount"
+      :asset-type="pickerTarget?.asset.type"
+      :scope-hint="pickerTarget?.asset.scope === 'project' ? 'project' : 'chapter'"
+      :reference-note="pickerTarget?.variant.referenceNote ?? ''"
       append
       @confirm="appendAssetImages"
     />
@@ -266,6 +271,8 @@ import { useToast } from '@comic/composables/useToast'
 import { imageGenerationService } from '@comic/services/imageGenerationService'
 import { buildSharedBlockSection, effectiveVariantRefImages } from '@comic/services/panelPromptService'
 import { getSharedRefImages } from '@comic/utils/sharedBlocks'
+import { buildRefNoteSection } from '@comic/services/assetRefManifest'
+import { ASSET_DESCRIPTION_TITLES, ASSET_LAYOUT_TITLES } from '@comic/services/assetSectionTitles'
 import { buildOverwriteActiveSlotPatch, resolveActiveGenSlot, slotAttachShared } from '@comic/utils/genPromptSlots'
 import { buildAssetPromptPrompt, buildSingleAssetPrompt, buildStyleContext, buildTargetList, generateAssetPrompts, rewriteAssetPrompt, type AssetPromptTarget } from '@comic/services/assetPromptService'
 import { AssetPromptParseError, describeParseFailure, parseAssetPromptResponse, type AssetPromptParseDiagnostics } from '@comic/services/assetPromptParser'
@@ -919,24 +926,53 @@ function activeGenSlot(variant: LongProjectAssetVariant): GenPromptSlot {
 
 // ========== 生图 ==========
 /**
- * 最终发送的生图提示词 = 共用属性（插入最前）+ 本类型版式 + 绘画提示词 + 共用属性（插入最后）。
- * 拼接逻辑与分镜生图相同，但共用属性和版式都取资产自己的 `assetGenConfig`（与分镜不互通）；
+ * 最终发送的生图提示词 =
+ *   共用属性（插入最前）→ 参考描述 → 本类型版式 → 绘画提示词 → 共用属性（插入最后）。
+ * 拼接逻辑与分镜生图同源，但共用属性和版式都取资产自己的 `assetGenConfig`（与分镜不互通）；
  * 「查看提示词」弹窗与实际发送共用此函数。
+ *
+ * 🔴 **资产侧不拼【动态参考图】清单**（2026-10-24，用户实报）：那是**分镜绘图**的机制
+ * （`panelRefManifest` / `composeFinalPrompt`），资产这边拼上会犯两个错：
+ * ① 共用属性的图（图1~图5）在属性块里已经用 `图1、图2 = 绘画风格。` 声明过，再列一遍是纯重复噪音；
+ * ② 会让人误以为资产侧和分镜侧共用同一套图号清单，改一边另一边跟着变。
+ * 资产侧的图号说明只走两条路：共用属性自带的图号行 + 用户手写的「参考描述」（下面那段的 `【人物角色一致性】`）。
+ *
+ * 🔴 **每一段都带【】标签**（2026-10-24）：
+ * `【属性名】`（共用属性标题）/`【人物角色一致性】`（参考描述）/`【人物版式】`/`【人物描述】`。
+ * 因为这几段是完全不同性质的东西（全局风格约束 / 用户话术 / 版式声明 / 主体外貌），
+ * 裸正文并排时模型分不出哪段在讲什么——最容易发生的是把版式说明当外貌写进画里、
+ * 或把外貌细节当结构约束丢掉。标签由 `assetSectionTitles` 统一产出。
+ * 注意**只有标题行套【】**：共用属性块里的图号行（`图1、图2 = 绘画风格。`）是一句归属陈述，不套。
  *
  * 版式按 `asset.type` 取（`assetGenConfig.layoutPrompts` 三段之一），空则不拼；
  * 场景的「机位图」状态由 `resolveLayoutPrompt` 直接跳过（那条的九宫格版式写在提示词正文里）。
  *
+ * **参考描述**（`variant.referenceNote`）：用户在选图弹窗里手写的「这几张图怎么用」，
+ * 紧贴共用属性之后（用户指定的位置）。图号由弹窗「插入图号」按确认后的最终数组算好，
+ * 所以它永远与实际发送的图片同序，也不需要另起清单。
+ *
  * **只拼当前选中那条**：关掉它的「拼接共用属性」就前后置都不拼（对应的图也从 `genRefImages` 里剔除），
- * 否则提示词会指向一批根本没发出去的图。版式是纯文字、不挂图，因此**不受该开关影响**，
- * 也不参与图号计算（图号口径一个字没变）。
+ * 否则提示词会指向一批根本没发出去的图。版式是纯文字、不挂图，因此**不受该开关影响**；
+ * 参考描述同理不受开关影响 —— 本状态自己的图照样发送，那段话就仍然成立。
  */
 function composeAssetPrompt(variant: LongProjectAssetVariant, type: LongProjectAssetType): string {
   const slot = activeGenSlot(variant)
-  const layout = resolveLayoutPrompt(props.assetGenConfig, type, variant.name)
-  if (!slotAttachShared(slot)) return [layout, (slot.text ?? '').trim()].map((part) => part.trim()).filter(Boolean).join('\n\n')
-  const front = buildSharedBlockSection(assetSharedBlocks.value, 'front')
-  const back = buildSharedBlockSection(assetSharedBlocks.value, 'back')
-  return [front, layout, slot.text ?? '', back].map((part) => part.trim()).filter(Boolean).join('\n\n')
+  const attachShared = slotAttachShared(slot)
+  const front = attachShared ? buildSharedBlockSection(assetSharedBlocks.value, 'front') : ''
+  const back = attachShared ? buildSharedBlockSection(assetSharedBlocks.value, 'back') : ''
+  // 参考描述（状态级手写）紧贴共用属性之后；它说明的是「本状态的参考图怎么用」，
+  // 本状态自己的图即使关掉共用属性也照样发送，所以**不受 attachShared 影响**。
+  const refNote = buildRefNoteSection(variant.referenceNote, type)
+  const layout = sectionWithTitle(resolveLayoutPrompt(props.assetGenConfig, type, variant.name), ASSET_LAYOUT_TITLES[type])
+  const description = sectionWithTitle(slot.text, ASSET_DESCRIPTION_TITLES[type])
+  return [front, refNote, layout, description, back].map((part) => part.trim()).filter(Boolean).join('\n\n')
+}
+
+/** 给一段正文套标签；正文为空时不产生只有标签的空段。 */
+function sectionWithTitle(body: string | undefined | null, title: string): string {
+  const text = (body ?? '').trim()
+  if (!text) return ''
+  return `${title}\n${text}`
 }
 
 /** 单张生成：用户上传的参考图作为参数发给模型，结果按比例进入生成预览区。 */
@@ -1014,6 +1050,16 @@ function genRefImages(variant: LongProjectAssetVariant): string[] {
 
 /** 共用属性参考图张数：本状态上传图的图号从这之后续编（图 sharedRefImageCount+1 起）。 */
 const sharedRefImageCount = computed(() => getSharedRefImages(assetSharedBlocks.value).length)
+
+/**
+ * 选图弹窗的图号起点：与 `genRefImages` 同口径 —— 关掉「拼接共用属性」时共用属性图不发，
+ * 本状态的图从「图1」起。弹窗靠它把选中图片的图号算给「插入图号」按钮。
+ */
+const pickerBaseImageCount = computed(() => {
+  const variant = pickerTarget.value?.variant
+  if (!variant) return 0
+  return slotAttachShared(activeGenSlot(variant)) ? sharedRefImageCount.value : 0
+})
 
 /** 保存生图配置。 */
 function saveGenConfig(config: AssetGenConfig) {
@@ -1175,22 +1221,32 @@ function previewImageAlt(): string {
   return `${found.asset.name} · ${found.variant.name} · ${label}`
 }
 
-// ========== 资产图选择（追加为参考图） ==========
+// ========== 资产图选择（追加为参考图 + 参考描述） ==========
 
-/** 打开资产图选择弹窗：从项目资产库勾选图片追加为该视觉状态的参考图。 */
+/** 打开资产图选择弹窗：从项目资产库勾选图片追加为该视觉状态的参考图，并编辑参考描述。 */
 function openAssetPicker(asset: LongProjectAsset, variant: LongProjectAssetVariant) {
   pickerTarget.value = { asset, variant }
   pickerVisible.value = true
 }
 
-/** 弹窗确认：把选中的资产图去重后追加到当前视觉状态参考图。 */
-function appendAssetImages(images: string[]) {
+/**
+ * 弹窗确认：一次写库完成两件事 —— 追加去重后的参考图、更新参考描述。
+ *
+ * 图与描述合并成一个 patch，避免两次 `mutateLongProjectData`（写放大红线）。
+ * 描述为空串时写 `undefined`（JSON 落库时被丢掉，不留空壳字段）。
+ */
+function appendAssetImages(payload: { images: string[]; note: string }) {
   const target = pickerTarget.value
-  if (!target?.variant || !images.length) return
+  if (!target?.variant) return
   const existing = target.variant.referenceImageIds
-  const additions = images.filter((url) => !existing.includes(url))
-  if (!additions.length) return
-  emit('update:asset', { assetId: target.asset.id, variantId: target.variant.id, patch: { referenceImageIds: [...existing, ...additions] } })
+  const additions = payload.images.filter((url) => !existing.includes(url))
+  const note = payload.note.trim()
+  const noteChanged = note !== (target.variant.referenceNote ?? '').trim()
+  if (!additions.length && !noteChanged) return
+  const patch: Partial<LongProjectAssetVariant> = { referenceNote: note || undefined }
+  if (additions.length) patch.referenceImageIds = [...existing, ...additions]
+  emit('update:asset', { assetId: target.asset.id, variantId: target.variant.id, patch })
+  if (additions.length) toast.success(`已加入 ${additions.length} 张参考图`)
 }
 
 function typeIcon(type: LongProjectAsset['type']) {

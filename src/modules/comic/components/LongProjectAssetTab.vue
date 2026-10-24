@@ -23,7 +23,6 @@
         :focus-target="focusTarget"
         :mutate-long-project-data="mutateLongProjectData"
         @retry-extraction="retryExtraction"
-        @open-workbench="assetView = 'workbench'"
       >
         <!-- 信息视图：资产提取操作区 + 确认本章资产 -->
         <template v-if="assetView === 'info'" #actions>
@@ -40,7 +39,25 @@
               :build-prompt="buildExtractPrompt"
               @run="runExtraction"
               @import="extractImportVisible = true"
-            />
+            >
+              <!-- 重新提取时不想被上一次的识别结果影响：弹窗内一键让提示词不携带已有资产 -->
+              <template #preview-footer="{ setContent }">
+                <label
+                  v-if="assets.length"
+                  class="flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-xs text-text-secondary"
+                  title="勾选后本次提示词不带项目已有资产清单（按全新资产识别）；点一下即按当前模型与模板重新生成提示词，会覆盖手动修改。已有资产本身不会被删除，同名资产仍会沿用原记录。"
+                >
+                  <input
+                    type="checkbox"
+                    class="h-3.5 w-3.5 accent-amber-400"
+                    :checked="!carryExistingAssets"
+                    @change="toggleCarryExistingAssets(setContent)"
+                  />
+                  不携带已有资产
+                  <span v-if="!carryExistingAssets" class="text-[11px] text-amber-700 dark:text-amber-300">（{{ assets.length }} 条已从提示词移除）</span>
+                </label>
+              </template>
+            </PromptRunBar>
           </div>
           <span
             v-if="scriptFallbackHint"
@@ -49,8 +66,10 @@
           >剧本兜底</span>
 
           <!-- 确认本章资产：唯一行为（本次结果为准），跨章影响在确认弹窗里列明细；已确认过的可重复执行 -->
+          <!-- 顶部「尚未确认」提示条已去掉：待确认状态用琥珀实心（confirm-pending-button）表达，已确认过则退回次要描边 -->
           <button
-            class="primary-button h-9 shrink-0 px-3 text-xs"
+            class="h-9 shrink-0 px-3 text-xs"
+            :class="confirmButtonClass"
             :disabled="!assetTabRef?.canConfirmReview"
             :title="confirmButtonTitle"
             @click="confirmAssets()"
@@ -208,6 +227,14 @@ const dropPlan = computed(() => {
 })
 
 const confirmDialogVisible = ref(false)
+
+/**
+ * 确认按钮的形态：状态只能靠按钮自己表达（顶部「尚未确认」提示条已去掉）。
+ * - 有新结果没确认（`reviewPending`）→ 琥珀实心，唯一的「该点我」信号；
+ * - 已确认过一次 → 次要描边（幂等重跑，不该继续抢注意力）；
+ * - 不可确认（无结果）→ 同样描边 + 禁用，避免一个亮色按钮却是灰的。
+ */
+const confirmButtonClass = computed(() => (assetTabRef.value?.reviewPending ? 'confirm-pending-button' : 'secondary-button'))
 const confirmButtonTitle = computed(() => assetTabRef.value?.canConfirmReview
   ? (assetTabRef.value?.reviewConfirmed
     ? '再次以本次提取结果为准保存本章资产，并重算分镜绑定（幂等，可重复执行）'
@@ -304,8 +331,26 @@ function buildExtractPrompt(): string {
   return buildAssetExtractionPrompt(template?.content ?? '', extractionSourceText.value, {
     analysis: analysisDoc.value?.content ?? '',
     script: scriptDoc.value?.content ?? '',
-    existingAssets: assets.value,
+    existingAssets: carryExistingAssets.value ? assets.value : [],
+    withoutExistingAssets: !carryExistingAssets.value,
   })
+}
+
+/**
+ * 本次提取是否把「已有资产」清单带进提示词（默认带）。
+ * 重新提取时上一次的结果会以清单形式进入提示词，模型倾向沿用旧命名/旧状态——
+ * 想干净地重来一次就在发送前确认弹窗里勾掉它，提示词里换成一句「当作全新资产识别」。
+ * ⚠️ 只影响提示词：候选与已有资产的**匹配口径不变**（同名仍沿用原资产），
+ * 否则同一个角色会因重新提取而在项目里变成两条，跨章节连续性直接断掉。
+ * 也不删任何数据：上一次提取产生的资产要靠「确认本章资产」（本次结果为准）或工作台清理来收尾。
+ * 作用域 = 一次提取：`runExtraction` 用完即复位，不在顶栏留常驻状态（顶栏放不下也不该放）。
+ */
+const carryExistingAssets = ref(true)
+
+/** 弹窗内勾选/取消「不携带已有资产」：改开关并按当前模型与模板重算提示词正文。 */
+function toggleCarryExistingAssets(setContent: (content: string) => void) {
+  carryExistingAssets.value = !carryExistingAssets.value
+  setContent(buildExtractPrompt())
 }
 
 /** 持久化更新提取 run 的部分字段。 */
@@ -323,6 +368,8 @@ async function runExtraction(prompt: string) {
   const template = extractTemplates.value.find((item) => item.id === extractTemplateId.value)
   if (!model || !template) return
   const sourceText = extractionSourceText.value
+  // 开关作用域只到这一次提取：本次提示词已经定型，复位避免下次「重新提取」莫名其妙不带资产
+  carryExistingAssets.value = true
   const now = Date.now()
   const run: LongProjectAssetExtractionRun = {
     id: uuidv4(), chapterId: chapter.id, sourceContent: sourceText,
@@ -418,4 +465,8 @@ async function confirmExtractionImport(content: string) {
 .primary-button:disabled:hover { background: #06b6d4; }
 .secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: 0.5rem; border: 1px solid var(--border-default); color: var(--text-secondary); font-weight: 500; transition: color 0.15s ease, border-color 0.15s ease; background: transparent; }
 .secondary-button:hover { color: var(--text-primary); border-color: var(--border-strong); }
+/* 「有待确认的提取结果」：唯一需要立刻处理的动作，用琥珀实心从青色的次要动作里跳出来 */
+.confirm-pending-button { display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: 0.5rem; border: 1px solid #f59e0b; background: #f59e0b; color: #1c1206; font-weight: 600; box-shadow: 0 0 0 3px rgb(245 158 11 / 0.14); transition: background-color 0.15s ease, box-shadow 0.15s ease; }
+.confirm-pending-button:hover { background: #fbbf24; border-color: #fbbf24; box-shadow: 0 0 0 3px rgb(245 158 11 / 0.24); }
+.confirm-pending-button:disabled { cursor: not-allowed; opacity: 0.4; box-shadow: none; }
 </style>

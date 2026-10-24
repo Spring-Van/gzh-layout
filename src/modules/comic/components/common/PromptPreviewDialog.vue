@@ -14,8 +14,12 @@
             @input="emit('update:content', ($event.target as HTMLTextAreaElement).value)"
           />
         </div>
-        <footer class="flex shrink-0 items-center justify-between border-t border-border-subtle px-5 py-3">
-          <p class="text-xs text-text-muted">{{ content.length.toLocaleString() }} 个字符</p>
+        <footer class="flex shrink-0 items-center justify-between gap-3 border-t border-border-subtle px-5 py-3">
+          <div class="flex min-w-0 items-center gap-3">
+            <!-- 环节自定义的快捷操作（如资产提取「不携带已有资产」）：拿到当前正文与改写正文的方法 -->
+            <slot name="footer-extra" :content="content" :set-content="setContent" />
+            <p class="shrink-0 text-xs text-text-muted">{{ content.length.toLocaleString() }} 个字符</p>
+          </div>
           <div class="flex items-center gap-3">
             <button class="secondary-button h-9 px-3 text-xs" title="复制最终提示词，可粘贴到外部 AI 生成" @click="copyContent"><Copy :size="14" />复制提示词</button>
             <button class="secondary-button h-9 px-3 text-xs" title="粘贴外部 AI 生成的结果，解析后导入（与内置大模型同一落库/解析流程）" @click="emit('import')"><ClipboardPaste :size="14" />导入外部 AI 结果</button>
@@ -35,6 +39,8 @@
  * 外部 AI 代跑工作流的两个入口都在本弹窗内：
  * - 「复制提示词」：复制最终提示词到外部生成；
  * - 「导入外部 AI 结果」：粘贴结果 → 各环节自己的解析/写入逻辑（emit import 由父组件承接）。
+ * 底部 `footer-extra` 插槽供环节注入专属快捷操作（拿到当前正文 content 与改写正文的 setContent）
+ * —— 例：资产提取「本次不携带已有资产」，点击后按当前模板重算正文。
  */
 import { ArrowRight, ClipboardPaste, Copy, X } from 'lucide-vue-next'
 import { useToast } from '@comic/composables/useToast'
@@ -49,6 +55,9 @@ const emit = defineEmits<{
 }>()
 
 const toast = useToast()
+
+/** 供 footer-extra 插槽改写正文（等同于用户在文本框里编辑）。 */
+function setContent(next: string) { emit('update:content', next) }
 
 /** 复制当前提示词全文（弹窗保持打开，可继续编辑再复制）。 */
 async function copyContent() {

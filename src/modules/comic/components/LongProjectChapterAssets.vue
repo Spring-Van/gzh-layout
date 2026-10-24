@@ -1,65 +1,140 @@
 <template>
-  <section class="custom-scrollbar flex-1 overflow-y-auto p-6">
-    <div class="mx-auto max-w-6xl">
-      <div v-if="groups.some(group => group.items.length)" class="space-y-8">
-        <section v-for="group in groups" :key="group.type" v-show="group.items.length">
-          <div class="mb-3 flex items-center gap-2"><component :is="group.icon" :size="16" :class="group.tone" /><h3 class="text-sm font-medium text-text-primary">{{ group.label }}</h3><span class="text-xs text-text-muted">{{ group.items.length }}</span></div>
-          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            <div v-for="item in group.items" :key="`${item.entry.id}-${item.variant?.id || 'default'}`" class="asset-card" :class="{ 'asset-card-clickable': item.images.length }" @click="openPreview(item)">
-              <div v-if="item.images.length" class="asset-card-image"><img :src="item.images[0]" :alt="`${item.asset.name} ${item.variant?.name || ''}`" loading="lazy" decoding="async" /><div class="asset-card-overlay" /><span v-if="item.images.length > 1" class="asset-card-count">{{ item.images.length }} 张</span></div>
-              <div v-else class="asset-card-info"><div class="asset-card-icon"><component :is="group.icon" :size="24" :class="group.tone" /></div><p class="mt-4 text-sm font-semibold text-text-primary">{{ item.asset.name }}</p><p class="mt-1 text-xs" :class="group.tone">{{ item.variant?.name || '默认状态' }}</p><p class="mt-4 line-clamp-4 text-left text-xs leading-5 text-text-muted">{{ item.variant?.description || item.asset.description || '暂无视觉描述' }}</p><p v-if="item.variant?.tags?.length" class="mt-auto pt-3 text-left text-[10px]" :class="group.tone">{{ item.variant.tags.join(' · ') }}</p></div>
-              <div class="asset-card-label" :class="item.images.length ? 'asset-card-label-image' : 'asset-card-label-plain'"><div class="min-w-0"><span class="block truncate font-semibold">{{ item.asset.name }}</span><span class="mt-0.5 block truncate text-[11px] opacity-70">{{ item.variant?.name || '默认状态' }}</span></div></div>
-            </div>
-          </div>
-        </section>
-      </div>
-      <div v-else class="flex min-h-64 flex-col items-center justify-center text-center"><Boxes :size="28" class="text-text-muted" /><h3 class="mt-4 text-sm font-medium text-text-primary">本章还没有确认资产</h3><p class="mt-2 text-sm text-text-secondary">回到原文执行"提取资产"，审核确认后会出现在这里。</p></div>
+  <!--
+    纯图片墙：只显示本章资产已生成的成品图，没有生成图的资产不出任何占位卡。
+    页面上**只保留折叠态**：一个资产收成一叠斜向错位的卡片（只露边缘、像一个牌堆），
+    点击后打开弹窗，在弹窗里按原始比例瀑布流看这个资产的全部图（AssetShotsWallModal）。
+  -->
+  <div class="px-5 py-4">
+    <div v-if="groups.length" class="flex flex-wrap items-start gap-x-7 gap-y-8">
+      <section v-for="group in groups" :key="group.assetId" class="min-w-0">
+        <button
+          class="deck text-left"
+          :style="`padding-right: ${(group.shots.length - 1) * PEEK}px; --peek: ${PEEK}px`"
+          :title="`查看 ${group.assetName} 的全部生成图（${group.shots.length} 张）`"
+          @click="openGroup(group.assetId)"
+        >
+          <span
+            v-for="(shot, index) in group.shots"
+            :key="shot.key"
+            class="deck-card border border-border-subtle bg-elevated"
+            :style="`--i: ${index}; z-index: ${group.shots.length - index}`"
+          >
+            <img
+              :src="toFastDisplayImageUrl(shot.url)"
+              class="block h-48 w-auto max-w-none lg:h-56"
+              loading="lazy"
+              decoding="async"
+              :alt="shot.alt"
+            />
+          </span>
+        </button>
+        <div class="flex w-full items-center gap-1.5 pt-1.5 text-[11px] leading-4 text-text-secondary">
+          <span class="min-w-0 truncate">{{ group.assetName }}</span>
+          <span v-if="group.shots.length > 1" class="shrink-0 text-text-muted">{{ group.shots.length }}</span>
+        </div>
+      </section>
     </div>
 
-    <!-- 大图预览：点击卡片查看生成图 -->
-    <AssetImagePreviewModal v-model="previewVisible" :images="previewImages" :alt="previewAlt" />
-  </section>
-</template>
-<script setup lang="ts">
-import { computed, ref } from 'vue'; import { Boxes, MapPin, Package, UserRound } from 'lucide-vue-next'; import AssetImagePreviewModal from './AssetImagePreviewModal.vue'; import type { LongProjectAsset, LongProjectAssetType, LongProjectAssetVariant, LongProjectChapterAsset } from '@comic/types';
-type StateCard = { entry: LongProjectChapterAsset; asset: LongProjectAsset; variant?: LongProjectAssetVariant; images: string[] };
-const props = defineProps<{ entries: LongProjectChapterAsset[]; assets: LongProjectAsset[] }>();
-const meta = { character: { label: '人物', icon: UserRound, tone: 'text-cyan-400' }, scene: { label: '场景', icon: MapPin, tone: 'text-emerald-400' }, prop: { label: '道具', icon: Package, tone: 'text-amber-400' } };
-/** 将章节资产引用解析为「资产 × 视觉状态」卡片；展示 AI 生成图（generatedImageIds），无状态的资产也生成一张默认卡 */
-const resolved = computed<StateCard[]>(() => {
-  const cards: StateCard[] = [];
-  const seen = new Set<string>();
-  for (const entry of props.entries) {
-    const asset = props.assets.find(item => item.id === entry.assetId);
-    if (!asset) continue;
-    // 引用指定了状态时只展示该状态；未指定（旧数据）时展示资产全部状态
-    const variants = entry.variantId ? asset.variants.filter(variant => variant.id === entry.variantId) : asset.variants;
-    const list = variants.length ? variants : [undefined];
-    for (const variant of list) {
-      const key = `${asset.id}:${variant?.id ?? ''}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      cards.push({ entry, asset, variant, images: variant ? (variant.generatedImageIds ?? []).filter(isImageSource) : [] });
-    }
-  }
-  return cards;
-});
-const groups = computed(() => (Object.keys(meta) as LongProjectAssetType[]).map(type => ({ type, ...meta[type], items: resolved.value.filter(item => item.asset.type === type) })));
-function isImageSource(value: string) { return /^(https?:|data:|blob:|file:|\/)/i.test(value) }
+    <!-- 一张生成图都没有时：保持空白，只留一行极轻的说明，避免看起来像页面坏了 -->
+    <p v-else class="py-24 text-center text-xs text-text-muted">本章暂无生成图</p>
 
-// ========== 点击卡片放大预览（该状态的全部生成图） ==========
-const previewVisible = ref(false);
-const previewImages = ref<string[]>([]);
-const previewAlt = ref('图片');
-function openPreview(item: StateCard) { if (!item.images.length) return; previewImages.value = [...item.images]; previewAlt.value = `${item.asset.name} · ${item.variant?.name || '默认状态'}`; previewVisible.value = true; }
+    <AssetShotsWallModal
+      v-model="wallVisible"
+      :asset-name="activeGroup?.assetName ?? ''"
+      :shots="activeGroup?.shots ?? []"
+    />
+  </div>
+</template>
+
+<script setup lang="ts">
+/**
+ * 章节资产的「图片」视图（资产页签第三个 tab）：**只做浏览，不做建档**。
+ *
+ * 口径：本章 `chapterAssets` 引用到的资产 × 视觉状态的 `generatedImageIds`（AI 生成图）。
+ * - 没有生成图的资产/状态**一张卡都不出**（旧版的「名称 + 状态 + 描述 + tags」信息卡片已推翻）；
+ * - 不再过滤地址前缀：外部化后生成图是 `app-image://comic/…`，
+ *   旧版 `isImageSource` 白名单不含该协议，会把图整批吞掉。
+ *
+ * 🔴 **布局定稿：折叠叠牌 + 点击开弹窗**（2026-10-24，四次返工后）：
+ * 1. `columns` 瀑布流 —— 同资产的图竖着堆在一列，要上下扫；
+ * 2. 一个资产一行横排 —— 方向对了，但固定图高把图压得太小，状态多的资产占满整屏；
+ * 3. 原地展开 + 收起 —— 图够大了，但展开会把其它资产挤走，还要多点一次「收起」；
+ * 4. **现在**：页面只留折叠堆，点击开 `AssetShotsWallModal` 看瀑布流大图。
+ *
+ * 下载、大图预览、hover 信息条都在弹窗里 —— 折叠堆本身是个按钮，不该再塞嵌套按钮。
+ */
+import { computed, ref } from 'vue'
+import AssetShotsWallModal from './AssetShotsWallModal.vue'
+import { toFastDisplayImageUrl } from '@/shared/image/imageUrl'
+import { buildChapterAssetShots, groupChapterAssetShots, type ChapterAssetShot } from '@comic/services/chapterAssetShots'
+import type { LongProjectAsset, LongProjectChapterAsset } from '@comic/types'
+
+const props = defineProps<{ entries: LongProjectChapterAsset[]; assets: LongProjectAsset[] }>()
+
+/**
+ * 一张图 = 一项。排序（同一资产的图必须挨在一起）在 `chapterAssetShots` 里做，
+ * 那边有单测守着；组件只负责铺版与交互。
+ */
+const shots = computed<ChapterAssetShot[]>(() => buildChapterAssetShots(props.entries, props.assets))
+
+/** 按资产分组；排序同上，直接顺次切分，不另算一套顺序。 */
+const groups = computed(() => groupChapterAssetShots(shots.value))
+
+// ========== 折叠 / 打开弹窗 ==========
+/** 折叠态每一张卡片向右露出的宽度（px）。改这里即可调整「牌堆」的疏密。 */
+const PEEK = 26
+
+const wallVisible = ref(false)
+/** 存 id 而不是对象：弹窗开着时该资产的图有变动（重新生成/删除），弹窗里能跟着刷新。 */
+const activeAssetId = ref('')
+
+const activeGroup = computed(() => groups.value.find((group) => group.assetId === activeAssetId.value) ?? null)
+
+function openGroup(assetId: string) {
+  activeAssetId.value = assetId
+  wallVisible.value = true
+}
 </script>
+
 <style scoped>
-.asset-card { position:relative; display:flex; appearance:none; aspect-ratio:3 / 4; width:100%; min-width:0; flex-direction:column; overflow:hidden; border:1px solid #e5e7eb; border-radius:1rem; background:#ffffff; box-shadow:0 8px 20px rgba(15,23,42,.08),0 1px 2px rgba(15,23,42,.05); padding:0; text-align:left; transition:border-color .2s ease,transform .2s ease,box-shadow .2s ease; }
-.asset-card:hover { border-color:var(--border-strong); transform:translateY(-3px); box-shadow:0 14px 28px rgba(15,23,42,.14),0 2px 5px rgba(15,23,42,.08); }
-.asset-card-clickable { cursor:zoom-in; }
-.asset-card-count { position:absolute; top:.6rem; right:.6rem; z-index:2; padding:.15rem .5rem; border-radius:9999px; background:rgba(15,23,42,.55); color:#fff; font-size:11px; line-height:1.4; backdrop-filter:blur(4px); }
-.asset-card-image { position:absolute; inset:0; overflow:hidden; background:var(--bg-elevated); }.asset-card-image img { height:100%; width:100%; object-fit:cover; transition:transform .35s ease; }.asset-card:hover .asset-card-image img { transform:scale(1.045); }.asset-card-overlay { position:absolute; inset:0; background:rgba(15,23,42,.18); }
-.asset-card-info { display:flex; min-height:0; flex:1; flex-direction:column; align-items:flex-start; padding:1.15rem 1.15rem 5rem; background:#ffffff; }.asset-card-icon { display:flex; height:3.25rem; width:3.25rem; align-items:center; justify-content:center; border:1px solid #e5e7eb; border-radius:.9rem; background:#f8fafc; box-shadow:0 3px 8px rgba(15,23,42,.08); }
-.asset-card-label { position:absolute; z-index:2; right:0; bottom:0; left:0; display:flex; align-items:flex-end; gap:.75rem; width:100%; box-sizing:border-box; padding:.9rem 1rem 1rem; background:transparent; font-size:.75rem; }.asset-card-label-image { color:#fff; text-shadow:0 1px 3px rgba(0,0,0,.9); }.asset-card-label-plain { color:var(--text-primary); }
-:global(.dark) .asset-card { border-color:#334155; background:#1e293b; box-shadow:0 12px 28px rgba(2,6,23,.3),inset 0 1px 0 rgba(255,255,255,.04); }:global(.dark) .asset-card-info { background:#1e293b; }:global(.dark) .asset-card-icon { border-color:#334155; background:#0f172a; box-shadow:inset 0 1px 0 rgba(255,255,255,.05); }:global(.dark) .asset-card-overlay { background:rgba(2,6,23,.3); }:global(.dark) .asset-card-label { background:transparent; }
+/*
+ * 折叠态的「牌堆」：所有卡片叠在同一位置，按序号向右错开 PEEK、向下 1.5px、顺时针 1.2°，
+ * 只有第一张占位撑开尺寸，其余绝对定位 —— 所以宽度永远等于「第一张宽 + 露出的边缘」，
+ * 不依赖图片本身宽高比，横图竖图都不会把牌堆撑爆。
+ *
+ * ⚠️ 牌堆宽度必须用 `padding-right: (n-1) * PEEK` 补出来（模板里算），
+ * 否则后面几张是绝对定位、不占布局，会盖到右边那个资产身上。
+ */
+.deck {
+  position: relative;
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  /* `--peek` 由模板按 PEEK 常量写入，这里是兜底；
+     `--grow` 让整叠在悬停时再散开一点，暗示「可以打开」 */
+  --peek: 26px;
+  --grow: 0px;
+}
+.deck:hover { --grow: 7px; }
+
+.deck-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  overflow: hidden;
+  border-radius: 8px;
+  transform-origin: bottom left;
+  transform: translate(
+      calc(var(--i) * var(--peek) + var(--i) * var(--grow)),
+      calc(var(--i) * 1.5px)
+    )
+    rotate(calc(var(--i) * 1.2deg));
+  box-shadow: 0 1px 4px rgb(2 6 23 / 0.18);
+  transition: transform 0.18s ease;
+}
+/* 第一张留在文档流里，负责撑开整个牌堆的尺寸 */
+.deck-card:first-child { position: relative; }
 </style>

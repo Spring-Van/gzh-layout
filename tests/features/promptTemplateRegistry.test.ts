@@ -410,221 +410,163 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
     expect(storyboard).not.toContain('页尾钩子');
   });
 
-  it('资产提取格式说明：三级标题结构与解析器对齐', () => {
+  it('资产提取格式说明：字段行结构与解析器对齐', () => {
     const spec = outputFormatSpec('extract');
     expect(spec).toContain('# 人物、# 场景、# 道具');
     expect(spec).toContain('## 资产名称');
     expect(spec).toContain('### 视觉状态：状态名');
-    expect(spec).toContain('状态标签、视觉描述、剧情锚点');
+    expect(spec).toContain('状态标签 / 视觉描述 / 剧情锚点');
     expect(spec).not.toContain('{{章节原文}}');
     expect(spec).not.toContain('{{原文分析}}');
     const recommended = RECOMMENDED_TEMPLATES.extract?.content ?? '';
-    expect(recommended).toContain('少年时期·回忆校服');
-    expect(recommended).toContain('完好/损坏');
-    expect(recommended).toContain('必须完整阅读【章节原文】【原文分析】【漫画剧本】【已有资产】四部分');
-    expect(recommended).toContain('漫画是否采用及出场范围以【漫画剧本】为准');
-    expect(recommended).toContain('客观视觉细节以【章节原文】为准');
-    expect(recommended).toContain('实体归属和既有状态命名以【已有资产】为准');
-    // 2026-10-05：角色设定只管当前环节，不再向后看
-    expect(recommended).not.toContain('不是最终绘画提示词');
-    expect(recommended).not.toContain('供后续');
-    expect(recommended).not.toContain('画面描述环节');
-    // 新口径（2026-09-26）：全维度脑补 + 共享空间地图，取代旧的「不脑补、不要求尺寸」口径
-    expect(recommended).not.toContain('不得脑补');
-    expect(recommended).not.toContain('不要求坐标、米数或十个视角');
-    expect(recommended).toContain('脑补原则：全维度填充');
-    expect(recommended).toContain('零矛盾');
-    expect(recommended).toContain('共享空间地图');
-    expect(recommended).toContain('皮肤质感与瑕疵');
-    expect(recommended).toContain('禁止「完美无瑕」');
-    expect(recommended).toContain('9 个维度');
-    expect(recommended).toContain('6 维物理描述');
-    expect(recommended).toContain('瓷娃娃肌');
-    expect(recommended).toContain('一个真实对象只建立一个资产实体');
-    expect(recommended).toContain('如果不单独提供该状态，生图是否会把人物的时期或服装画错');
-    // 状态口径（2026-09-26 二次收敛）：状态只用于人物时期/服装大跨度，场景/道具只输出一个状态
-    expect(recommended).toContain('视觉状态拆分门槛：只用于人物，跨度要明显');
-    expect(recommended).toContain('单个人物通常 ≤3 个状态');
-    expect(recommended).toContain('指甲刺伤掌心」写进人物默认状态的一句视觉描述即可');
-    expect(recommended).toContain('场景只输出一个视觉状态');
-    expect(recommended).toContain('道具只输出一个视觉状态');
-    expect(recommended).toContain('一闪而过');
-    expect(recommended).toContain('一次性出现的台词、数值、测验结果');
+    // 输入四段各一次
     expect(recommended.match(/\{\{章节原文\}\}/g)?.length).toBe(1);
     expect(recommended.match(/\{\{原文分析\}\}/g)?.length).toBe(1);
     expect(recommended.match(/\{\{漫画剧本\}\}/g)?.length).toBe(1);
     expect(recommended.match(/\{\{已有资产\}\}/g)?.length).toBe(1);
+    // 人物资产级 8 个字段行——正文与格式段两处同源
+    for (const field of ['性别年龄', '身高体型', '脸型', '眉眼', '鼻唇', '皮肤头发', '标志', '面部张力']) {
+      expect(recommended, `人物字段缺失：${field}`).toContain(field);
+      expect(spec, `格式段缺人物字段：${field}`).toContain(field);
+    }
+    // 状态级服装 14 键，写成单行「键=值｜键=值」
+    for (const key of ['廓形', '腰线', '长短', '外套', '上装', '下装', '鞋袜', '结构', '配色', '材质', '纹样', '磨损', '妆造', '局部']) {
+      expect(spec, `服装键缺失：${key}`).toContain(key);
+    }
+    expect(spec).toContain('「键=值」串');
+    expect(spec).toContain('14 个键');
+    // 场景 8 行 / 道具 6 行
+    for (const field of ['时代地域', '空间类型', '尺度', '结构原点', '固定物件', '光线', '痕迹']) {
+      expect(recommended, `场景字段缺失：${field}`).toContain(field);
+    }
+    for (const field of ['用途', '轮廓各面', '材质光泽', '结构细节', '当前状态']) {
+      expect(recommended, `道具字段缺失：${field}`).toContain(field);
+    }
+    // 不再产出散文「描述」段（这是提示词冗余的源头）
+    expect(spec).toContain('不要输出「- 描述：」段落');
+    expect(recommended).toContain('不要写「- 描述：」这段散文');
+    // 结构与状态口径保留
+    expect(recommended).toContain('一个真实对象只建一个资产');
+    expect(recommended).toContain('单个人物通常 ≤3 个状态');
+    expect(recommended).toContain('场景与道具各只输出一个视觉状态');
+    expect(recommended).toContain('少年时期·回忆校服');
+    // 旧散文口径必须归零
+    for (const stale of ['9 维外貌', '9 个维度', '逐维写全', '共享空间地图', '6 维物理描述', '脑补原则：全维度填充']) {
+      expect(recommended, `旧散文口径残留：${stale}`).not.toContain(stale);
+    }
   });
 
-  // 上游 novel-to-manga 对照补齐（2026-10-05）：识别锚点 / 剪影体型差 / 时代地域锚点 / 道具各面
-  it('资产提取模板：补齐识别锚点、剪影体型差、时代地域锚点与道具各面', () => {
+  // 2026-10-23：人物特征字段化——辨识度靠取值约束，不靠堆维度数量
+  it('资产提取模板：人物字段化，气质并入面部张力', () => {
     const recommended = RECOMMENDED_TEMPLATES.extract?.content ?? '';
-    // 识别锚点：写进资产「描述」，2~5 个，「多于 5 个模型记不住」
-    expect(recommended).toContain('识别锚点');
-    expect(recommended).toContain('2~5 个');
-    expect(recommended).toContain('多于 5 个模型记不住');
-    expect(recommended).toContain('只要求够辨认、可画');
-    // 剪影可辨 + 本章内体型错开
-    expect(recommended).toContain('剪影可辨与体型差');
-    expect(recommended).toContain('涂成纯黑剪影');
-    expect(recommended).toContain('身高、体型');
-    // 场景时代地域锚点（防日式教室穿帮）
-    expect(recommended).toContain('时代地域锚点');
-    expect(recommended).toContain('标志性物件清单');
+    // 8 行固定字段、每个 ≤20 字
+    expect(recommended).toContain('只输出下面 8 行');
+    expect(recommended).toContain('一行不超过 20 字');
+    // 气质不再单独成行——去掉一条汇总字段就是去冗余
+    expect(recommended).toContain('面部张力是「气质」的唯一落点');
+    expect(recommended).toContain('不要再单独输出「气质」字段行');
+    expect(recommended).toContain('禁止情绪词');
+    for (const p of ['眉眼舒展度', '眉头间距', '唇角走势', '咬肌与下颌松紧', '目光状态']) {
+      expect(recommended, `张力落点缺失：${p}`).toContain(p);
+    }
+    // 标志行装三类：锚点 / 母题两处落点 / 视觉反差
+    expect(recommended).toContain('识别锚点 2~3 个');
+    expect(recommended).toContain('两处落点');
+    expect(recommended).toContain('视觉反差');
+    // 服装取值约束（防撞衫、防灰度糊成一片）
+    expect(recommended).toContain('H 直筒／A 上窄下宽');
+    expect(recommended).toContain('彩色合计 ≤3 种');
+    expect(recommended).toContain('灰度不能融成一片');
+    expect(recommended).toContain('主色相间隔 60° 以上');
+    expect(recommended).toContain('能被身份与处境解释的磨损');
+    expect(recommended).toContain('同一场戏内不换装');
+    expect(recommended).toContain('主色相与母题不得更换');
+    // 同章错开（防全员同脸）
+    expect(recommended).toContain('两两至少 3 项明显不同');
+    expect(recommended).toContain('鹅蛋脸＋黑色直发＋大眼睛＋深色外套');
+    // 场景时代地域防穿帮、道具各面
     expect(recommended).toContain('日式木地板教室');
-    // 道具各面可画（下游按多视图设定版式出图）
-    expect(recommended).toContain('各个面');
-    expect(recommended).toContain('正面、侧面、俯视');
-    // 格式段硬约束与正文同源（两处同改红线）
-    const spec = outputFormatSpec('extract');
-    expect(spec).toContain('「描述」必须写明');
-    expect(spec).toContain('识别锚点');
-    expect(spec).toContain('时代与地域');
-    // 2026-10-07 口径修正：不是「性格」，是「气质」（用户实报）。
-    // 拆成两处落点——基调词写资产级字段行，静态落点写「描述」第 3 维（面部张力）
-    expect(recommended).toContain('气质（人物专属）');
-    expect(recommended).toContain('气质必须在脸上看得见');
-    expect(recommended).toContain('气质三禁');
-    expect(recommended).toContain('场景与道具不写气质');
-    expect(recommended).toContain('不得混进状态「视觉描述」的外观项');
-    expect(spec).toContain('人物必须再补一行气质');
-    expect(spec).toContain('不得写进「视觉描述」');
-    // 「性格」这个词在资产模板里必须归零（口径已修正为气质）
-    expect(recommended).not.toContain('性格');
-    // 面部张力并入第 3 维，脸型维补颧骨与下颌（骨相可画性）
-    expect(recommended).toContain('五官特征与面部张力');
-    expect(recommended).toContain('颧骨的高低与位置');
-    expect(recommended).toContain('咬肌与下颌放松还是绷住');
-    // 人物差异矩阵：同章主要人物两两至少 5 维明显不同（防全员同脸）
-    expect(recommended).toContain('人物差异矩阵');
-    expect(recommended).toContain('至少 5 个维度');
-    expect(recommended).toContain('鹅蛋脸＋黑色直发＋大眼睛＋高鼻梁＋中性表情');
-    expect(recommended).toContain('撞脸或撞剪影');
-    // 脑补的取舍顺序（气质优先于骨相与配色）
-    expect(recommended).toContain('补全的取舍顺序');
-    expect(recommended).toContain('气质** → **识别锚点**');
+    expect(recommended).toContain('各面必须覆盖');
+    expect(recommended).toContain('正面／侧面／俯视');
+    // 上一版「三层权重 6:3:1」整节已撤（用户否决：加权重不解决冗余）
+    expect(recommended).not.toContain('三层权重 6:3:1');
+    expect(recommended).not.toContain('【人物辨识度');
   });
 
-  // 2026-10-07：模板重构成「资产设定稿」——清单给事实骨架，笼统/缺失维度补全到可画精度
-  it('资产绘画提示词模板：清单优先 + 脑补补全，人物六层维度写全', () => {
+  // 2026-10-23：资产提示词从「设定稿撰写」改为「字段直译」——用户要求提示词不冗余
+  it('资产绘画提示词模板：直译不重写、定序与字数硬上限', () => {
     const recommended = RECOMMENDED_TEMPLATES['asset-prompt']?.content ?? '';
-    // 角色定位从「转译器」升级为「设定稿撰写者」
-    expect(recommended).toContain('资产设定稿撰写者');
-    expect(recommended).toContain('把设定补全成成稿');
-    // 清单四个字段各有归属，模型才知道读哪里（固定特征/属性字段此前从未在模板里说明过）
-    expect(recommended).toContain('【清单怎么读】');
-    for (const field of ['固定特征', '资产描述', '属性字段', '视觉描述']) {
-      expect(recommended, `清单字段说明缺失：${field}`).toContain(field);
+    expect(recommended).toContain('资产提示词编译器');
+    expect(recommended).toContain('【怎么写：直译，不重写】');
+    expect(recommended).toContain('原样搬入');
+    expect(recommended).toContain('不出现键名');
+    expect(recommended).toContain('禁止解释性语句');
+    // 反面典型要留在模板里，模型才知道那种写法被禁
+    expect(recommended).toContain('整体给人一种');
+    expect(recommended).toContain('同义反复');
+    // 人物定序
+    for (const step of ['性别年龄', '身高体型', '脸型', '眉眼', '鼻唇', '皮肤头发', '标志', '面部张力', '妆造与局部']) {
+      expect(recommended, `顺序缺失：${step}`).toContain(step);
     }
-    expect(recommended).toContain('开头必写、逐字保留');
-    // 脑补补全三档分寸必须显式分级（用户要求：变量之外可自行设计出来）
-    expect(recommended).toContain('【清单优先，脑补补全】');
-    for (const tier of ['**必须补全**', '**克制补全**', '**禁止补全**']) {
-      expect(recommended, `补全分寸缺失：${tier}`).toContain(tier);
+    // 字数硬上限（对冗余的直接约束）
+    expect(recommended).toContain('200~320 字');
+    expect(recommended).toContain('100~160 字');
+    expect(recommended).toContain('60~110 字');
+    expect(recommended).toContain('不许删身份特征与配色');
+    // 多状态共用身份字段
+    expect(recommended).toContain('只允许服装与妆造不同');
+    // 旧「补全到可画精度」口径必须归零（它是冗余的根因）
+    for (const stale of ['补全到可画精度', '设定稿撰写者', '【清单优先，脑补补全】', '【人物设计：先廓形、再配色、最后细节】', '六层写全']) {
+      expect(recommended, `旧冗余口径残留：${stale}`).not.toContain(stale);
     }
-    // 脑补的边界：零矛盾优先于丰富；强身份特征跨状态必须共用同一套取值
-    expect(recommended).toContain('零矛盾是底线');
-    expect(recommended).toContain('同一资产的所有状态必须共用同一套取值');
-    expect(recommended).toContain('跨状态一致');
-    expect(recommended).toContain('新增清单外实体');
-    // 人物六层维度（用户明确要求：性别、年龄、身高＋外貌特征＋详细服装）
-    for (const layer of ['性别与年龄段', '身高与体型', '外貌特征', '识别锚点', '详细服装', '妆造与长期配饰']) {
-      expect(recommended, `人物维度缺失：${layer}`).toContain(layer);
-    }
-    expect(recommended).toContain('款式＋颜色＋材质＋版型＋装饰细节');
-    expect(recommended).toContain('不许只写「一件外套」了事');
-    // 2026-10-07：气质要落成**看得见的静态生理结构**（眉眼/唇角/咬肌下颌/目光），不许写成情绪
-    expect(recommended).toContain('人物要带出气质');
-    expect(recommended).toContain('看得见的静态生理结构');
-    expect(recommended).toContain('咬肌与下颌');
-    expect(recommended).toContain('不是情绪');
-    expect(recommended).toContain('人物的「气质」也在这里');
-    expect(recommended).not.toContain('性格');
-    // 补全方案打架时的裁决顺序（照搬 character-casting-studio 的「气质优先」链）
-    expect(recommended).toContain('补全的取舍顺序');
-    expect(recommended).toContain('硬事实永远第一');
-    // 人物骨架的外貌特征层要含颧骨、下颌与面部张力
-    expect(recommended).toContain('颧骨高低与下颌线走向');
-    expect(recommended).toContain('面部张力（气质的落点）');
-    // 场景 / 道具的层次同样点全
-    for (const layer of ['空间类型与用途', '时代与地域', '尺度与结构', '使用痕迹', '各面差异', '尺寸与比例参照']) {
-      expect(recommended, `场景/道具维度缺失：${layer}`).toContain(layer);
-    }
-    // 旧口径「清单是唯一事实源、禁止编造」与新规则直接打架 → 必须归零
-    for (const stale of ['清单是唯一事实源', '清单没写的特征不要编造', '也不要为「更像真实」而补写', '最小必要补全']) {
-      expect(recommended, `旧口径残留：${stale}`).not.toContain(stale);
-    }
-    // 分工声明必须显式存在，模型才知道哪些内容不归它写
-    expect(recommended).toContain('【与共用属性、版式的分工】');
-    expect(recommended).toContain('A-POSE');
-    // 版式来自生图配置的「版式」设置（按资产类型三段），模板不再自己产出版式
-    expect(recommended).toContain('「版式」设置');
-    expect(recommended).toContain('「场景」版式会自动跳过这一条');
-    // 三类版式声明一律从模板移出（改由「版式」设置按类型拼接）
-    for (const banned of ['统一角色设定版式', '统一道具设定版式', '统一空间全景版式', 'establishing shot', '六段骨架', '单件展示版式', '中性 18% 灰哑光背景', '等距并排']) {
-      expect(recommended, `模板仍在输出版式声明：${banned}`).not.toContain(banned);
-    }
-    // 归属措辞不能再把版式/背景/打光说成「共用属性」的事——那是「版式」设置的职责，
-    // 写错会让模型误判边界（2026-10-06 修掉四处残留）
-    for (const stale of ['共用属性的版式块', '那是共用属性的事', '由共用属性给']) {
-      expect(recommended, `模板残留旧归属措辞：${stale}`).not.toContain(stale);
-    }
-    // 人物只写一次服装（不再为第 2/3/4 格重复同一套衣服）
-    expect(recommended).toContain('同一套服装只写一次');
-    // 越界项写进正文与自查
-    expect(recommended).toContain('姿态与手部动作');
-    expect(recommended).toContain('镜头机位');
-    expect(recommended).toContain('版式与画格排布');
-    // 禁止项：不许写成固定尾段（用户反馈：每条提示词末尾都挂同一段通用禁令清单）
-    expect(recommended).toContain('【禁止项】');
-    expect(recommended).toContain('不许写成固定尾段');
-    expect(recommended).toContain('不要给每条提示词挂同一段通用禁令清单');
-    // 反面典型必须留在模板里，模型才知道「那种写法」是被禁的
-    expect(recommended).toContain('不得改变 X 配色');
-    expect(recommended).toContain('否定句合计');
-    // 旧口径（逐条把通用禁令写进每条提示词）必须归零
-    expect(recommended).not.toContain('必须逐条以否定句写进每条提示词');
-    expect(recommended).toContain('无文字与水印');
-    // 去 AI 味：只剩不完美注入（场景门槛更高，3 项）
-    expect(recommended).toContain('【去 AI 味】');
-    expect(recommended).toContain('场景 ≥3 项');
-    // 2026-10-07：删除「每条带 1 个媒介质感锚」——用户实报：生成的每条末尾都是同一句
-    // 「带有轻微漫画杂志印刷质感」。媒介质感属全局画风，归共用属性；模板里只准有「不写」的禁令。
-    expect(recommended).not.toContain('媒介质感锚');
-    expect(recommended).toContain('不写媒介质感与画风词');
-    expect(recommended).toContain('去 AI 味的落点是主体自身的具体瑕疵');
-    // 禁令不能把「质感标签」原文抄回来（抄了模型就会照写）
-    expect(recommended).not.toContain('带有轻微漫画杂志印刷质感');
-    expect(recommended).toContain('风格类负面提示词');
-    // 角色设定只管当前环节
-    expect(recommended).not.toContain('外貌一致性的唯一锚');
-    expect(recommended).not.toContain('与后续漫画页质感一致');
-    // 格式段与正文同源：都声明「不写版式」，并给出机位图这一唯一例外
+    // 格式段同源（ASSET_PROMPT_FORMAT 是第二处硬约束）
     const spec = outputFormatSpec('asset-prompt');
-    expect(spec).toContain('版式与画格分工');
-    expect(spec).toContain('唯一例外');
+    expect(spec).toContain('按字段顺序直译');
+    expect(spec).toContain('不出现字段键名');
+    expect(spec).toContain('200~320 字');
+  });
+
+  // 2026-10-24：用户实报人物提示词只剩形容词（「极度高瘦、窄肩」），没有性别年龄与身高，
+  // 生图无法控制比例。模板改成「十项必备要素 + 两处受控换算」，这里锁住口径。
+  it('资产绘画提示词模板：人物十项必备要素与受控换算规则', () => {
+    const recommended = RECOMMENDED_TEMPLATES['asset-prompt']?.content ?? '';
+    expect(recommended).toContain('十项必备要素');
+    for (const item of ['性别·年龄', '身高·头身比·体型·肩型', '脸型', '眉眼', '鼻唇', '皮肤·头发', '标志', '面部张力', '服装', '妆造·局部']) {
+      expect(recommended, `要素缺失：${item}`).toContain(item);
+    }
+    // 身高必须带单位、必须给头身比，否则比例没有依据
+    expect(recommended).toContain('必须带单位');
+    expect(recommended).toContain('头身比');
+    // 缺失处理：体型做可测量化换算 + 性别不许猜 + 数值跨状态一致
+    expect(recommended).toContain('缺失项怎么补');
+    expect(recommended).toContain('换算成可测量的量');
+    expect(recommended).toContain('绝对不许猜性别');
+    expect(recommended).toContain('同一组数值');
+    // 格式段（第二处硬约束）同源
+    const spec = outputFormatSpec('asset-prompt');
+    expect(spec).toContain('十项必须写到');
+    expect(spec).toContain('不许猜');
+    // 提取侧同源：新提取的人物必须带可画的身高体型，不许只留形容词
+    const extract = RECOMMENDED_TEMPLATES['extract']?.content ?? '';
+    expect(extract).toContain('比例与骨相依据');
+    expect(extract).toContain('不许只留形容词');
   });
 
   // 2026-10-06：机位图是唯一仍由本环节输出版式的分支（板块里不放它，避免与场景全景版式同拼）
-  it('资产绘画提示词模板：机位图版式仍由本环节输出，人物/道具/场景默认版式一律不写', () => {
+  it('资产绘画提示词模板：机位图版式仍由本环节输出，其余版式一律不写', () => {
     const recommended = RECOMMENDED_TEMPLATES['asset-prompt']?.content ?? '';
-    // 机位图版式全文保留（含 9 个机位语义与交付命名）
-    expect(recommended).toContain('统一机位图版式');
+    expect(recommended).toContain('本环节自己输出完整版式');
     expect(recommended).toContain('3×3 九宫格');
     expect(recommended).toContain('9 个互不重复的机位');
-    for (const machine of ['高位俯视', '正面广角', '左前 45°', '右前 45°', '电影主机位', '反打机位', '内部向外', '侧面横向', '低机位']) {
+    for (const machine of ['高位俯视', '正面广角', '左前 45°', '右前 45°', '电影主机位', '反打', '内部向外', '侧面横向', '低机位']) {
       expect(recommended, `九宫格缺少机位：${machine}`).toContain(machine);
     }
-    expect(recommended).toContain('标志物');
     expect(recommended).toContain('互相自洽');
-    expect(recommended).toContain('只改光照');
-    expect(recommended).toContain('单字符数字标号');
     expect(recommended).toContain('LOC-');
     expect(recommended).toContain('机位图.png');
-    expect(recommended).toContain('由本环节自己输出完整版式');
-    // 人物四联版式（参考图可读性的关键规则）已移出模板 → 这些措辞必须归零
-    for (const banned of ['四联角色设定图', '1×4 非等宽', '2:3 竖幅', '宽度明显大于后三格', '整张图的脸只出现一次', '头部完全在画幅之外', '颈部中段以下开始', '裁切至锁骨', '刻意的版式', '不是裁切失误', '不要补画头部与五官', '背对镜头、看不到脸', '无缝背景', '伦勃朗光', '45° 侧上方主光', '无文字、无标注', 'FRONT', '附角色基础信息']) {
-      expect(recommended, `人物版式仍在模板里：${banned}`).not.toContain(banned);
+    // 三类默认版式一律不写
+    for (const banned of ['四联角色设定图', '1×4 非等宽', '2:3 竖幅', '伦勃朗光', 'FRONT', '附角色基础信息', '统一角色设定版式', '统一道具设定版式', '统一空间全景版式']) {
+      expect(recommended, `版式声明仍在模板里：${banned}`).not.toContain(banned);
     }
   });
 
@@ -632,20 +574,18 @@ describe('promptTemplateRegistry · 返回格式（写在模板内容里）', ()
   it('提取与资产提示词模板：角色设定不谈后续环节，状态描述只写自身', () => {
     const extract = RECOMMENDED_TEMPLATES.extract?.content ?? '';
     const assetPrompt = RECOMMENDED_TEMPLATES['asset-prompt']?.content ?? '';
-    // 下游词表一律不出现（避免模型把注意力花在后续环节上）
     for (const [name, content] of [['extract', extract], ['asset-prompt', assetPrompt]] as const) {
       for (const banned of ['供后续', '下游', '后续所有分镜', '画面描述环节', '参考图接管', '分镜绑定']) {
         expect(content, `${name} 仍残留下游措辞：${banned}`).not.toContain(banned);
       }
     }
     // 视觉描述只写本状态，不做跨状态比较
-    expect(extract).toContain('只写本状态自身的样貌');
-    expect(extract).toContain('不与其他状态作任何比较');
-    expect(extract).not.toContain('与其他状态差异');
-    expect(outputFormatSpec('extract')).not.toContain('与其他状态差异');
-    expect(outputFormatSpec('extract')).toContain('不得与其他状态作横向比较');
+    expect(extract).toContain('只写本状态自身');
+    expect(extract).toContain('不与其他状态作比较');
+    expect(outputFormatSpec('extract')).toContain('不与其他状态作横向比较');
     // 多视图排布不归本环节写（机位图版式是唯一例外）
-    expect(assetPrompt).toContain('不写多视图排布');
+    expect(assetPrompt).toContain('多视图排布');
+    expect(assetPrompt).toContain('唯一例外');
   });
 
   // 2026-10-05 三轮收敛：格数上限放宽到 8 + 叙事页/连打页双模式 + 信息取舍（分镜层）
